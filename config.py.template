@@ -1,0 +1,15 @@
+
+import glob
+
+LOCAL_DATASET = glob.glob(
+        "/path/to/.cache/huggingface/hub/datasets--wikimedia--wikipedia/snapshots/<snapshot_id>/20231101.en/*.parquet"
+    )
+
+ANTHROPIC_MSG_API_KEY = "your-anthropic-api-key-here"
+
+S3_BUCKET = "your-s3-bucket"
+S3_DATASET = f"s3://your-bucket/raw-wikipedia/*.parquet"
+
+
+DOCKER_PORT = 6333
+#docker run -p 6333:6333 -p 6334:6334 -v /path/to/qdrant:/qdrant/storage qdrant/qdrant

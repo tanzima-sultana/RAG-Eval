@@ -1,0 +1,16 @@
+# Secrets / local config
+config.py
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Data
+data/
+
+# OS
+.DS_Store

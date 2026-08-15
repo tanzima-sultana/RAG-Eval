@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+changed_files="$(git diff --cached --name-only --diff-filter=ACM)"
+
+if echo "$changed_files" | grep -q '^src/dataset\.py$'; then
+    echo "src/dataset.py changed - running tests/test_dataset.py"
+    if ! python3 -m pytest tests/test_dataset.py; then
+        echo "tests/test_dataset.py failed - commit aborted"
+        exit 1
+    fi
+fi
