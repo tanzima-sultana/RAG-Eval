@@ -11,8 +11,6 @@ venv/
 
 # Data
 data/
-chunks/
-build_log.txt
 
 # OS
 .DS_Store
