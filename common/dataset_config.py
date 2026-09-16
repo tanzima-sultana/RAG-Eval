@@ -56,6 +56,14 @@ _DATASET_CONFIGS: dict[str, DatasetConfig] = {
         file_name_field="file_name",
         split="train",
     ),
+    "pixparse/pdfa-eng-wds": DatasetConfig(
+        doc_type="pdf",
+        extension="pdf",
+        content_field="pdf",
+        content_encoding="bytes",       # sample["pdf"] is already raw bytes, not base64
+        file_name_field="__key__",
+        split="train",
+    ),
 }
 
 
