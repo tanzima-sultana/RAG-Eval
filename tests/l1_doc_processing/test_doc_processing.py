@@ -32,6 +32,38 @@ from l1_doc_processing.doc_processing import DocProcessing
 from l1_doc_processing.schema import Document
 
 
+class _FakeSplitInfo:
+    """
+    Stand-in for a datasets.SplitInfo: exposes only num_examples, the
+    single attribute get_actual_dataset_size reads.
+    """
+
+    def __init__(self, num_examples):
+        self.num_examples = num_examples
+
+
+class _FakeDatasetInfo:
+    """
+    Stand-in for a datasets.DatasetInfo: exposes only splits, which is
+    either a dict of split name to _FakeSplitInfo, or None for a
+    dataset (e.g. a WebDataset-format one) that publishes no
+    split-size metadata at all.
+    """
+
+    def __init__(self, splits):
+        self.splits = splits
+
+
+class _FakeBuilder:
+    """
+    Stand-in for a datasets.DatasetBuilder: exposes only info, the
+    single attribute get_actual_dataset_size reads.
+    """
+
+    def __init__(self, splits):
+        self.info = _FakeDatasetInfo(splits)
+
+
 class _FakeParser:
     """
     Stand-in for a real l1_doc_processing.parser.Parser implementation,
@@ -159,15 +191,18 @@ def test_init_computes_raw_and_processed_paths_from_doc_type_and_dataset_name(
 # ---------- validate ----------
 
 
-def test_validate_passes_when_doc_type_matches_dataset_config(
+def test_validate_passes_when_doc_type_matches_and_dataset_size_fits(
     registered_local_dataset_config,
 ):
     """
     Input: a DocProcessing whose doc_type matches its dataset_config's
-    doc_type.
+    doc_type, with dataset_size no larger than what's actually in
+    dataset_path.
     Output: none; validate() is expected not to raise.
     """
-    processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
+    dataset_path = registered_local_dataset_config
+    _write_bytes(os.path.join(dataset_path, "doc1.pdf"), b"first document")
+    processor = DocProcessing("pdf", "myset", 1, None, dataset_path)
 
     processor.validate()
 
@@ -177,15 +212,174 @@ def test_validate_raises_value_error_when_doc_type_does_not_match(
 ):
     """
     Input: a DocProcessing constructed with a doc_type that does not
-    match its dataset_config's registered doc_type ("pdf").
+    match its dataset_config's registered doc_type ("pdf"), and
+    dataset_size 0 so the doc_type check is what's under test.
     Output: none; validate() is expected to raise.
     """
     processor = DocProcessing(
-        "not-pdf", "myset", 5, None, registered_local_dataset_config
+        "not-pdf", "myset", 0, None, registered_local_dataset_config
     )
 
     with pytest.raises(ValueError):
         processor.validate()
+
+
+def test_validate_raises_value_error_when_dataset_size_exceeds_actual_size(
+    registered_local_dataset_config,
+):
+    """
+    Input: a DocProcessing whose doc_type matches, but whose
+    dataset_size (5) is larger than the number of files actually in
+    dataset_path (1).
+    Output: none; validate() is expected to raise.
+
+    Regression coverage for the CUAD run that silently processed only
+    508 of the 5000 requested documents: validate() must now catch
+    this upfront instead of letting the pipeline proceed.
+    """
+    dataset_path = registered_local_dataset_config
+    _write_bytes(os.path.join(dataset_path, "doc1.pdf"), b"first document")
+    processor = DocProcessing("pdf", "myset", 5, None, dataset_path)
+
+    with pytest.raises(ValueError):
+        processor.validate()
+
+
+# ---------- get_actual_dataset_size ----------
+
+
+def test_get_actual_dataset_size_counts_files_for_local_dataset(
+    registered_local_dataset_config,
+):
+    """
+    Input: three files sitting in dataset_path.
+    Output: processor.get_actual_dataset_size()'s return value.
+
+    Checks the local-dataset branch: the actual size is just a file
+    count, with no network access involved.
+    """
+    dataset_path = registered_local_dataset_config
+    _write_bytes(os.path.join(dataset_path, "doc1.pdf"), b"one")
+    _write_bytes(os.path.join(dataset_path, "doc2.pdf"), b"two")
+    _write_bytes(os.path.join(dataset_path, "doc3.pdf"), b"three")
+    processor = DocProcessing("pdf", "myset", 1, None, dataset_path)
+
+    assert processor.get_actual_dataset_size() == 3
+
+
+def test_get_actual_dataset_size_reads_split_num_examples_for_url_dataset(
+    isolated_data_dir, monkeypatch
+):
+    """
+    Input: a DocProcessing constructed against a dataset_url registered
+    with a fake DatasetConfig, with datasets.load_dataset_builder
+    stubbed out to avoid any real network access.
+    Output: processor.get_actual_dataset_size()'s return value.
+
+    Checks the web-dataset branch: the actual size comes from the
+    builder's declared split size, not from downloading/streaming any
+    document content.
+    """
+
+    def fake_load_dataset_builder(dataset_url):
+        return _FakeBuilder({"train": _FakeSplitInfo(num_examples=42)})
+
+    monkeypatch.setattr(
+        "l1_doc_processing.doc_processing.load_dataset_builder",
+        fake_load_dataset_builder,
+    )
+
+    dataset_url = "some-org/some-dataset"
+    dataset_config = DatasetConfig(
+        doc_type="pdf",
+        extension="pdf",
+        content_field="content",
+        content_encoding="bytes",
+        file_name_field="file_name",
+        split="train",
+    )
+    monkeypatch.setitem(dataset_config_module._DATASET_CONFIGS, dataset_url, dataset_config)
+
+    processor = DocProcessing("pdf", "myset", 1, dataset_url, None)
+
+    assert processor.get_actual_dataset_size() == 42
+
+
+def test_get_actual_dataset_size_is_none_when_builder_publishes_no_splits(
+    isolated_data_dir, monkeypatch
+):
+    """
+    Input: a DocProcessing constructed against a dataset_url whose
+    builder.info.splits is None, matching WebDataset-format datasets
+    (e.g. pixparse/pdfa-eng-wds) that publish no split-size metadata.
+    Output: processor.get_actual_dataset_size()'s return value.
+
+    Checks that a dataset with no declared split-size metadata
+    reports its actual size as None (unknown) rather than raising.
+    """
+
+    def fake_load_dataset_builder(dataset_url):
+        return _FakeBuilder(None)
+
+    monkeypatch.setattr(
+        "l1_doc_processing.doc_processing.load_dataset_builder",
+        fake_load_dataset_builder,
+    )
+
+    dataset_url = "some-org/webdataset-without-split-sizes"
+    dataset_config = DatasetConfig(
+        doc_type="pdf",
+        extension="pdf",
+        content_field="content",
+        content_encoding="bytes",
+        file_name_field="file_name",
+        split="train",
+    )
+    monkeypatch.setitem(dataset_config_module._DATASET_CONFIGS, dataset_url, dataset_config)
+
+    processor = DocProcessing("pdf", "myset", 1, dataset_url, None)
+
+    assert processor.get_actual_dataset_size() is None
+
+
+def test_validate_proceeds_with_warning_when_dataset_size_is_unknown(
+    isolated_data_dir, monkeypatch, capsys
+):
+    """
+    Input: a DocProcessing constructed against a dataset_url whose
+    builder.info.splits is None, with any requested dataset_size.
+    Output: none; validate() is expected not to raise, but to print a
+    warning that the size could not be checked.
+
+    Checks that an undeterminable actual size does not block the
+    pipeline (unlike an actual size that's too small, which does).
+    """
+
+    def fake_load_dataset_builder(dataset_url):
+        return _FakeBuilder(None)
+
+    monkeypatch.setattr(
+        "l1_doc_processing.doc_processing.load_dataset_builder",
+        fake_load_dataset_builder,
+    )
+
+    dataset_url = "some-org/webdataset-without-split-sizes"
+    dataset_config = DatasetConfig(
+        doc_type="pdf",
+        extension="pdf",
+        content_field="content",
+        content_encoding="bytes",
+        file_name_field="file_name",
+        split="train",
+    )
+    monkeypatch.setitem(dataset_config_module._DATASET_CONFIGS, dataset_url, dataset_config)
+
+    processor = DocProcessing("pdf", "myset", 10, dataset_url, None)
+
+    processor.validate()
+
+    captured = capsys.readouterr()
+    assert "cannot be validated upfront" in captured.out
 
 
 # ---------- load_cache ----------

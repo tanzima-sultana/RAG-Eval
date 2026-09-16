@@ -5,13 +5,15 @@ import datetime
 import itertools
 import json
 import os
+import time
 
 
-from datasets import load_dataset
+from datasets import load_dataset, load_dataset_builder
 
 from common.paths import dataset_raw_path, dataset_processed_path, get_file_path
 from common.dataset_config import DatasetConfig, get_dataset_config
 from common.identifiers import make_doc_id, make_shingles
+from l1_doc_processing import timing
 from l1_doc_processing.dedup import is_exact_duplicate, is_near_duplicate, make_lsh_index, make_minhash
 from l1_doc_processing.parser import get_parser
 from l1_doc_processing.schema import Document
@@ -35,7 +37,51 @@ class DocProcessing:
 				f"doc_type '{self.doc_type}' does not match the registered "
 				f"doc_type '{self.dataset_config.doc_type}' for dataset "
 			)
-	
+
+		actual_dataset_size = self.get_actual_dataset_size()
+		if actual_dataset_size is None:
+			print(
+				f"Warning: dataset '{self.dataset_url or self.dataset_path}' "
+				f"does not publish a document count in its metadata, so "
+				f"dataset_size {self.dataset_size} cannot be validated "
+				f"upfront. Proceeding anyway."
+			)
+		elif actual_dataset_size < self.dataset_size:
+			raise ValueError(
+				f"Requested dataset_size {self.dataset_size} exceeds the "
+				f"actual dataset size {actual_dataset_size} for dataset "
+				f"'{self.dataset_url or self.dataset_path}'."
+			)
+
+	def get_actual_dataset_size(self) -> int | None:
+		"""
+		Determines how many documents this dataset actually has,
+		without downloading or streaming any document content.
+
+		For a web dataset (self.dataset_url set), reads the declared
+		number of examples for dataset_config.split from the
+		dataset's builder metadata. Some datasets (e.g. WebDataset-
+		format ones like pixparse/pdfa-eng-wds) publish no split-size
+		metadata at all, in which case the actual size cannot be
+		determined without downloading the dataset; None is returned
+		for this case rather than raising. For a local dataset
+		(self.dataset_path set), counts the files directly in
+		dataset_path.
+
+		Returns the actual dataset size, or None if it cannot be
+		determined from metadata alone.
+		"""
+		if self.dataset_url:
+			builder = load_dataset_builder(self.dataset_url)
+			if builder.info.splits is None:
+				return None
+			split_info = builder.info.splits.get(self.dataset_config.split)
+			if split_info is None:
+				return None
+			return split_info.num_examples
+		else:
+			return len(os.listdir(self.dataset_path))
+
 	def load_cache(self) -> dict[str, bytes]:
 		"""
 		raw_path: directory holding raw cache files already written for
@@ -88,17 +134,22 @@ class DocProcessing:
 
 	def compute_raw_data(self)-> dict[str, bytes]:
 
+		compute_raw_data_start = time.perf_counter()
+
 		# ------- cache
 		os.makedirs(self.raw_path, exist_ok=True)
+		load_cache_start = time.perf_counter()
 		cached_raw_bytes = self.load_cache()
+		timing.record("load_cache", time.perf_counter() - load_cache_start)
 		# If there is 10k cached and asked 5k, just return only the dataset_size
 		if len(cached_raw_bytes) >= self.dataset_size:
 			first_doc_ids = list(cached_raw_bytes.keys())[:self.dataset_size]
 			first_raw_bytes = {}
 			for doc_id in first_doc_ids:
 				first_raw_bytes[doc_id] = cached_raw_bytes[doc_id]
+			timing.record("compute_raw_data_total", time.perf_counter() - compute_raw_data_start)
 			return first_raw_bytes
-		
+
 		# ------- new
 		extension = self.dataset_config.extension
 		new_raw_bytes = {}
@@ -107,14 +158,23 @@ class DocProcessing:
 			# Stream and cache the rest
 			dataset = load_dataset(self.dataset_url, split=self.dataset_config.split, streaming=True)
 			new_rows_stream = itertools.islice(dataset, len(cached_raw_bytes), self.dataset_size)
+			new_rows_iterator = iter(new_rows_stream)
 
-			for row in new_rows_stream:
+			while True:
+				download_row_start = time.perf_counter()
+				try:
+					row = next(new_rows_iterator)
+				except StopIteration:
+					break
+				timing.record("download_row", time.perf_counter() - download_row_start)
 
 				# raw
+				decode_row_start = time.perf_counter()
 				try:
 					raw_bytes = self.decode_raw_bytes(row)
 					doc_id = make_doc_id(self.doc_type, raw_bytes)
 				except Exception as error:
+					timing.record("decode_raw_bytes", time.perf_counter() - decode_row_start)
 					skipped_raw_error_count += 1
 					row_file_name = row.get(self.dataset_config.file_name_field)
 					print(
@@ -122,11 +182,14 @@ class DocProcessing:
 						f"{type(error).__name__}: {error}"
 					)
 					continue
+				timing.record("decode_raw_bytes", time.perf_counter() - decode_row_start)
 
 				# cache
-				cache_file_path = get_file_path(self.raw_path, doc_id, extension) 
+				write_cache_start = time.perf_counter()
+				cache_file_path = get_file_path(self.raw_path, doc_id, extension)
 				with open(cache_file_path, "wb") as f:
 					f.write(raw_bytes)
+				timing.record("write_raw_cache_file", time.perf_counter() - write_cache_start)
 
 				# dict
 				new_raw_bytes[doc_id] = raw_bytes
@@ -138,33 +201,39 @@ class DocProcessing:
 			for source_file_name in remaining_file_names:
 
 				# raw
+				read_local_file_start = time.perf_counter()
 				try:
 					source_file_path = os.path.join(self.dataset_path, source_file_name)
 					with open(source_file_path, "rb") as f:
 						raw_bytes = f.read()
 					doc_id = make_doc_id(self.doc_type, raw_bytes)
 				except Exception as error:
+					timing.record("read_local_raw_file", time.perf_counter() - read_local_file_start)
 					skipped_raw_error_count += 1
 					print(
 						f"Skipping file (file_name={source_file_name!r}): "
 						f"{type(error).__name__}: {error}"
 					)
 					continue
+				timing.record("read_local_raw_file", time.perf_counter() - read_local_file_start)
 
 				# cache
-				cache_file_path = get_file_path(self.raw_path, doc_id, extension) 
+				write_cache_start = time.perf_counter()
+				cache_file_path = get_file_path(self.raw_path, doc_id, extension)
 				with open(cache_file_path, "wb") as f:
 					f.write(raw_bytes)
+				timing.record("write_raw_cache_file", time.perf_counter() - write_cache_start)
 
 				# dict
 				new_raw_bytes[doc_id] = raw_bytes
-		
+
 		print(f"Skipped {skipped_raw_error_count} document(s) due to raw ingestion errors.")
 
 		# Combine cached and newly-copied raw_bytes
 		documents_raw_bytes = dict(cached_raw_bytes)
 		for doc_id in new_raw_bytes:
 			documents_raw_bytes[doc_id] = new_raw_bytes[doc_id]
+		timing.record("compute_raw_data_total", time.perf_counter() - compute_raw_data_start)
 		return documents_raw_bytes
 
 	def document_to_json_dict(self, document: Document) -> dict:
@@ -230,7 +299,9 @@ class DocProcessing:
 			json.dump(self.document_to_json_dict(document), f)
         
 	def process_raw_data(self, documents_raw_bytes: dict[str, bytes]) -> dict[str, Document]:
-		
+
+		process_raw_data_start = time.perf_counter()
+
 		os.makedirs(self.processed_path, exist_ok=True)
 
 		parser_cls = get_parser(self.doc_type)
@@ -246,32 +317,45 @@ class DocProcessing:
 
 		for doc_id in documents_raw_bytes:
 
+			load_processed_start = time.perf_counter()
 			processed_document = self.load_processed_document(doc_id)
+			timing.record("load_processed_document", time.perf_counter() - load_processed_start)
 			if processed_document is not None:
 				documents[doc_id] = processed_document
 				content_hash_dict[doc_id] = processed_document.content_hash
+				make_shingles_start = time.perf_counter()
 				cached_shingles = make_shingles(processed_document.text)
+				timing.record("make_shingles", time.perf_counter() - make_shingles_start)
 				if len(cached_shingles) > 0:
+					make_minhash_start = time.perf_counter()
 					cached_minhash = make_minhash(cached_shingles)
+					timing.record("make_minhash", time.perf_counter() - make_minhash_start)
 					lsh_index.insert(doc_id, cached_minhash)
 				continue
 
 			try:
 				# Actual process
+				parse_start = time.perf_counter()
 				data_path = get_file_path(self.raw_path, doc_id, extension)
 				raw_bytes = documents_raw_bytes[doc_id]
 				doc = parser.parse(doc_id, raw_bytes, data_path)
+				timing.record("parse_document", time.perf_counter() - parse_start)
 			except Exception:
 				skipped_count += 1
 				continue
 
 			# Dedup check
+			make_shingles_start = time.perf_counter()
 			doc_shingles = make_shingles(doc.text)
+			timing.record("make_shingles", time.perf_counter() - make_shingles_start)
 			if len(doc_shingles) > 0:
+				make_minhash_start = time.perf_counter()
 				doc_minhash = make_minhash(doc_shingles)
+				timing.record("make_minhash", time.perf_counter() - make_minhash_start)
 			else:
 				doc_minhash = None
 
+			dedup_check_start = time.perf_counter()
 			is_exact = is_exact_duplicate(doc.content_hash, content_hash_dict)
 			if is_exact:
 				is_near = False
@@ -279,6 +363,7 @@ class DocProcessing:
 				is_near = is_near_duplicate(doc_minhash, lsh_index)
 			else:
 				is_near = False
+			timing.record("dedup_check", time.perf_counter() - dedup_check_start)
 
 			if is_exact or is_near:
 				skipped_duplicate_count += 1
@@ -290,10 +375,14 @@ class DocProcessing:
 				lsh_index.insert(doc_id, doc_minhash)
 
 			# Save
+			save_start = time.perf_counter()
 			self.save_processed_document(doc_id, doc)
-		
+			timing.record("save_processed_document", time.perf_counter() - save_start)
+
 		print(f"Skipped {skipped_count} document(s) due to parsing errors.")
 		print(f"Skipped {skipped_duplicate_count} document(s) due to duplicate detection.")
+
+		timing.record("process_raw_data_total", time.perf_counter() - process_raw_data_start)
 
 		return documents
 		

@@ -9,10 +9,12 @@ extraction).
 
 import datetime
 import io
+import time
 
 import pypdf
 
 from common.identifiers import make_content_hash
+from l1_doc_processing import timing
 from l1_doc_processing.metadata import extract_metadata
 from l1_doc_processing.parser import Parser
 from l1_doc_processing.schema import Document
@@ -95,18 +97,33 @@ class PDFParser(Parser):
 
         Returns a fully-populated Document.
         """
+        open_reader_start = time.perf_counter()
         reader = pypdf.PdfReader(io.BytesIO(raw_bytes))
-        
+        timing.record("pdf_open_reader", time.perf_counter() - open_reader_start)
+
         # Text cleanup
+        extract_text_start = time.perf_counter()
         text = _extract_text(reader)
+        timing.record("pdf_extract_text", time.perf_counter() - extract_text_start)
+
+        text_cleanup_start = time.perf_counter()
         text = clean_text(text)
+        timing.record("text_cleanup", time.perf_counter() - text_cleanup_start)
+
+        extract_title_start = time.perf_counter()
         title = _extract_title(reader)
+        timing.record("pdf_extract_title", time.perf_counter() - extract_title_start)
 
         # Metadata: generic fields (from raw_bytes), then PDF-specific fields on top
+        extract_metadata_start = time.perf_counter()
         metadata = extract_metadata(raw_bytes, "pdf")
         metadata.update(_extract_pdf_metadata(reader))
+        timing.record("extract_metadata", time.perf_counter() - extract_metadata_start)
 
+        content_hash_start = time.perf_counter()
         content_hash = make_content_hash(text)
+        timing.record("make_content_hash", time.perf_counter() - content_hash_start)
+
         timestamp = datetime.datetime.now(datetime.timezone.utc)
 
         return Document(
