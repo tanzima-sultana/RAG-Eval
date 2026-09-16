@@ -6,7 +6,7 @@ source ~/pyenv/bin/activate
 export PYTHONPATH="$(pwd):$(pwd)/src"
 
 mkdir -p log
-LOG="log/log_doc_processing.txt"
+LOG="log/l1_doc_processing/log.txt"
 
 # 1. Document processing
 DOC_TYPE="pdf"
