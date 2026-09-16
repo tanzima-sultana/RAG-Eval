@@ -1,0 +1,3 @@
+datasets==5.0.0
+datasketch==2.0.0
+pypdf==6.16.1
