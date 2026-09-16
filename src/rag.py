@@ -3,7 +3,7 @@ import os
 import time
 import sys
 
-from l1_doc_processing.temp import doc_processing
+from l1_doc_processing.doc_processing import DocProcessing
 
 
 def parse_args():
@@ -69,7 +69,8 @@ if __name__ == "__main__":
     dataset_path = args.dataset_path
 
     s1 = time.time()
-    documents = doc_processing(doc_type, dataset_name, dataset_size, dataset_url, dataset_path)
+    processor = DocProcessing(doc_type, dataset_name, dataset_size, dataset_url, dataset_path)
+    documents = processor.process()
     size = len(documents.values())
     e1 = time.time() - s1
     print("\n------------------ Document processing time : ", e1)
