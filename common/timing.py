@@ -1,12 +1,12 @@
 """
 timing.py
 
-A minimal, process-wide stopwatch for profiling the l1_doc_processing
-pipeline. Every stage (downloading, raw caching, parsing, text
-cleanup, metadata extraction, dedup, ...) records how many seconds it
-spent into one shared set of totals, so main.py can print a single
-breakdown at the end of a run without threading timing arguments
-through every function call.
+A minimal, process-wide stopwatch shared across every pipeline layer
+(l1_doc_processing, l2_chunking, ...). Every stage (downloading, raw
+caching, parsing, text cleanup, metadata extraction, dedup, chunking,
+...) records how many seconds it spent into one shared set of totals,
+so each layer's main.py can print a single breakdown at the end of a
+run without threading timing arguments through every function call.
 """
 
 import time

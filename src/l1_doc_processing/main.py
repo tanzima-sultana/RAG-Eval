@@ -4,7 +4,7 @@ import sys
 import time
 import os 
 
-from l1_doc_processing import timing
+from common import timing
 from l1_doc_processing.doc_processing import DocProcessing
 
 def parse_args():

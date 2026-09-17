@@ -14,7 +14,7 @@ import time
 import pypdf
 
 from common.identifiers import make_content_hash
-from l1_doc_processing import timing
+from common import timing
 from l1_doc_processing.metadata import extract_metadata
 from l1_doc_processing.parser import Parser
 from l1_doc_processing.schema import Document

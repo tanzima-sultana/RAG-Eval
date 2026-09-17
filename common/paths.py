@@ -1,8 +1,7 @@
 
 import os
 
-RAW_DATA_DIR = "data/raw/"
-PROCESSED_DATA_DIR = "data/processed/"
+from common.constants import RAW_DATA_DIR, PROCESSED_DATA_DIR
 
 
 # ------ Dataset

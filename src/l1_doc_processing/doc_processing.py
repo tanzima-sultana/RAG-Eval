@@ -10,10 +10,12 @@ import time
 
 from datasets import load_dataset, load_dataset_builder
 
+from common.constants import L1_DOC_PROCESSING
 from common.paths import dataset_raw_path, dataset_processed_path, get_file_path
 from common.dataset_config import DatasetConfig, get_dataset_config
 from common.identifiers import make_doc_id, make_shingles
-from l1_doc_processing import timing
+from common import timing
+from common import layer_output
 from l1_doc_processing.dedup import is_exact_duplicate, is_near_duplicate, make_lsh_index, make_minhash
 from l1_doc_processing.parser import get_parser
 from l1_doc_processing.schema import Document
@@ -395,5 +397,8 @@ class DocProcessing:
 
 		# Process
 		documents = self.process_raw_data(documents_raw_bytes)
+
+		# Save output path
+		layer_output.set(L1_DOC_PROCESSING, self.processed_path)
 
 		return documents
