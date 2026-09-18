@@ -10,12 +10,11 @@ import time
 
 from datasets import load_dataset, load_dataset_builder
 
-from common.constants import L1_DOC_PROCESSING
 from common.paths import dataset_raw_path, dataset_processed_path, get_file_path
 from common.dataset_config import DatasetConfig, get_dataset_config
 from common.identifiers import make_doc_id, make_shingles
 from common import timing
-from common import layer_output
+from common import global_values
 from l1_doc_processing.dedup import is_exact_duplicate, is_near_duplicate, make_lsh_index, make_minhash
 from l1_doc_processing.parser import get_parser
 from l1_doc_processing.schema import Document
@@ -28,11 +27,17 @@ class DocProcessing:
 		self.dataset_size = dataset_size
 		self.dataset_url = dataset_url 
 		self.dataset_path = dataset_path 
-
-		self.raw_path = dataset_raw_path(self.doc_type, self.dataset_name)
-		self.processed_path = dataset_processed_path(self.doc_type, self.dataset_name)
 		self.dataset_config = get_dataset_config(self.dataset_url or self.dataset_path)
-	
+		
+		# Update global values
+		global_values.set("doc_type", self.doc_type)
+		global_values.set("dataset_name", self.dataset_name)
+
+		# Get paths
+		self.raw_path = dataset_raw_path()
+		self.processed_path = dataset_processed_path()
+		
+
 	def validate(self):
 		if self.doc_type != self.dataset_config.doc_type:
 			raise ValueError(
@@ -299,7 +304,7 @@ class DocProcessing:
 		file_path = get_file_path(self.processed_path, doc_id, "json") #os.path.join(processed_path, f"{doc_id}.json")
 		with open(file_path, "w", encoding="utf-8") as f:
 			json.dump(self.document_to_json_dict(document), f)
-        
+
 	def process_raw_data(self, documents_raw_bytes: dict[str, bytes]) -> dict[str, Document]:
 
 		process_raw_data_start = time.perf_counter()
@@ -397,8 +402,5 @@ class DocProcessing:
 
 		# Process
 		documents = self.process_raw_data(documents_raw_bytes)
-
-		# Save output path
-		layer_output.set(L1_DOC_PROCESSING, self.processed_path)
 
 		return documents

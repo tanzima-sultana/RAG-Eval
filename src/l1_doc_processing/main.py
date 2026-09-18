@@ -66,6 +66,9 @@ if __name__ == "__main__":
     dataset_url = args.dataset_url
     dataset_path = args.dataset_path
 
+    # doc_type and dataset_name are saved to json/global.json inside
+    # DocProcessing.process(), for later layers to read back.
+
     processor = DocProcessing(doc_type, dataset_name, dataset_size, dataset_url, dataset_path)
     documents = processor.process()
     size = len(documents.values())
