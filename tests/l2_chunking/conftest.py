@@ -98,15 +98,19 @@ def make_fake_chunking(fake_tokenizer):
 
     Returns a factory that builds a lightweight stand-in for a
     Chunking instance, exposing exactly the attributes
-    Chunker.__init__ copies from it (max_chunk_size,
+    Chunker.__init__ copies from it (min_chunk_size, max_chunk_size,
     fixed_chunk_overlap, semantic_threshold, model, tokenizer,
     all_embeddings, embeddings_offset), each with a sensible default
-    so a test only has to override what it actually cares about. Used
-    to unit-test a concrete Chunker subclass without constructing a
-    real Chunking (which would load an embedding model).
+    so a test only has to override what it actually cares about.
+    min_chunk_size defaults to 1, which makes SemanticChunking's
+    merge_chunks a no-op for every test that isn't specifically
+    exercising it, since no real chunk has size 0. Used to unit-test
+    a concrete Chunker subclass without constructing a real Chunking
+    (which would load an embedding model).
     """
 
     def _make(
+        min_chunk_size=1,
         max_chunk_size=10,
         fixed_chunk_overlap=0,
         semantic_threshold=0.5,
@@ -116,6 +120,7 @@ def make_fake_chunking(fake_tokenizer):
         embeddings_offset=None,
     ):
         return types.SimpleNamespace(
+            min_chunk_size=min_chunk_size,
             max_chunk_size=max_chunk_size,
             fixed_chunk_overlap=fixed_chunk_overlap,
             semantic_threshold=semantic_threshold,

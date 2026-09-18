@@ -89,7 +89,7 @@ def test_init_sets_tokenizer_from_the_loaded_model(
     Checks that __init__ wires tokenizer up from the loaded model.
     """
     chunking = Chunking(
-        max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
+        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
     )
 
     assert chunking.tokenizer is chunking.model.tokenizer
@@ -107,7 +107,7 @@ def test_init_leaves_embeddings_state_unset_until_compute_chunks_runs(
     chunking, inside compute_chunks.
     """
     chunking = Chunking(
-        max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
+        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
     )
 
     assert chunking.all_embeddings is None
@@ -125,7 +125,7 @@ def test_validate_raises_when_overlap_is_not_smaller_than_max_chunk_size(
     Output: none; validate() is expected to raise.
     """
     chunking = Chunking(
-        max_chunk_size=10, fixed_chunk_overlap=10, semantic_threshold=0.5, model_name="fake"
+        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=10, semantic_threshold=0.5, model_name="fake"
     )
 
     with pytest.raises(ValueError):
@@ -141,7 +141,7 @@ def test_validate_passes_when_overlap_is_smaller_than_max_chunk_size(
     Output: none; validate() is expected not to raise.
     """
     chunking = Chunking(
-        max_chunk_size=10, fixed_chunk_overlap=2, semantic_threshold=0.5, model_name="fake"
+        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=2, semantic_threshold=0.5, model_name="fake"
     )
 
     chunking.validate()
@@ -157,7 +157,7 @@ def test_chunk_to_json_dict_and_back_round_trips(isolated_data_dir, fake_sentenc
     applied in sequence.
     """
     chunking = Chunking(
-        max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
+        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
     )
     chunk = Chunk(id="doc1_0", text="hello world", size=2, type="fixed")
 
@@ -176,7 +176,7 @@ def test_save_and_load_chunks_round_trips(isolated_data_dir, fake_sentence_trans
     Output: chunking.load_chunks's return value.
     """
     chunking = Chunking(
-        max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
+        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
     )
     chunk_path = str(isolated_data_dir / "chunks_out")
     os.makedirs(chunk_path, exist_ok=True)
@@ -202,7 +202,7 @@ def test_load_documents_reads_every_processed_document_file(
     Output: chunking.load_documents's return value.
     """
     chunking = Chunking(
-        max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
+        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
     )
     docs_dir = str(isolated_data_dir / "docs")
     _write_processed_document(docs_dir, "doc1", _make_document("doc1", "hello world"))
@@ -238,7 +238,7 @@ def test_compute_chunks_fixed_end_to_end_writes_and_returns_chunks(
         docs_dir, "doc1", _make_document("doc1", "one two three four five six seven")
     )
     chunking = Chunking(
-        max_chunk_size=4, fixed_chunk_overlap=1, semantic_threshold=0.0, model_name="fake"
+        min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=1, semantic_threshold=0.0, model_name="fake"
     )
 
     chunks = chunking.compute_chunks("fixed")
@@ -267,7 +267,7 @@ def test_compute_chunks_returns_cached_chunks_without_needing_documents_again(
     docs_dir = paths.dataset_processed_path()
     _write_processed_document(docs_dir, "doc1", _make_document("doc1", "one two three four"))
     chunking = Chunking(
-        max_chunk_size=4, fixed_chunk_overlap=0, semantic_threshold=0.0, model_name="fake"
+        min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=0, semantic_threshold=0.0, model_name="fake"
     )
 
     first_run = chunking.compute_chunks("fixed")
@@ -300,7 +300,7 @@ def test_compute_chunks_semantic_builds_embeddings_and_offsets(
         docs_dir, "doc1", _make_document("doc1", "w1 w2 w3 w4 w5. w6 w7 w8 w9 w10.")
     )
     chunking = Chunking(
-        max_chunk_size=5, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
+        min_chunk_size=1, max_chunk_size=5, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
     )
 
     chunks = chunking.compute_chunks("semantic")
@@ -333,7 +333,7 @@ def test_compute_chunks_raises_value_error_for_unknown_chunk_type_before_loading
     global_values.set("doc_type", "pdf")
     global_values.set("dataset_name", "myset")
     chunking = Chunking(
-        max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.0, model_name="fake"
+        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.0, model_name="fake"
     )
 
     with pytest.raises(ValueError):

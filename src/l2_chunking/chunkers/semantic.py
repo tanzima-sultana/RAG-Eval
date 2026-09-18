@@ -18,6 +18,28 @@ class SemanticChunking(Chunker):
 		cosine_similarity = np.dot(embedding_1, embedding_2) / denom
 		return cosine_similarity < self.semantic_threshold
 
+	def merge_chunks(self, chunks) -> dict[str, Chunk]:
+		merged_chunks = {}
+
+		prev_chunk = None
+		for i, chunk_id in enumerate(chunks):
+			if i == 0:
+				prev_chunk = chunks[chunk_id]
+				merged_chunks[prev_chunk.id] = prev_chunk
+				continue 
+
+			cur_chunk = chunks[chunk_id]
+
+			if cur_chunk.size < self.min_chunk_size and prev_chunk.size + cur_chunk.size <= self.max_chunk_size:
+				chunk = Chunk(prev_chunk.id, prev_chunk.text + " " + cur_chunk.text, prev_chunk.size + cur_chunk.size, self.chunk_type)
+			else:
+				chunk = cur_chunk
+
+			merged_chunks[chunk.id] = chunk
+			prev_chunk = chunk
+
+		return merged_chunks
+
 	def chunk(self, document: Document) -> dict[str, Chunk]:
 
 		chunks = {}
@@ -88,4 +110,4 @@ class SemanticChunking(Chunker):
 			chunk = self._finalize_chunk(doc_id, chunk_idx, ' '.join(current_chunk_texts), current_chunk_tokens)
 			chunks[chunk.id] = chunk
 
-		return chunks
+		return self.merge_chunks(chunks)

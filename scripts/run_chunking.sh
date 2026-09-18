@@ -5,20 +5,22 @@ cd "$SCRIPT_DIR/.."
 source ~/pyenv/bin/activate
 export PYTHONPATH="$(pwd):$(pwd)/src"
 
-mkdir -p log/l2_chunking
-LOG="log/l2_chunking/log.txt"
-
 # 2. Chunking
-CHUNK_TYPE="fixed" # fixed, sentence, semantic
+CHUNK_TYPE="${1:-fixed}" # fixed, sentence, semantic
+MIN_CHUNK_SIZE=128
 MAX_CHUNK_SIZE=256
 FIX_CHUNK_OVERLAP=32
 SEMANTIC_THRESHOLD=0.3
 MODEL_NAME="all-MiniLM-L6-v2"
 
+mkdir -p log/l2_chunking
+LOG="log/l2_chunking/log_${CHUNK_TYPE}.txt"
+
 # run
 
 python3 -m l2_chunking.main \
   --chunk_type $CHUNK_TYPE \
+  --min_chunk_size $MIN_CHUNK_SIZE \
   --max_chunk_size $MAX_CHUNK_SIZE \
   --fixed_chunk_overlap $FIX_CHUNK_OVERLAP \
   --semantic_threshold $SEMANTIC_THRESHOLD \

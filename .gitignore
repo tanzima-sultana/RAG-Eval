@@ -12,6 +12,7 @@ venv/
 # Data
 data/
 log/
+json/
 
 # OS
 .DS_Store

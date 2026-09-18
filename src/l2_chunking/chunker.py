@@ -26,6 +26,7 @@ class Chunker(Chunking, abc.ABC):
 
 		Returns nothing.
 		"""
+		self.min_chunk_size = chunking.min_chunk_size
 		self.max_chunk_size = chunking.max_chunk_size
 		self.fixed_chunk_overlap = chunking.fixed_chunk_overlap
 		self.semantic_threshold = chunking.semantic_threshold
@@ -128,9 +129,9 @@ def get_chunker(chunk_type: str) -> type[Chunker]:
 	Returns the Chunker subclass registered for chunk_type.
 	"""
 	from common.constants import FIXED_CHUNKING, SENTENCE_CHUNKING, SEMANTIC_CHUNKING
-	from l2_chunking.fixed import FixedChunking
-	from l2_chunking.sentence import SentenceChunking
-	from l2_chunking.semantic import SemanticChunking
+	from l2_chunking.chunkers.fixed import FixedChunking
+	from l2_chunking.chunkers.sentence import SentenceChunking
+	from l2_chunking.chunkers.semantic import SemanticChunking
 	# imported here, not at module level, to avoid a circular import:
 	# each strategy module will subclass Chunker, so importing them at
 	# module level would make this module depend on them before Chunker

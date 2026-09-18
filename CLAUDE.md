@@ -49,11 +49,14 @@ src/
       main.py              # CLI entry point — parses args and wires the pipeline
    
    l2_chunking/
-      main.py              # CLI entry point for the chunking layer
-      chunking.py          # Abstract chunking base class plus the strategy registry lookup (maps strategy name -> chunker)
-      fixed.py             # Fixed-size chunking strategy
-      sentence.py          # Sentence-aware chunking strategy
-      semantic.py          # Semantic chunking strategy
+      schema.py            # Defines the Chunk dataclass — the normalized record format every created chunk is converted into
+	  chunker.py           # Abstract parser base class and common shared methods for chunking types classes
+	  chunkers/
+		fixed.py           # Fixed-size chunking strategy
+		sentence.py        # Sentence-aware chunking strategy
+		semantic.py        # Semantic chunking strategy
+	  chunking.py          # Chunking orchestrator
+	  main.py              # CLI entry point for the chunking layer
 
 tests/                # Test suite
 data/
@@ -61,7 +64,6 @@ data/
   processed/          # Output of processed documents
 
 log/
-  log_doc_processing.txt    # Run log for doc processing
   log_test.txt              # Run log for test runs
   log.txt                   # General run log
 

@@ -8,7 +8,9 @@ consecutive sentences, using precomputed sentence embeddings.
 
 import numpy as np
 
-from l2_chunking.semantic import SemanticChunking
+from common.constants import SEMANTIC_CHUNKING
+from l2_chunking.chunkers.semantic import SemanticChunking
+from l2_chunking.schema import Chunk
 
 
 def test_chunk_splits_at_a_dissimilar_sentence_boundary(make_fake_chunking, document_factory):
@@ -139,3 +141,103 @@ def test_chunk_returns_empty_dict_for_empty_text(make_fake_chunking, document_fa
     chunks = chunker.chunk(document)
 
     assert chunks == {}
+
+
+# ---------- merge_chunks ----------
+
+
+def _chunk(chunk_id, text, size):
+    """
+    Builds a Chunk directly, for tests that exercise merge_chunks on
+    its own rather than through chunk()'s sentence-splitting logic.
+    """
+    return Chunk(id=chunk_id, text=text, size=size, type=SEMANTIC_CHUNKING)
+
+
+def test_merge_chunks_merges_consecutive_chunks_under_min_size_that_fit_the_budget(
+    make_fake_chunking,
+):
+    """
+    Input: three chunks, each below min_chunk_size, whose combined
+    size still fits max_chunk_size.
+    Output: merge_chunks's return value.
+
+    Checks the basic case: a run of undersized chunks collapses into
+    one.
+    """
+    chunker = SemanticChunking(make_fake_chunking(min_chunk_size=128, max_chunk_size=256))
+    chunks = {
+        "doc1_0": _chunk("doc1_0", "AAAA", 50),
+        "doc1_1": _chunk("doc1_1", "BBBB", 50),
+        "doc1_2": _chunk("doc1_2", "CCCC", 50),
+    }
+
+    merged = chunker.merge_chunks(chunks)
+
+    assert len(merged) == 1
+    merged_chunk = list(merged.values())[0]
+    assert merged_chunk.text == "AAAA BBBB CCCC"
+    assert merged_chunk.size == 150
+
+
+def test_merge_chunks_merges_into_the_actual_immediately_preceding_chunk(make_fake_chunking):
+    """
+    Input: chunk A (too big to merge with B), chunk B (small, but its
+    combined size with A exceeds max_chunk_size so it stays
+    unmerged), chunk C (small enough to merge with B).
+    Output: merge_chunks's return value.
+
+    Regression test: C must merge into B, its real predecessor in the
+    output sequence -- not into A, an earlier chunk that never
+    actually preceded C once B was kept separate.
+    """
+    chunker = SemanticChunking(make_fake_chunking(min_chunk_size=128, max_chunk_size=256))
+    chunks = {
+        "doc1_0": _chunk("doc1_0", "AAAA", 200),
+        "doc1_1": _chunk("doc1_1", "BBBB", 100),
+        "doc1_2": _chunk("doc1_2", "CCCC", 50),
+    }
+
+    merged = chunker.merge_chunks(chunks)
+
+    assert len(merged) == 2
+    assert merged["doc1_0"].text == "AAAA"
+    assert merged["doc1_0"].size == 200
+    assert merged["doc1_1"].text == "BBBB CCCC"
+    assert merged["doc1_1"].size == 150
+
+
+def test_merge_chunks_does_not_mutate_the_input_chunks_dict(make_fake_chunking):
+    """
+    Input: two chunks that merge_chunks will merge.
+    Output: merge_chunks's return value, and the original chunks dict
+    passed in.
+
+    Checks that merge_chunks builds new Chunk objects rather than
+    mutating the caller's original Chunk objects in place.
+    """
+    chunker = SemanticChunking(make_fake_chunking(min_chunk_size=128, max_chunk_size=256))
+    original_a = _chunk("doc1_0", "AAAA", 200)
+    chunks = {"doc1_0": original_a, "doc1_1": _chunk("doc1_1", "BBBB", 50)}
+
+    chunker.merge_chunks(chunks)
+
+    assert chunks["doc1_0"] is original_a
+    assert original_a.text == "AAAA"
+    assert original_a.size == 200
+
+
+def test_merge_chunks_leaves_chunks_at_or_above_min_size_alone(make_fake_chunking):
+    """
+    Input: two chunks, neither below min_chunk_size.
+    Output: merge_chunks's return value.
+    """
+    chunker = SemanticChunking(make_fake_chunking(min_chunk_size=128, max_chunk_size=256))
+    chunks = {
+        "doc1_0": _chunk("doc1_0", "AAAA", 200),
+        "doc1_1": _chunk("doc1_1", "BBBB", 200),
+    }
+
+    merged = chunker.merge_chunks(chunks)
+
+    assert merged == chunks

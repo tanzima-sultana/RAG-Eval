@@ -6,7 +6,7 @@ strategy, which slides a max_chunk_size window across a document's
 whole token stream.
 """
 
-from l2_chunking.fixed import FixedChunking
+from l2_chunking.chunkers.fixed import FixedChunking
 
 
 def test_chunk_slides_a_window_with_overlap_across_the_whole_document(

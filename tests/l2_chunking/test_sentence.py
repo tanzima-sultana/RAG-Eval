@@ -19,7 +19,7 @@ earlier while building this strategy:
     sentences have accumulated instead of how many tokens they hold.
 """
 
-from l2_chunking.sentence import SentenceChunking
+from l2_chunking.chunkers.sentence import SentenceChunking
 
 
 def test_chunk_accumulates_sentences_until_the_token_budget_is_exceeded(

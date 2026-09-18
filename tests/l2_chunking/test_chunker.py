@@ -10,9 +10,9 @@ lookup.
 import pytest
 
 from l2_chunking.chunker import Chunker, get_chunker
-from l2_chunking.fixed import FixedChunking
-from l2_chunking.sentence import SentenceChunking
-from l2_chunking.semantic import SemanticChunking
+from l2_chunking.chunkers.fixed import FixedChunking
+from l2_chunking.chunkers.sentence import SentenceChunking
+from l2_chunking.chunkers.semantic import SemanticChunking
 from l2_chunking.schema import Chunk
 
 

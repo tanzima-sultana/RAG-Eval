@@ -17,8 +17,9 @@ from l1_doc_processing.schema import Document
 from l2_chunking.schema import Chunk
 
 class Chunking:
-	def __init__(self, max_chunk_size: int, fixed_chunk_overlap: int, semantic_threshold: float, model_name: str):
+	def __init__(self, min_chunk_size:int, max_chunk_size: int, fixed_chunk_overlap: int, semantic_threshold: float, model_name: str):
 
+		self.min_chunk_size = min_chunk_size
 		self.max_chunk_size = max_chunk_size
 		self.fixed_chunk_overlap = fixed_chunk_overlap
 		self.semantic_threshold = semantic_threshold

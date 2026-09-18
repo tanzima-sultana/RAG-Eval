@@ -70,6 +70,7 @@ def test_parse_args_parses_required_and_optional_arguments(monkeypatch):
     argv = [
         "main.py",
         "--chunk_type", "fixed",
+        "--min_chunk_size", "128",
         "--max_chunk_size", "256",
         "--fixed_chunk_overlap", "32",
         "--model_name", "all-MiniLM-L6-v2",
@@ -79,6 +80,7 @@ def test_parse_args_parses_required_and_optional_arguments(monkeypatch):
     args = parse_args()
 
     assert args.chunk_type == "fixed"
+    assert args.min_chunk_size == 128
     assert args.max_chunk_size == 256
     assert args.fixed_chunk_overlap == 32
     assert args.semantic_threshold == 0.0
@@ -93,6 +95,7 @@ def test_parse_args_parses_semantic_threshold_when_given(monkeypatch):
     argv = [
         "main.py",
         "--chunk_type", "semantic",
+        "--min_chunk_size", "128",
         "--max_chunk_size", "256",
         "--fixed_chunk_overlap", "32",
         "--semantic_threshold", "0.4",
