@@ -2,6 +2,7 @@
 
 import dataclasses
 import datetime
+import glob
 import json
 import os
 import torch
@@ -59,55 +60,46 @@ class Chunking:
 		data["timestamp"] = datetime.datetime.fromisoformat(data["timestamp"])
 		return Document(**data)
 
-	def load_documents(self, data_path: str) -> dict[str, Document]:
+	def load_documents(self, data_path: str, dataset_size:int) -> dict[str, Document]:
 		"""
 		data_path: directory holding processed Document JSON files
 			already written by l1_doc_processing (one {doc_id}.json
 			file per document), the same layout
 			DocProcessing.load_processed_document reads from.
+		dataset_size: how many of the processed documents to load,
+			counting in sorted file name order so the same
+			dataset_size always selects the same documents.
 
-		Reads every JSON file in data_path and reconstructs each one
-		back into a Document via json_dict_to_document.
+		Raises ValueError if dataset_size is larger than the number of
+		documents already processed and sitting in data_path --
+		load_documents only reads what l1_doc_processing has already
+		written, it cannot process new raw documents itself.
+
+		Reads the first dataset_size JSON files in data_path (sorted
+		by file name) and reconstructs each one back into a Document
+		via json_dict_to_document.
 
 		Returns a dict of doc_id to Document.
 		"""
+		sorted_file_names = sorted(os.listdir(data_path))
+
+		if dataset_size > len(sorted_file_names):
+			raise ValueError(
+				f"Requested dataset_size {dataset_size} exceeds the "
+				f"{len(sorted_file_names)} document(s) already processed "
+				f"under '{data_path}'. Run l1_doc_processing with a "
+				f"dataset_size of at least {dataset_size} first."
+			)
+
+		selected_file_names = sorted_file_names[:dataset_size]
+
 		documents = {}
-		for file_name in sorted(os.listdir(data_path)):
+		for file_name in selected_file_names:
 			doc_id, _ = os.path.splitext(file_name)
 			file_path = os.path.join(data_path, file_name)
 			with open(file_path, encoding="utf-8") as f:
 				documents[doc_id] = self.json_dict_to_document(json.load(f))
 		return documents
-
-	def json_dict_to_chunk(self, data: dict) -> Chunk:
-		"""
-		data: a dict previously produced by writing a Chunk out as
-			JSON. Chunk has no non-JSON-native fields (no timestamp to
-			reparse), so this only reconstructs the dataclass
-			instance.
-
-		Returns the reconstructed Chunk.
-		"""
-		return Chunk(**data)
-
-	def load_chunks(self, chunk_path: str) -> dict[str, Chunk]:
-		"""
-		chunk_path: directory holding previously computed Chunk JSON
-			files (one {chunk_id}.json per chunk), as returned by
-			paths.get_chunk_path.
-
-		Reads every JSON file in chunk_path and reconstructs each one
-		back into a Chunk via json_dict_to_chunk.
-
-		Returns a dict of chunk_id to Chunk.
-		"""
-		chunks = {}
-		for file_name in sorted(os.listdir(chunk_path)):
-			chunk_id, _ = os.path.splitext(file_name)
-			file_path = os.path.join(chunk_path, file_name)
-			with open(file_path, encoding="utf-8") as f:
-				chunks[chunk_id] = self.json_dict_to_chunk(json.load(f))
-		return chunks
 
 	def chunk_to_json_dict(self, chunk: Chunk) -> dict:
 		"""
@@ -121,23 +113,68 @@ class Chunking:
 		"""
 		return dataclasses.asdict(chunk)
 
-	def save_chunk(self, chunk_path: str, chunk_id: str, chunk: Chunk) -> None:
+	def json_dict_to_chunk(self, data: dict) -> Chunk:
 		"""
-		chunk_path: directory to write the chunk JSON file into, the
-			same directory load_chunks reads back from.
-		chunk_id: identifies the file to write.
-		chunk: the Chunk to persist.
+		data: a dict previously produced by chunk_to_json_dict. Chunk
+			has no non-JSON-native fields (no timestamp to reparse),
+			so this only reconstructs the dataclass instance.
 
-		Writes chunk to chunk_path as {chunk_id}.json.
+		Returns the reconstructed Chunk.
+		"""
+		return Chunk(**data)
+
+	def _load_cached_chunks(self, chunk_path: str, doc_id: str) -> dict[str, Chunk] | None:
+		"""
+		chunk_path: directory previously returned by
+			paths.get_chunk_path, holding one {chunk_id}.json file per
+			already-computed chunk.
+		doc_id: the document to look up cached chunks for. A doc_id's
+			chunks are every file named "{doc_id}_*.json" in
+			chunk_path, matching the chunk_id format _finalize_chunk
+			builds.
+
+		Looks for doc_id's chunk files already written under
+		chunk_path. If chunk_path does not exist yet, or no files
+		match doc_id, there is nothing cached.
+
+		Returns a dict of chunk_id to Chunk for every cached file
+		found, or None if doc_id has no cached chunks.
+		"""
+		if not os.path.exists(chunk_path):
+			return None
+
+		files = glob.glob(os.path.join(chunk_path, f"{doc_id}_*.json"))
+
+		if not files:
+			return None
+
+		chunks = {}
+		for file_path in sorted(files):
+			chunk_id = os.path.splitext(os.path.basename(file_path))[0]
+			with open(file_path, encoding="utf-8") as f:
+				chunks[chunk_id] = self.json_dict_to_chunk(json.load(f))
+
+		return chunks
+
+	def _save_chunks(self, chunk_path: str, chunks: dict[str, Chunk]) -> None:
+		"""
+		chunk_path: directory to write the chunk JSON files into, the
+			same directory _load_cached_chunks reads back from.
+		chunks: dict of chunk_id to the newly computed Chunk to
+			persist for one document.
+
+		Writes each chunk to chunk_path as {chunk_id}.json, creating
+		chunk_path first if it does not exist yet.
 
 		Returns nothing.
 		"""
-		file_path = os.path.join(chunk_path, f"{chunk_id}.json")
-		with open(file_path, "w", encoding="utf-8") as f:
-			json.dump(self.chunk_to_json_dict(chunk), f)
+		os.makedirs(chunk_path, exist_ok=True)
+		for chunk_id in chunks:
+			file_path = os.path.join(chunk_path, f"{chunk_id}.json")
+			with open(file_path, "w", encoding="utf-8") as f:
+				json.dump(self.chunk_to_json_dict(chunks[chunk_id]), f)
 
-
-	def compute_chunks(self, chunk_type)-> dict[str, Chunk]:
+	def compute_chunks(self, chunk_type: str, dataset_size:int)-> dict[str, Chunk]:
 		"""
 		chunk_type: name of the chunking strategy to run (e.g.
 			"fixed", "sentence", "semantic" from common.constants).
@@ -157,15 +194,9 @@ class Chunking:
 
 		self.validate()
 
-		output_path = paths.get_chunk_path(chunk_type)
-		# If already exists, return that
-		if os.path.exists(output_path):
-			print("Read chunks from disk")
-			return self.load_chunks(output_path)
-
 		# Load documents - dict[doc_id, Document]
 		data_path = paths.dataset_processed_path()
-		documents = self.load_documents(data_path)
+		documents = self.load_documents(data_path, dataset_size)
 
 		# All embeddings calculation
 		if chunk_type == SEMANTIC_CHUNKING:
@@ -198,15 +229,17 @@ class Chunking:
 		chunker = chunker_cls(self)
 		chunks = {}
 
+		output_path = paths.get_chunk_path(chunk_type)
 		# Compute chunks
 		for doc_id in documents:
-			document = documents[doc_id]
-			document_chunks = chunker.chunk(document)
-			chunks.update(document_chunks)
-
-		# Save chunks
-		os.makedirs(output_path, exist_ok=True)
-		for chunk_id in chunks:
-			self.save_chunk(output_path, chunk_id, chunks[chunk_id])
-
+			# if chunks are already computed from documents
+			cached_chunks = self._load_cached_chunks(output_path, doc_id)
+			if cached_chunks:
+				chunks.update(cached_chunks)
+			else:	
+				document = documents[doc_id]
+				document_chunks = chunker.chunk(document)
+				self._save_chunks(output_path, document_chunks)
+				chunks.update(document_chunks)
+			
 		return chunks

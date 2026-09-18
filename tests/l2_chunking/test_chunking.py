@@ -167,27 +167,66 @@ def test_chunk_to_json_dict_and_back_round_trips(isolated_data_dir, fake_sentenc
     assert restored == chunk
 
 
-# ---------- save_chunk / load_chunks ----------
+# ---------- _save_chunks / _load_cached_chunks ----------
 
 
 def test_save_and_load_chunks_round_trips(isolated_data_dir, fake_sentence_transformer_class):
     """
-    Input: two Chunks saved via chunking.save_chunk.
-    Output: chunking.load_chunks's return value.
+    Input: two Chunks belonging to the same doc_id, saved in one call
+    via chunking._save_chunks.
+    Output: chunking._load_cached_chunks's return value for that
+    doc_id.
     """
     chunking = Chunking(
         min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
     )
     chunk_path = str(isolated_data_dir / "chunks_out")
-    os.makedirs(chunk_path, exist_ok=True)
     chunk_a = Chunk(id="doc1_0", text="a", size=1, type="fixed")
     chunk_b = Chunk(id="doc1_1", text="b", size=1, type="fixed")
-    chunking.save_chunk(chunk_path, chunk_a.id, chunk_a)
-    chunking.save_chunk(chunk_path, chunk_b.id, chunk_b)
+    chunking._save_chunks(chunk_path, {"doc1_0": chunk_a, "doc1_1": chunk_b})
 
-    loaded = chunking.load_chunks(chunk_path)
+    loaded = chunking._load_cached_chunks(chunk_path, "doc1")
 
     assert loaded == {"doc1_0": chunk_a, "doc1_1": chunk_b}
+
+
+def test_load_cached_chunks_returns_none_when_chunk_path_does_not_exist(
+    isolated_data_dir, fake_sentence_transformer_class
+):
+    """
+    Input: a chunk_path that has never been created.
+    Output: chunking._load_cached_chunks's return value.
+
+    Checks the "nothing cached yet at all" branch, which must not
+    raise even though chunk_path does not exist on disk.
+    """
+    chunking = Chunking(
+        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
+    )
+    chunk_path = str(isolated_data_dir / "never_created")
+
+    assert chunking._load_cached_chunks(chunk_path, "doc1") is None
+
+
+def test_load_cached_chunks_returns_none_when_doc_id_has_no_cached_files(
+    isolated_data_dir, fake_sentence_transformer_class
+):
+    """
+    Input: chunk_path exists and holds another doc_id's chunks, but
+    none for the doc_id being looked up.
+    Output: chunking._load_cached_chunks's return value.
+
+    Checks that a partially-populated chunk_path (some other document
+    already cached) does not get mistaken for a cache hit on a
+    different, not-yet-chunked doc_id.
+    """
+    chunking = Chunking(
+        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
+    )
+    chunk_path = str(isolated_data_dir / "chunks_out")
+    chunking._save_chunks(chunk_path, {"doc1_0": Chunk(id="doc1_0", text="a", size=1, type="fixed")})
+
+    assert chunking._load_cached_chunks(chunk_path, "doc2") is None
 
 
 # ---------- load_documents ----------
@@ -249,18 +288,24 @@ def test_compute_chunks_fixed_end_to_end_writes_and_returns_chunks(
     assert sorted(os.listdir(output_path)) == ["doc1_0.json", "doc1_1.json", "doc1_2.json"]
 
 
-def test_compute_chunks_returns_cached_chunks_without_needing_documents_again(
-    isolated_data_dir, fake_sentence_transformer_class
+def test_compute_chunks_returns_cached_chunks_without_recomputing_them(
+    isolated_data_dir, fake_sentence_transformer_class, monkeypatch
 ):
     """
-    Input: a first compute_chunks("fixed") call that writes chunks to
-    disk, followed by deleting the processed-documents directory
-    entirely, then a second compute_chunks("fixed") call.
+    Input: a first compute_chunks("fixed") call that writes doc1's
+    chunks to disk under its per-document cache, followed by a second
+    compute_chunks("fixed") call with FixedChunking.chunk patched to
+    raise if it is invoked again.
     Output: both calls' return values.
 
-    Checks the cache-hit branch: once output_path already exists, a
-    second run must return the same chunks straight from disk instead
-    of trying (and failing) to reload documents.
+    Checks the per-document cache-hit branch added by
+    Chunking._load_cached_chunks: once a document's chunks are already
+    on disk, a second run must reuse them straight from disk instead
+    of re-running the chunking strategy on that document. (Per-document
+    caching still needs the processed-documents directory to be
+    present, unlike the old whole-run cache, since compute_chunks
+    loads every document up front to know which doc_ids to check the
+    cache for.)
     """
     global_values.set("doc_type", "pdf")
     global_values.set("dataset_name", "myset")
@@ -272,9 +317,12 @@ def test_compute_chunks_returns_cached_chunks_without_needing_documents_again(
 
     first_run = chunking.compute_chunks("fixed")
 
-    import shutil
+    def fail_if_called(self, document):
+        raise AssertionError("chunk() should not run again once chunks are cached")
 
-    shutil.rmtree(docs_dir)
+    monkeypatch.setattr(
+        "l2_chunking.chunkers.fixed.FixedChunking.chunk", fail_if_called
+    )
 
     second_run = chunking.compute_chunks("fixed")
 

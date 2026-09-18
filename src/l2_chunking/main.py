@@ -10,41 +10,46 @@ from l2_chunking.chunking import Chunking
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Chunking Parameters")
+	parser = argparse.ArgumentParser(description="Chunking Parameters")
 
-    parser.add_argument(
-        "--chunk_type",
-        type=str,
-        required=True,
-        help="Chunking type")
-    parser.add_argument(
-        "--min_chunk_size",
-        type=int,
-        required=True,
-        help="Min chunk size")
-    parser.add_argument(
-        "--max_chunk_size",
-        type=int,
-        required=True,
-        help="Max chunk size")
-    parser.add_argument(
-        "--fixed_chunk_overlap",
-        type=int,
-        required=True,
-        help="Overlap for fixed chunking")
-    parser.add_argument(
-        "--semantic_threshold",
-        type=float,
-        required=False,
-        default=0.0,
-        help="Semantic threshold")
-    parser.add_argument(
-        "--model_name",
-        type=str,
-        required=True,
-        help="Transformer model name")
+	parser.add_argument(
+		"--chunk_type",
+		type=str,
+		required=True,
+		help="Chunking type")
+	parser.add_argument(
+		"--dataset_size",
+		type=int,
+		required=True,
+		help="Dataset size")
+	parser.add_argument(
+		"--min_chunk_size",
+		type=int,
+		required=True,
+		help="Min chunk size")
+	parser.add_argument(
+		"--max_chunk_size",
+		type=int,
+		required=True,
+		help="Max chunk size")
+	parser.add_argument(
+		"--fixed_chunk_overlap",
+		type=int,
+		required=True,
+		help="Overlap for fixed chunking")
+	parser.add_argument(
+		"--semantic_threshold",
+		type=float,
+		required=False,
+		default=0.0,
+		help="Semantic threshold")
+	parser.add_argument(
+		"--model_name",
+		type=str,
+		required=True,
+		help="Transformer model name")
 
-    return parser.parse_args()
+	return parser.parse_args()
 
 def validate(parsed_args):
     chunk_type = parsed_args.chunk_type
@@ -63,6 +68,7 @@ if __name__ == "__main__":
     validate(args)
     
     chunk_type = args.chunk_type
+    dataset_size = args.dataset_size
     min_chunk_size = args.min_chunk_size
     max_chunk_size = args.max_chunk_size
     fixed_chunk_overlap = args.fixed_chunk_overlap
@@ -70,7 +76,7 @@ if __name__ == "__main__":
     model_name = args.model_name
 
     chunker = Chunking(min_chunk_size, max_chunk_size, fixed_chunk_overlap, semantic_threshold, model_name)
-    chunks = chunker.compute_chunks(chunk_type)
+    chunks = chunker.compute_chunks(chunk_type, dataset_size)
 
     end = time.time()
     elapsed_time = end - start

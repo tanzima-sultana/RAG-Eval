@@ -171,7 +171,7 @@ def _write_bytes(path, content):
 # ---------- __init__ ----------
 
 
-def test_init_computes_raw_and_processed_paths_from_doc_type_and_dataset_name(
+def test_init_computes_raw_and_processed_paths_from_dataset_name(
     registered_local_dataset_config,
 ):
     """
@@ -184,8 +184,8 @@ def test_init_computes_raw_and_processed_paths_from_doc_type_and_dataset_name(
     """
     processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
 
-    assert processor.raw_path == "data/raw/pdf_myset/"
-    assert processor.processed_path == "data/processed/pdf_myset/docs/"
+    assert processor.raw_path == "myset/raw"
+    assert processor.processed_path == "myset/processed"
 
 
 # ---------- validate ----------
@@ -395,8 +395,8 @@ def test_load_cache_reads_every_file_keyed_by_doc_id(registered_local_dataset_co
     """
     processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
     os.makedirs(processor.raw_path, exist_ok=True)
-    _write_bytes(processor.raw_path + "pdf_aaa.pdf", b"content a")
-    _write_bytes(processor.raw_path + "pdf_bbb.pdf", b"content b")
+    _write_bytes(os.path.join(processor.raw_path, "pdf_aaa.pdf"), b"content a")
+    _write_bytes(os.path.join(processor.raw_path, "pdf_bbb.pdf"), b"content b")
 
     cached = processor.load_cache()
 
@@ -496,9 +496,9 @@ def test_compute_raw_data_returns_a_plain_dict_when_cache_already_covers_dataset
     """
     processor = DocProcessing("pdf", "myset", 2, None, registered_local_dataset_config)
     os.makedirs(processor.raw_path, exist_ok=True)
-    _write_bytes(processor.raw_path + "pdf_aaa.pdf", b"content a")
-    _write_bytes(processor.raw_path + "pdf_bbb.pdf", b"content b")
-    _write_bytes(processor.raw_path + "pdf_ccc.pdf", b"content c")
+    _write_bytes(os.path.join(processor.raw_path, "pdf_aaa.pdf"), b"content a")
+    _write_bytes(os.path.join(processor.raw_path, "pdf_bbb.pdf"), b"content b")
+    _write_bytes(os.path.join(processor.raw_path, "pdf_ccc.pdf"), b"content c")
 
     result = processor.compute_raw_data()
 
