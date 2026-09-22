@@ -90,3 +90,25 @@ Before `merge_chunks()` existed, a `semantic` run at these same parameters (`max
 - **~3.2x larger average chunk** (195.26 vs 61.49 tokens) — consistent with most chunks no longer stopping the moment a dissimilarity boundary is hit; they keep absorbing small follow-on chunks until either `max_chunk_size` or a large-enough neighbor stops them.
 - **15.2% smaller total output** (17,164,016 vs 20,240,180 bytes) despite each individual chunk now holding roughly the same underlying document text — with a third as many files, the fixed per-file JSON overhead (`id`, `text`, `size`, `type` keys and formatting) is paid far fewer times.
 - **Elapsed time is effectively unchanged** (58.50s vs 59.49s) — `merge_chunks()` is one linear pass over already-computed chunks; the embedding-model forward pass that dominates `semantic`'s runtime happens identically either way.
+
+## l3_embedding
+
+### Overview
+
+`l3_embedding` is the third pipeline layer. It reads a dataset's processed-document ids from `data/processed/` (written by `l1_doc_processing`, just to know which `doc_id`s belong to the run) and that same dataset's already-computed chunks from `chunks/{chunk_type}/{min_chunk_size}_{max_chunk_size}_{fixed_chunk_overlap}_{semantic_threshold}/` (written by `l2_chunking`), then embeds each chunk's text with a `SentenceTransformer` model (`--model_name`). Output is written to `embeddings/{chunk_type}/{min_chunk_size}_{max_chunk_size}_{fixed_chunk_overlap}_{semantic_threshold}/` as one JSON file per chunk (`chunk_id`, the embedding vector, and a `normalized` flag), and returned as a dict of `chunk_id` to `Embedded`. Each chunk's embedding is cached individually: a chunk whose embedding file already exists on disk is loaded back rather than recomputed, and every chunk that still needs embedding in a given run is collected first and sent through a single batched `model.encode()` call rather than one call per chunk. `chunk_type` is validated against `l2_chunking`'s own strategy registry before any document or chunk loading happens, so a misspelled or unregistered `chunk_type` fails immediately instead of silently matching no cached chunks and returning an empty result.
+
+### Architecture
+
+- **`schema.py`** — Defines `Embedded`, the dataclass one chunk's embedding is held in: `chunk_id`, `embeddings` (the vector, as an ndarray), and `normalized`.
+- **`embedding.py`** — Defines `Embedding`, the class that orchestrates the layer. `load_document_ids()` reads which `doc_id`s the run covers from `data/processed/`. `_load_cached_chunks()` reads a document's chunk files back from `l2_chunking`'s output. `_load_cached_embeddings()`/`_save_embeddings()` read and write a chunk's embedding file. `compute_embeddings()` ties these together in two passes: first it walks every document's chunks, reusing any embedding already cached on disk and collecting the text of every chunk that still needs one; then it embeds all of those pending chunks in one batched `model.encode()` call and persists each result.
+- **`main.py`** — The CLI entry point for this layer. Parses `--dataset_name`, `--dataset_size`, `--chunk_type`, `--min_chunk_size`, `--max_chunk_size`, `--fixed_chunk_overlap`, `--semantic_threshold`, and `--model_name`, and drives an `Embedding` instance through `compute_embeddings()`.
+
+### 19-document run (fixed)
+
+Run against the `CUAD` dataset's already-chunked `fixed` output under `chunks/fixed/128_256_32_0.3/` (`--dataset_name CUAD --dataset_size 19 --chunk_type fixed --min_chunk_size 128 --max_chunk_size 256 --fixed_chunk_overlap 32 --semantic_threshold 0.3 --model_name all-MiniLM-L6-v2`), per `log/l3_embedding/log_fixed.txt`:
+
+- Total elapsed time: 6.030101299285889s
+
+No per-stage timing breakdown is available for this layer — `l3_embedding` never calls `common.timing.record()`, so that section of the log is always empty regardless of `chunk_type` (the same gap noted in `l2_chunking`'s README section above).
+
+This particular run found every one of its chunks' embeddings already cached on disk from an earlier run at the same `chunk_type`/`min_chunk_size`/`max_chunk_size`/`fixed_chunk_overlap`/`semantic_threshold`, so `compute_embeddings()`'s batched `model.encode()` call was never made at all — the log has no `Batches` progress output, which only appears when there is at least one chunk still pending embedding. The entire 6.03s is `SentenceTransformer(model_name, ...)` loading `all-MiniLM-L6-v2`'s weights in `Embedding.__init__`, not any embedding computation; the log's own "Loading weights" progress line reaches 100% within the same run before `compute_embeddings()` is ever called.

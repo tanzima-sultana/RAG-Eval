@@ -5,7 +5,7 @@ cd "$SCRIPT_DIR/.."
 source ~/pyenv/bin/activate
 export PYTHONPATH="$(pwd):$(pwd)/src"
 
-mkdir -p log
+mkdir -p log/l1_doc_processing
 LOG="log/l1_doc_processing/log.txt"
 
 # 1. Document processing

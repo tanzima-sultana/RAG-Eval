@@ -7,7 +7,14 @@ export PYTHONPATH="$(pwd):$(pwd)/src"
 
 # 3. Embedding
 DATASET_NAME="CUAD"
-DATASET_SIZE=200
+# Must not exceed the number of documents run_doc_processing.sh
+# actually produced under CUAD/data/processed -- l1's own
+# DATASET_SIZE (20) is how many raw rows it requests, but one of
+# those 20 CUAD rows is an exact duplicate of another, so only 19
+# unique documents end up processed. If run_doc_processing.sh's
+# DATASET_SIZE changes, re-check CUAD/data/processed's actual count
+# before changing this.
+DATASET_SIZE=19
 
 CHUNK_TYPE="fixed" # fixed, sentence, semantic
 MIN_CHUNK_SIZE=128
