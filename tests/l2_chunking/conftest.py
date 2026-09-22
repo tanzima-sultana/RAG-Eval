@@ -22,9 +22,9 @@ def isolated_data_dir(tmp_path, monkeypatch):
 
     Changes the current working directory to tmp_path for the
     duration of the test, so any code under test that writes to
-    relative paths (data/processed/, chunks/, json/global.json -- see
-    common.paths and common.global_values) writes into an isolated
-    temporary directory instead of this repo's real files.
+    relative paths (a dataset's data/processed/ and chunks/ -- see
+    common.paths) writes into an isolated temporary directory instead
+    of this repo's real files.
 
     Returns tmp_path, the isolated working directory.
     """

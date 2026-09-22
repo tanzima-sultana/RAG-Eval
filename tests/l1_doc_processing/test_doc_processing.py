@@ -184,8 +184,8 @@ def test_init_computes_raw_and_processed_paths_from_dataset_name(
     """
     processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
 
-    assert processor.raw_path == "myset/raw"
-    assert processor.processed_path == "myset/processed"
+    assert processor.raw_path == "myset/data/raw"
+    assert processor.processed_path == "myset/data/processed"
 
 
 # ---------- validate ----------

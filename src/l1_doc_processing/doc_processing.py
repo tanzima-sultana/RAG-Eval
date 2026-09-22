@@ -10,11 +10,10 @@ import time
 
 from datasets import load_dataset, load_dataset_builder
 
-from common.paths import dataset_raw_path, dataset_processed_path, get_file_path
+from common import paths
 from common.dataset_config import DatasetConfig, get_dataset_config
 from common.identifiers import make_doc_id, make_shingles
 from common import timing
-from common import global_values
 from l1_doc_processing.dedup import is_exact_duplicate, is_near_duplicate, make_lsh_index, make_minhash
 from l1_doc_processing.parser import get_parser
 from l1_doc_processing.schema import Document
@@ -28,14 +27,10 @@ class DocProcessing:
 		self.dataset_url = dataset_url 
 		self.dataset_path = dataset_path 
 		self.dataset_config = get_dataset_config(self.dataset_url or self.dataset_path)
-		
-		# Update global values
-		global_values.set("doc_type", self.doc_type)
-		global_values.set("dataset_name", self.dataset_name)
 
 		# Get paths
-		self.raw_path = dataset_raw_path()
-		self.processed_path = dataset_processed_path()
+		self.raw_path = paths.get_raw_dataset_path(self.dataset_name)
+		self.processed_path = paths.get_processed_dataset_path(self.dataset_name)
 		
 
 	def validate(self):
@@ -193,7 +188,7 @@ class DocProcessing:
 
 				# cache
 				write_cache_start = time.perf_counter()
-				cache_file_path = get_file_path(self.raw_path, doc_id, extension)
+				cache_file_path = paths.get_file_path(self.raw_path, doc_id, extension)
 				with open(cache_file_path, "wb") as f:
 					f.write(raw_bytes)
 				timing.record("write_raw_cache_file", time.perf_counter() - write_cache_start)
@@ -226,7 +221,7 @@ class DocProcessing:
 
 				# cache
 				write_cache_start = time.perf_counter()
-				cache_file_path = get_file_path(self.raw_path, doc_id, extension)
+				cache_file_path = paths.get_file_path(self.raw_path, doc_id, extension)
 				with open(cache_file_path, "wb") as f:
 					f.write(raw_bytes)
 				timing.record("write_raw_cache_file", time.perf_counter() - write_cache_start)
@@ -283,7 +278,7 @@ class DocProcessing:
 
 		Returns the cached Document if present, otherwise None.
 		"""
-		file_path = get_file_path(self.processed_path, doc_id, "json")
+		file_path = paths.get_file_path(self.processed_path, doc_id, "json")
 		if not os.path.exists(file_path):
 			return None
 		with open(file_path, encoding="utf-8") as f:
@@ -301,7 +296,7 @@ class DocProcessing:
 
 		Returns nothing.
 		"""
-		file_path = get_file_path(self.processed_path, doc_id, "json") #os.path.join(processed_path, f"{doc_id}.json")
+		file_path = paths.get_file_path(self.processed_path, doc_id, "json") #os.path.join(processed_path, f"{doc_id}.json")
 		with open(file_path, "w", encoding="utf-8") as f:
 			json.dump(self.document_to_json_dict(document), f)
 
@@ -343,7 +338,7 @@ class DocProcessing:
 			try:
 				# Actual process
 				parse_start = time.perf_counter()
-				data_path = get_file_path(self.raw_path, doc_id, extension)
+				data_path = paths.get_file_path(self.raw_path, doc_id, extension)
 				raw_bytes = documents_raw_bytes[doc_id]
 				doc = parser.parse(doc_id, raw_bytes, data_path)
 				timing.record("parse_document", time.perf_counter() - parse_start)

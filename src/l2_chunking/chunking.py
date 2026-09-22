@@ -12,14 +12,16 @@ from nltk.tokenize import sent_tokenize
 from sentence_transformers import SentenceTransformer
 
 from common.constants import SEMANTIC_CHUNKING
-from common import global_values
 from common import paths
 from l1_doc_processing.schema import Document
 from l2_chunking.schema import Chunk
 
 class Chunking:
-	def __init__(self, min_chunk_size:int, max_chunk_size: int, fixed_chunk_overlap: int, semantic_threshold: float, model_name: str):
+	def __init__(self, dataset_name:str, dataset_size:int, min_chunk_size:int, max_chunk_size: int, 
+			  fixed_chunk_overlap: int, semantic_threshold: float, model_name: str):
 
+		self.dataset_name = dataset_name
+		self.dataset_size = dataset_size
 		self.min_chunk_size = min_chunk_size
 		self.max_chunk_size = max_chunk_size
 		self.fixed_chunk_overlap = fixed_chunk_overlap
@@ -33,7 +35,6 @@ class Chunking:
 		# Only for semantic
 		self.all_embeddings = None
 		self.embeddings_offset = None
-
 
 	def validate(self):
 		if self.fixed_chunk_overlap >= self.max_chunk_size:
@@ -70,10 +71,13 @@ class Chunking:
 			counting in sorted file name order so the same
 			dataset_size always selects the same documents.
 
-		Raises ValueError if dataset_size is larger than the number of
-		documents already processed and sitting in data_path --
-		load_documents only reads what l1_doc_processing has already
-		written, it cannot process new raw documents itself.
+		Raises FileNotFoundError if data_path does not exist yet --
+		no documents have been processed for this dataset at all.
+		Raises ValueError if data_path exists but holds no files, or
+		if dataset_size is larger than the number of documents
+		already processed and sitting in data_path -- load_documents
+		only reads what l1_doc_processing has already written, it
+		cannot process new raw documents itself.
 
 		Reads the first dataset_size JSON files in data_path (sorted
 		by file name) and reconstructs each one back into a Document
@@ -81,7 +85,20 @@ class Chunking:
 
 		Returns a dict of doc_id to Document.
 		"""
+		if not os.path.exists(data_path):
+			raise FileNotFoundError(
+				f"'{data_path}' does not exist. Run l1_doc_processing "
+				f"for this dataset before chunking it."
+			)
+
 		sorted_file_names = sorted(os.listdir(data_path))
+
+		if len(sorted_file_names) == 0:
+			raise ValueError(
+				f"'{data_path}' exists but holds no processed "
+				f"documents. Run l1_doc_processing for this dataset "
+				f"before chunking it."
+			)
 
 		if dataset_size > len(sorted_file_names):
 			raise ValueError(
@@ -174,7 +191,7 @@ class Chunking:
 			with open(file_path, "w", encoding="utf-8") as f:
 				json.dump(self.chunk_to_json_dict(chunks[chunk_id]), f)
 
-	def compute_chunks(self, chunk_type: str, dataset_size:int)-> dict[str, Chunk]:
+	def compute_chunks(self, chunk_type: str)-> dict[str, Chunk]:
 		"""
 		chunk_type: name of the chunking strategy to run (e.g.
 			"fixed", "sentence", "semantic" from common.constants).
@@ -186,17 +203,22 @@ class Chunking:
 		Returns a dict of chunk_id to Chunk.
 		"""
 
-		# Save global values
-		global_values.set("max_chunk_size", self.max_chunk_size)
-		global_values.set("fixed_chunk_overlap", self.fixed_chunk_overlap)
-		global_values.set("semantic_threshold", self.semantic_threshold)
-		global_values.set("model_name", self.model_name)
-
 		self.validate()
 
+		# imported here, not at module level, to avoid a circular
+		# import: chunker.py imports Chunking (this class) at module
+		# level to use as a base class, so this module cannot also
+		# import chunker.py at module level.
+		from l2_chunking.chunker import get_chunker
+
+		# Resolved before any document loading, so an unregistered
+		# chunk_type raises ValueError immediately instead of only
+		# after documents have already been loaded.
+		chunker_cls = get_chunker(chunk_type)
+
 		# Load documents - dict[doc_id, Document]
-		data_path = paths.dataset_processed_path()
-		documents = self.load_documents(data_path, dataset_size)
+		data_path = paths.get_processed_dataset_path(self.dataset_name)
+		documents = self.load_documents(data_path, self.dataset_size)
 
 		# All embeddings calculation
 		if chunk_type == SEMANTIC_CHUNKING:
@@ -219,17 +241,10 @@ class Chunking:
 			else:
 				self.all_embeddings = np.empty((0, 0))
 
-		# imported here, not at module level, to avoid a circular
-		# import: chunker.py imports Chunking (this class) at module
-		# level to use as a base class, so this module cannot also
-		# import chunker.py at module level.
-		from l2_chunking.chunker import get_chunker
-
-		chunker_cls = get_chunker(chunk_type)
 		chunker = chunker_cls(self)
 		chunks = {}
 
-		output_path = paths.get_chunk_path(chunk_type)
+		output_path = paths.get_chunk_path(self.dataset_name, chunk_type, self.min_chunk_size, self.max_chunk_size, self.fixed_chunk_overlap, self.semantic_threshold)
 		# Compute chunks
 		for doc_id in documents:
 			# if chunks are already computed from documents
@@ -238,8 +253,8 @@ class Chunking:
 				chunks.update(cached_chunks)
 			else:	
 				document = documents[doc_id]
-				document_chunks = chunker.chunk(document)
-				self._save_chunks(output_path, document_chunks)
-				chunks.update(document_chunks)
+				new_chunks = chunker.chunk(document)
+				self._save_chunks(output_path, new_chunks)
+				chunks.update(new_chunks)
 			
 		return chunks

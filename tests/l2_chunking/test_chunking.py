@@ -5,18 +5,17 @@ Tests for l2_chunking.chunking.Chunking: the orchestrator that loads
 processed documents, dispatches to a registered chunking strategy,
 and saves/caches the resulting chunks.
 
-Every test here uses isolated_data_dir (so writes to data/processed/,
-chunks/, and json/global.json land in a temporary directory, never
-this repo's real files) and fake_sentence_transformer_class (so
+Every test here uses isolated_data_dir (so writes to a dataset's
+data/processed/ and chunks/ land in a temporary directory, never this
+repo's real files) and fake_sentence_transformer_class (so
 constructing a Chunking never downloads or runs a real embedding
 model).
 
-compute_chunks relies on common.global_values already holding
-doc_type and dataset_name, the way a real run would after
-l1_doc_processing's DocProcessing sets them -- compute_chunks itself
-only sets max_chunk_size/fixed_chunk_overlap/semantic_threshold/
-model_name. Tests that call compute_chunks seed doc_type/dataset_name
-themselves to stand in for that upstream step.
+Chunking takes dataset_name and dataset_size directly as constructor
+arguments (the way a real run's l2_chunking.main wires them in from
+its own --dataset_name/--dataset_size CLI args). Tests that call
+compute_chunks construct Chunking with the same dataset_name they
+write processed documents under.
 """
 
 import dataclasses
@@ -27,7 +26,6 @@ import os
 import numpy as np
 import pytest
 
-from common import global_values
 from common import paths
 from l1_doc_processing.schema import Document
 from l2_chunking.chunking import Chunking
@@ -89,6 +87,7 @@ def test_init_sets_tokenizer_from_the_loaded_model(
     Checks that __init__ wires tokenizer up from the loaded model.
     """
     chunking = Chunking(
+        dataset_name="myset", dataset_size=1,
         min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
     )
 
@@ -107,6 +106,7 @@ def test_init_leaves_embeddings_state_unset_until_compute_chunks_runs(
     chunking, inside compute_chunks.
     """
     chunking = Chunking(
+        dataset_name="myset", dataset_size=1,
         min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
     )
 
@@ -125,6 +125,7 @@ def test_validate_raises_when_overlap_is_not_smaller_than_max_chunk_size(
     Output: none; validate() is expected to raise.
     """
     chunking = Chunking(
+        dataset_name="myset", dataset_size=1,
         min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=10, semantic_threshold=0.5, model_name="fake"
     )
 
@@ -141,6 +142,7 @@ def test_validate_passes_when_overlap_is_smaller_than_max_chunk_size(
     Output: none; validate() is expected not to raise.
     """
     chunking = Chunking(
+        dataset_name="myset", dataset_size=1,
         min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=2, semantic_threshold=0.5, model_name="fake"
     )
 
@@ -157,6 +159,7 @@ def test_chunk_to_json_dict_and_back_round_trips(isolated_data_dir, fake_sentenc
     applied in sequence.
     """
     chunking = Chunking(
+        dataset_name="myset", dataset_size=1,
         min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
     )
     chunk = Chunk(id="doc1_0", text="hello world", size=2, type="fixed")
@@ -178,6 +181,7 @@ def test_save_and_load_chunks_round_trips(isolated_data_dir, fake_sentence_trans
     doc_id.
     """
     chunking = Chunking(
+        dataset_name="myset", dataset_size=1,
         min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
     )
     chunk_path = str(isolated_data_dir / "chunks_out")
@@ -201,6 +205,7 @@ def test_load_cached_chunks_returns_none_when_chunk_path_does_not_exist(
     raise even though chunk_path does not exist on disk.
     """
     chunking = Chunking(
+        dataset_name="myset", dataset_size=1,
         min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
     )
     chunk_path = str(isolated_data_dir / "never_created")
@@ -221,6 +226,7 @@ def test_load_cached_chunks_returns_none_when_doc_id_has_no_cached_files(
     different, not-yet-chunked doc_id.
     """
     chunking = Chunking(
+        dataset_name="myset", dataset_size=1,
         min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
     )
     chunk_path = str(isolated_data_dir / "chunks_out")
@@ -241,13 +247,14 @@ def test_load_documents_reads_every_processed_document_file(
     Output: chunking.load_documents's return value.
     """
     chunking = Chunking(
+        dataset_name="myset", dataset_size=1,
         min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
     )
     docs_dir = str(isolated_data_dir / "docs")
     _write_processed_document(docs_dir, "doc1", _make_document("doc1", "hello world"))
     _write_processed_document(docs_dir, "doc2", _make_document("doc2", "goodbye world"))
 
-    documents = chunking.load_documents(docs_dir)
+    documents = chunking.load_documents(docs_dir, dataset_size=2)
 
     assert set(documents.keys()) == {"doc1", "doc2"}
     assert documents["doc1"].text == "hello world"
@@ -261,22 +268,20 @@ def test_compute_chunks_fixed_end_to_end_writes_and_returns_chunks(
     isolated_data_dir, fake_sentence_transformer_class
 ):
     """
-    Input: doc_type/dataset_name seeded in global_values (standing in
-    for a prior l1_doc_processing run), and one processed document
-    written to the path that implies.
+    Input: one processed document written to the path implied by
+    dataset_name "myset".
     Output: chunking.compute_chunks("fixed")'s return value, and the
-    files written under paths.get_chunk_path("fixed").
+    files written under paths.get_chunk_path for this test's params.
 
     Checks the whole pipeline end to end: documents are loaded,
     chunked, and both returned and persisted to disk.
     """
-    global_values.set("doc_type", "pdf")
-    global_values.set("dataset_name", "myset")
-    docs_dir = paths.dataset_processed_path()
+    docs_dir = paths.get_processed_dataset_path("myset")
     _write_processed_document(
         docs_dir, "doc1", _make_document("doc1", "one two three four five six seven")
     )
     chunking = Chunking(
+        dataset_name="myset", dataset_size=1,
         min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=1, semantic_threshold=0.0, model_name="fake"
     )
 
@@ -284,7 +289,7 @@ def test_compute_chunks_fixed_end_to_end_writes_and_returns_chunks(
 
     assert len(chunks) == 3
     assert chunks["doc1_0"].text == "one two three four"
-    output_path = paths.get_chunk_path("fixed")
+    output_path = paths.get_chunk_path("myset", "fixed", 1, 4, 1, 0.0)
     assert sorted(os.listdir(output_path)) == ["doc1_0.json", "doc1_1.json", "doc1_2.json"]
 
 
@@ -307,11 +312,10 @@ def test_compute_chunks_returns_cached_chunks_without_recomputing_them(
     loads every document up front to know which doc_ids to check the
     cache for.)
     """
-    global_values.set("doc_type", "pdf")
-    global_values.set("dataset_name", "myset")
-    docs_dir = paths.dataset_processed_path()
+    docs_dir = paths.get_processed_dataset_path("myset")
     _write_processed_document(docs_dir, "doc1", _make_document("doc1", "one two three four"))
     chunking = Chunking(
+        dataset_name="myset", dataset_size=1,
         min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=0, semantic_threshold=0.0, model_name="fake"
     )
 
@@ -333,21 +337,20 @@ def test_compute_chunks_semantic_builds_embeddings_and_offsets(
     isolated_data_dir, fake_sentence_transformer_class
 ):
     """
-    Input: doc_type/dataset_name seeded in global_values, and one
-    processed document with two sentences.
+    Input: one processed document with two sentences, under
+    dataset_name "myset".
     Output: chunking.compute_chunks("semantic")'s return value, and
     chunking.all_embeddings / chunking.embeddings_offset afterward.
 
     Checks that the semantic branch actually computes embeddings for
     every sentence and records each document's slice into them.
     """
-    global_values.set("doc_type", "pdf")
-    global_values.set("dataset_name", "myset")
-    docs_dir = paths.dataset_processed_path()
+    docs_dir = paths.get_processed_dataset_path("myset")
     _write_processed_document(
         docs_dir, "doc1", _make_document("doc1", "w1 w2 w3 w4 w5. w6 w7 w8 w9 w10.")
     )
     chunking = Chunking(
+        dataset_name="myset", dataset_size=1,
         min_chunk_size=1, max_chunk_size=5, fixed_chunk_overlap=0, semantic_threshold=0.5, model_name="fake"
     )
 
@@ -365,8 +368,8 @@ def test_compute_chunks_raises_value_error_for_unknown_chunk_type_before_loading
     isolated_data_dir, fake_sentence_transformer_class
 ):
     """
-    Input: doc_type/dataset_name seeded in global_values, an unknown
-    chunk_type, and no processed-documents directory created at all.
+    Input: an unknown chunk_type, and no processed-documents
+    directory created at all.
     Output: none; compute_chunks is expected to raise ValueError.
 
     Per compute_chunks's own docstring: "Looks up chunk_type in the
@@ -378,9 +381,8 @@ def test_compute_chunks_raises_value_error_for_unknown_chunk_type_before_loading
     failure here must be ValueError, not a filesystem error from
     trying to list a directory that doesn't exist.
     """
-    global_values.set("doc_type", "pdf")
-    global_values.set("dataset_name", "myset")
     chunking = Chunking(
+        dataset_name="myset", dataset_size=1,
         min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.0, model_name="fake"
     )
 

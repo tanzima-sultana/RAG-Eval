@@ -69,7 +69,9 @@ def test_parse_args_parses_required_and_optional_arguments(monkeypatch):
     """
     argv = [
         "main.py",
+        "--dataset_name", "myset",
         "--chunk_type", "fixed",
+        "--dataset_size", "100",
         "--min_chunk_size", "128",
         "--max_chunk_size", "256",
         "--fixed_chunk_overlap", "32",
@@ -79,7 +81,9 @@ def test_parse_args_parses_required_and_optional_arguments(monkeypatch):
 
     args = parse_args()
 
+    assert args.dataset_name == "myset"
     assert args.chunk_type == "fixed"
+    assert args.dataset_size == 100
     assert args.min_chunk_size == 128
     assert args.max_chunk_size == 256
     assert args.fixed_chunk_overlap == 32
@@ -94,7 +98,9 @@ def test_parse_args_parses_semantic_threshold_when_given(monkeypatch):
     """
     argv = [
         "main.py",
+        "--dataset_name", "myset",
         "--chunk_type", "semantic",
+        "--dataset_size", "100",
         "--min_chunk_size", "128",
         "--max_chunk_size", "256",
         "--fixed_chunk_overlap", "32",

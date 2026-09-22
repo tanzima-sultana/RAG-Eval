@@ -59,9 +59,34 @@ src/
 	  main.py              # CLI entry point for the chunking layer
 
 tests/                # Test suite
-data/
-  raw/                # Raw input documents
-  processed/          # Output of processed documents
+
+dataset_name/			# a folder for each dataset
+  data/
+	raw/                # Raw input documents
+	processed/          # Output of processed documents
+  chunks/
+	fixed/     
+		{max_chunk_size}_{overlap}_{threshold}/ # Same for all type of chunking, embeddings, indexes/faiss      
+	sentence/     
+	semantic/
+	....
+	....
+  embeddings/
+    fixed/
+	sentence/     
+	semantic/
+	....
+	....
+  indexes/
+	faiss/
+		fixed/
+		sentence/     
+		semantic/
+		....
+		....
+	bm25/
+	qdrant/
+    
 
 log/
   log_test.txt              # Run log for test runs

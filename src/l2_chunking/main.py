@@ -13,15 +13,20 @@ def parse_args():
 	parser = argparse.ArgumentParser(description="Chunking Parameters")
 
 	parser.add_argument(
-		"--chunk_type",
+		"--dataset_name",
 		type=str,
 		required=True,
-		help="Chunking type")
+		help="Dataset name")
 	parser.add_argument(
 		"--dataset_size",
 		type=int,
 		required=True,
 		help="Dataset size")
+	parser.add_argument(
+		"--chunk_type",
+		type=str,
+		required=True,
+		help="Chunking type")
 	parser.add_argument(
 		"--min_chunk_size",
 		type=int,
@@ -52,72 +57,74 @@ def parse_args():
 	return parser.parse_args()
 
 def validate(parsed_args):
-    chunk_type = parsed_args.chunk_type
-    semantic_threshold = parsed_args.semantic_threshold
+	chunk_type = parsed_args.chunk_type
+	semantic_threshold = parsed_args.semantic_threshold
 
-    if chunk_type == SEMANTIC_CHUNKING and semantic_threshold == 0.0:
-        sys.exit("Error: provide valid semantic threshold for semantic chunking")
+	if chunk_type == SEMANTIC_CHUNKING and semantic_threshold == 0.0:
+		sys.exit("Error: provide valid semantic threshold for semantic chunking")
 
 if __name__ == "__main__":
-    print("\n ------------- L2 - Chunking -------- \n")
-    timing.reset()
-    start = time.time()
+	print("\n ------------- L2 - Chunking -------- \n")
+	timing.reset()
+	start = time.time()
 
-    args = parse_args()
-    print(args)
-    validate(args)
-    
-    chunk_type = args.chunk_type
-    dataset_size = args.dataset_size
-    min_chunk_size = args.min_chunk_size
-    max_chunk_size = args.max_chunk_size
-    fixed_chunk_overlap = args.fixed_chunk_overlap
-    semantic_threshold = args.semantic_threshold
-    model_name = args.model_name
+	args = parse_args()
+	print(args)
+	validate(args)
 
-    chunker = Chunking(min_chunk_size, max_chunk_size, fixed_chunk_overlap, semantic_threshold, model_name)
-    chunks = chunker.compute_chunks(chunk_type, dataset_size)
+	dataset_name = args.dataset_name
+	dataset_size = args.dataset_size
 
-    end = time.time()
-    elapsed_time = end - start
-    print("\n\nChunking Elapsed time : ", elapsed_time)
-    timing.print_summary()
+	chunk_type = args.chunk_type
+	min_chunk_size = args.min_chunk_size
+	max_chunk_size = args.max_chunk_size
+	fixed_chunk_overlap = args.fixed_chunk_overlap
+	semantic_threshold = args.semantic_threshold
+	model_name = args.model_name
 
-    # Chunk-size and output-file-size statistics
-    total_chunk_count = len(chunks)
+	chunker = Chunking(dataset_name, dataset_size, min_chunk_size, max_chunk_size, fixed_chunk_overlap, semantic_threshold, model_name)
+	chunks = chunker.compute_chunks(chunk_type)
 
-    total_token_size = 0
-    for chunk_id in chunks:
-        total_token_size += chunks[chunk_id].size
-    if total_chunk_count > 0:
-        average_chunk_token_size = total_token_size / total_chunk_count
-    else:
-        average_chunk_token_size = 0
+	end = time.time()
+	elapsed_time = end - start
+	print("\n\nChunking Elapsed time : ", elapsed_time)
+	timing.print_summary()
 
-    output_path = paths.get_chunk_path(chunk_type)
-    chunk_file_names = os.listdir(output_path)
-    total_file_byte_size = 0
-    for chunk_file_name in chunk_file_names:
-        file_path = os.path.join(output_path, chunk_file_name)
-        total_file_byte_size += os.path.getsize(file_path)
-    chunk_file_count = len(chunk_file_names)
-    if chunk_file_count > 0:
-        average_file_byte_size = total_file_byte_size / chunk_file_count
-    else:
-        average_file_byte_size = 0
+	# Chunk-size and output-file-size statistics
+	total_chunk_count = len(chunks)
 
-    print("\n----- Chunk statistics -----")
-    print("Total chunks produced   :", total_chunk_count)
-    print("Average chunk size (tokens):", average_chunk_token_size)
-    print("Total chunk output size (bytes):", total_file_byte_size)
-    print("Average chunk file size (bytes):", average_file_byte_size)
-    print("-------------------------------------------")
+	total_token_size = 0
+	for chunk_id in chunks:
+		total_token_size += chunks[chunk_id].size
+	if total_chunk_count > 0:
+		average_chunk_token_size = total_token_size / total_chunk_count
+	else:
+		average_chunk_token_size = 0
 
-    # huggingface `datasets`/fsspec leaves a background thread alive after
-    # streaming a dataset, which crashes normal interpreter shutdown with
-    # "Fatal Python error: PyGILState_Release" (known upstream bug,
-    # huggingface/datasets#7357). All work is done by this point, so skip
-    # Python's normal finalization/thread-teardown instead of hitting it.
-    sys.stdout.flush()
-    sys.stderr.flush()
-    os._exit(0)
+	output_path = paths.get_chunk_path(dataset_name, chunk_type, min_chunk_size, max_chunk_size, fixed_chunk_overlap, semantic_threshold)
+	chunk_file_names = os.listdir(output_path)
+	total_file_byte_size = 0
+	for chunk_file_name in chunk_file_names:
+		file_path = os.path.join(output_path, chunk_file_name)
+		total_file_byte_size += os.path.getsize(file_path)
+	chunk_file_count = len(chunk_file_names)
+	if chunk_file_count > 0:
+		average_file_byte_size = total_file_byte_size / chunk_file_count
+	else:
+		average_file_byte_size = 0
+
+	print("\n----- Chunk statistics -----")
+	print("Total chunks produced   :", total_chunk_count)
+	print("Average chunk size (tokens):", average_chunk_token_size)
+	print("Total chunk output size (bytes):", total_file_byte_size)
+	print("Average chunk file size (bytes):", average_file_byte_size)
+	print("-------------------------------------------")
+
+	# huggingface `datasets`/fsspec leaves a background thread alive after
+	# streaming a dataset, which crashes normal interpreter shutdown with
+	# "Fatal Python error: PyGILState_Release" (known upstream bug,
+	# huggingface/datasets#7357). All work is done by this point, so skip
+	# Python's normal finalization/thread-teardown instead of hitting it.
+	sys.stdout.flush()
+	sys.stderr.flush()
+	os._exit(0)

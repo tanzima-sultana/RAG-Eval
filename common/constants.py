@@ -1,5 +1,4 @@
 
-JSON_PATH="json/global.json"
 
 
 # 2. Chunking

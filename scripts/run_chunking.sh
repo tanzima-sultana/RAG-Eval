@@ -6,8 +6,10 @@ source ~/pyenv/bin/activate
 export PYTHONPATH="$(pwd):$(pwd)/src"
 
 # 2. Chunking
-CHUNK_TYPE="${1:-fixed}" # fixed, sentence, semantic
+DATASET_NAME="CUAD"
 DATASET_SIZE=200
+
+CHUNK_TYPE="fixed" # fixed, sentence, semantic
 MIN_CHUNK_SIZE=128
 MAX_CHUNK_SIZE=256
 FIX_CHUNK_OVERLAP=32
@@ -20,8 +22,9 @@ LOG="log/l2_chunking/log_${CHUNK_TYPE}.txt"
 # run
 
 python3 -m l2_chunking.main \
-  --chunk_type $CHUNK_TYPE \
+  --dataset_name $DATASET_NAME \
   --dataset_size $DATASET_SIZE \
+  --chunk_type $CHUNK_TYPE \
   --min_chunk_size $MIN_CHUNK_SIZE \
   --max_chunk_size $MAX_CHUNK_SIZE \
   --fixed_chunk_overlap $FIX_CHUNK_OVERLAP \
