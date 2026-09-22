@@ -5,6 +5,7 @@ import os
 
 from common import paths
 from common import timing
+from common.chunk_config import ChunkConfig
 from common.constants import SEMANTIC_CHUNKING
 from l2_chunking.chunking import Chunking
 
@@ -72,18 +73,20 @@ if __name__ == "__main__":
 	print(args)
 	validate(args)
 
-	dataset_name = args.dataset_name
 	dataset_size = args.dataset_size
-
-	chunk_type = args.chunk_type
-	min_chunk_size = args.min_chunk_size
-	max_chunk_size = args.max_chunk_size
-	fixed_chunk_overlap = args.fixed_chunk_overlap
-	semantic_threshold = args.semantic_threshold
 	model_name = args.model_name
 
-	chunker = Chunking(dataset_name, dataset_size, min_chunk_size, max_chunk_size, fixed_chunk_overlap, semantic_threshold, model_name)
-	chunks = chunker.compute_chunks(chunk_type)
+	chunk_config = ChunkConfig(
+		dataset_name=args.dataset_name,
+		chunk_type=args.chunk_type,
+		min_chunk_size=args.min_chunk_size,
+		max_chunk_size=args.max_chunk_size,
+		fixed_chunk_overlap=args.fixed_chunk_overlap,
+		semantic_threshold=args.semantic_threshold,
+	)
+
+	chunker = Chunking(chunk_config, dataset_size, model_name)
+	chunks = chunker.compute_chunks()
 
 	end = time.time()
 	elapsed_time = end - start
@@ -101,7 +104,7 @@ if __name__ == "__main__":
 	else:
 		average_chunk_token_size = 0
 
-	output_path = paths.get_chunk_path(dataset_name, chunk_type, min_chunk_size, max_chunk_size, fixed_chunk_overlap, semantic_threshold)
+	output_path = paths.get_chunk_path(chunk_config)
 	chunk_file_names = os.listdir(output_path)
 	total_file_byte_size = 0
 	for chunk_file_name in chunk_file_names:

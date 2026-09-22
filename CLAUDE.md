@@ -37,26 +37,40 @@ All commands below assume current working directory is the repo root (`rag-eval/
 src/
    rag.py                  # CLI entry point for the entire pipeline
 
-   l1_doc_processing/
+    l1_doc_processing/
       schema.py            # Defines the Document dataclass — the normalized record format every parsed document is converted into
       parser.py            # Abstract parser base class plus the parser registry lookup (maps doc type -> parser)
       parsers/
-         pdf.py            # Extracts text from PDF files
+        pdf.py             # Extracts text from PDF files
       text_cleanup.py      # Cleans Document.text. Strips headers/footers, collapses repeated whitespace and blank lines
       metadata.py          # Extracts generic metadata from a document's raw bytes
       dedup.py             # Detects exact duplicates (hash) and near-duplicates (MinHash/LSH)
       doc_processing.py    # DocProcessing orchestrator 
       main.py              # CLI entry point — parses args and wires the pipeline
    
-   l2_chunking/
+    l2_chunking/
       schema.py            # Defines the Chunk dataclass — the normalized record format every created chunk is converted into
-	  chunker.py           # Abstract parser base class and common shared methods for chunking types classes
+	  chunker.py           # Abstract base class and common shared methods for chunking types classes
 	  chunkers/
 		fixed.py           # Fixed-size chunking strategy
 		sentence.py        # Sentence-aware chunking strategy
 		semantic.py        # Semantic chunking strategy
 	  chunking.py          # Chunking orchestrator
 	  main.py              # CLI entry point for the chunking layer
+	l3_embedding/
+      schema.py            # Defines the Embedded dataclass — the normalized record format every created embedding is converted into
+	  embedding.py         # Embedding orchestrator
+	  main.py              # CLI entry point for the embedding layer
+	l4_indexing/
+      schema.py            # Defines the Index dataclass — the normalized record format every created index is converted into
+	  index.py             # Abstract base class and common shared methods for index types classes
+	  indexes/
+		faiss.py           # FAISS(flatip, ivf, hnsw) strategy
+		bm25.py            # BM25 strategy
+	  vectordb/
+		qdrant.py          # Vector DB qdrant strategy
+	  indexing.py          # Indexing orchestrator
+	  main.py              # CLI entry point for the indexing layer
 
 tests/                # Test suite
 

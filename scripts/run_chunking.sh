@@ -3,7 +3,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.." 
 
 source ~/pyenv/bin/activate
-export PYTHONPATH="$(pwd):$(pwd)/src"
+export PYTHONPATH="$(pwd)/src"
 
 # 2. Chunking
 DATASET_NAME="CUAD"

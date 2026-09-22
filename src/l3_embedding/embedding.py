@@ -7,20 +7,16 @@ import torch
 
 from sentence_transformers import SentenceTransformer
 
+from common.chunk_config import ChunkConfig
 from common import paths
 
 from l2_chunking.schema import Chunk
 from l3_embedding.schema import Embedded
 
 class Embedding:
-	def __init__(self, dataset_name:str, dataset_size:int, min_chunk_size:int, max_chunk_size: int, 
-			  fixed_chunk_overlap: int, semantic_threshold: float, model_name: str):
-		self.dataset_name = dataset_name
+	def __init__(self, chunk_config: ChunkConfig, dataset_size:int, model_name: str):
+		self.chunk_config = chunk_config
 		self.dataset_size = dataset_size
-		self.min_chunk_size = min_chunk_size
-		self.max_chunk_size = max_chunk_size
-		self.fixed_chunk_overlap = fixed_chunk_overlap
-		self.semantic_threshold = semantic_threshold
 		self.model_name = model_name
 
 		device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -106,7 +102,7 @@ class Embedding:
 			json.dump(self.embedding_to_json_dict(embeddings), f)
 			
 
-	def compute_embeddings(self, chunk_type: str) -> dict[str, Embedded]:
+	def compute_embeddings(self) -> dict[str, Embedded]:
 		embeddings = {}
 
 		# imported here, not at module level, to avoid importing the
@@ -117,16 +113,15 @@ class Embedding:
 		# Raises ValueError for an unregistered chunk_type up front,
 		# so a typo'd --chunk_type fails loudly instead of silently
 		# matching no cached chunks and returning an empty result.
-		get_chunker(chunk_type)
+		get_chunker(self.chunk_config.chunk_type)
 
 		# Load document_ids
-		data_path = paths.get_processed_dataset_path(self.dataset_name)
+		data_path = paths.get_processed_dataset_path(self.chunk_config.dataset_name)
 		document_ids = self.load_document_ids(data_path, self.dataset_size)
 
 		# Load chunks and cached embeddings
-		chunk_path = paths.get_chunk_path(self.dataset_name, chunk_type,
-									self.min_chunk_size, self.max_chunk_size, self.fixed_chunk_overlap, self.semantic_threshold)
-		output_path = paths.get_embeddings_path(self.dataset_name, chunk_type, self.min_chunk_size, self.max_chunk_size, self.fixed_chunk_overlap, self.semantic_threshold)
+		chunk_path = paths.get_chunk_path(self.chunk_config)
+		output_path = paths.get_embeddings_path(self.chunk_config)
 
 		# First pass: resolve every already-cached embedding straight
 		# from disk, and collect the text of every chunk that still

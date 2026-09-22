@@ -11,21 +11,17 @@ import numpy as np
 from nltk.tokenize import sent_tokenize
 from sentence_transformers import SentenceTransformer
 
+from common.chunk_config import ChunkConfig
 from common.constants import SEMANTIC_CHUNKING
 from common import paths
 from l1_doc_processing.schema import Document
 from l2_chunking.schema import Chunk
 
 class Chunking:
-	def __init__(self, dataset_name:str, dataset_size:int, min_chunk_size:int, max_chunk_size: int, 
-			  fixed_chunk_overlap: int, semantic_threshold: float, model_name: str):
+	def __init__(self, chunk_config: ChunkConfig, dataset_size:int, model_name: str):
 
-		self.dataset_name = dataset_name
+		self.chunk_config = chunk_config
 		self.dataset_size = dataset_size
-		self.min_chunk_size = min_chunk_size
-		self.max_chunk_size = max_chunk_size
-		self.fixed_chunk_overlap = fixed_chunk_overlap
-		self.semantic_threshold = semantic_threshold
 		self.model_name = model_name
 
 		device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -37,10 +33,10 @@ class Chunking:
 		self.embeddings_offset = None
 
 	def validate(self):
-		if self.fixed_chunk_overlap >= self.max_chunk_size:
+		if self.chunk_config.fixed_chunk_overlap >= self.chunk_config.max_chunk_size:
 			raise ValueError(
-				f"fixed_chunk_overlap ({self.fixed_chunk_overlap}) must be smaller than "
-				f"max_chunk_size ({self.max_chunk_size}); otherwise the sliding window "
+				f"fixed_chunk_overlap ({self.chunk_config.fixed_chunk_overlap}) must be smaller than "
+				f"max_chunk_size ({self.chunk_config.max_chunk_size}); otherwise the sliding window "
 				"never advances."
 			)
 		
@@ -191,10 +187,10 @@ class Chunking:
 			with open(file_path, "w", encoding="utf-8") as f:
 				json.dump(self.chunk_to_json_dict(chunks[chunk_id]), f)
 
-	def compute_chunks(self, chunk_type: str)-> dict[str, Chunk]:
+	def compute_chunks(self)-> dict[str, Chunk]:
 		"""
-		chunk_type: name of the chunking strategy to run (e.g.
-			"fixed", "sentence", "semantic" from common.constants).
+		Runs the chunking strategy named by self.chunk_config.chunk_type
+		(e.g. "fixed", "sentence", "semantic" from common.constants).
 
 		Looks up chunk_type in the chunking strategy registry first,
 		raising ValueError immediately if it is not a registered,
@@ -214,14 +210,14 @@ class Chunking:
 		# Resolved before any document loading, so an unregistered
 		# chunk_type raises ValueError immediately instead of only
 		# after documents have already been loaded.
-		chunker_cls = get_chunker(chunk_type)
+		chunker_cls = get_chunker(self.chunk_config.chunk_type)
 
 		# Load documents - dict[doc_id, Document]
-		data_path = paths.get_processed_dataset_path(self.dataset_name)
+		data_path = paths.get_processed_dataset_path(self.chunk_config.dataset_name)
 		documents = self.load_documents(data_path, self.dataset_size)
 
 		# All embeddings calculation
-		if chunk_type == SEMANTIC_CHUNKING:
+		if self.chunk_config.chunk_type == SEMANTIC_CHUNKING:
 			all_sentences = []
 			self.embeddings_offset = {}
 
@@ -244,7 +240,7 @@ class Chunking:
 		chunker = chunker_cls(self)
 		chunks = {}
 
-		output_path = paths.get_chunk_path(self.dataset_name, chunk_type, self.min_chunk_size, self.max_chunk_size, self.fixed_chunk_overlap, self.semantic_threshold)
+		output_path = paths.get_chunk_path(self.chunk_config)
 		# Compute chunks
 		for doc_id in documents:
 			# if chunks are already computed from documents

@@ -13,6 +13,14 @@ downloads or runs a real embedding model). FakeSentenceTransformer
 also records every encode() call it receives, so the compute_embeddings
 tests below can check chunks are batched into as few encode() calls as
 possible instead of one call per chunk.
+
+Embedding takes a ChunkConfig (dataset_name, chunk_type,
+min_chunk_size, max_chunk_size, fixed_chunk_overlap,
+semantic_threshold bundled together -- see common.chunk_config) plus
+dataset_size and model_name as constructor arguments, the same shape
+l2_chunking.chunking.Chunking takes. compute_embeddings reads
+chunk_type off that same chunk_config rather than taking it as its own
+argument.
 """
 
 import dataclasses
@@ -22,6 +30,7 @@ import os
 import numpy as np
 import pytest
 
+from common.chunk_config import ChunkConfig
 from common import paths
 from l2_chunking.schema import Chunk
 from l3_embedding.embedding import Embedding
@@ -29,28 +38,28 @@ from l3_embedding.schema import Embedded
 
 
 def _make_embedding(
-    dataset_size=1, min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.0
+    dataset_size=1, chunk_type="fixed", min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.0
 ):
     """
-    dataset_size, min_chunk_size, max_chunk_size, fixed_chunk_overlap,
-        semantic_threshold: overridable Embedding constructor
-        arguments; each defaults to a value that keeps chunk/embedding
-        paths short and predictable in tests that do not care about
-        it specifically.
+    dataset_size, chunk_type, min_chunk_size, max_chunk_size,
+        fixed_chunk_overlap, semantic_threshold: overridable
+        ChunkConfig/Embedding values; each defaults to a value that
+        keeps chunk/embedding paths short and predictable in tests
+        that do not care about it specifically.
 
     Returns an Embedding built for dataset_name "myset" and
     model_name "fake" (fake_sentence_transformer_class must already be
     active in the calling test, so this never loads a real model).
     """
-    return Embedding(
+    chunk_config = ChunkConfig(
         dataset_name="myset",
-        dataset_size=dataset_size,
+        chunk_type=chunk_type,
         min_chunk_size=min_chunk_size,
         max_chunk_size=max_chunk_size,
         fixed_chunk_overlap=fixed_chunk_overlap,
         semantic_threshold=semantic_threshold,
-        model_name="fake",
     )
+    return Embedding(chunk_config, dataset_size=dataset_size, model_name="fake")
 
 
 def _touch_processed_document(data_path, doc_id):
@@ -97,25 +106,22 @@ def test_init_stores_every_constructor_argument(isolated_data_dir, fake_sentence
     faked out.
     Output: every attribute __init__ is expected to set.
 
-    Checks that __init__ stores every constructor argument as-is, and
-    loads a model via SentenceTransformer(model_name, ...).
+    Checks that __init__ stores chunk_config as-is, and loads a model
+    via SentenceTransformer(model_name, ...).
     """
-    embedding = Embedding(
+    chunk_config = ChunkConfig(
         dataset_name="myset",
-        dataset_size=5,
+        chunk_type="fixed",
         min_chunk_size=1,
         max_chunk_size=10,
         fixed_chunk_overlap=2,
         semantic_threshold=0.3,
-        model_name="fake-model",
     )
 
-    assert embedding.dataset_name == "myset"
+    embedding = Embedding(chunk_config, dataset_size=5, model_name="fake-model")
+
+    assert embedding.chunk_config is chunk_config
     assert embedding.dataset_size == 5
-    assert embedding.min_chunk_size == 1
-    assert embedding.max_chunk_size == 10
-    assert embedding.fixed_chunk_overlap == 2
-    assert embedding.semantic_threshold == 0.3
     assert embedding.model_name == "fake-model"
     assert embedding.model.model_name == "fake-model"
 
@@ -324,8 +330,8 @@ def test_compute_embeddings_raises_value_error_for_unknown_chunk_type_before_loa
     isolated_data_dir, fake_sentence_transformer_class
 ):
     """
-    Input: an unknown chunk_type, and no processed-documents
-    directory created at all.
+    Input: an Embedding whose chunk_config names an unknown chunk_type,
+    and no processed-documents directory created at all.
     Output: none; compute_embeddings is expected to raise ValueError.
 
     Checks that chunk_type is validated against the l2_chunking
@@ -333,10 +339,10 @@ def test_compute_embeddings_raises_value_error_for_unknown_chunk_type_before_loa
     missing processed-documents directory never gets a chance to
     raise its own FileNotFoundError first.
     """
-    embedding = _make_embedding(dataset_size=1)
+    embedding = _make_embedding(dataset_size=1, chunk_type="totally-bogus-chunk-type")
 
     with pytest.raises(ValueError):
-        embedding.compute_embeddings("totally-bogus-chunk-type")
+        embedding.compute_embeddings()
 
 
 def test_compute_embeddings_end_to_end_embeds_and_persists_new_chunks(
@@ -345,28 +351,28 @@ def test_compute_embeddings_end_to_end_embeds_and_persists_new_chunks(
     """
     Input: one processed document with two cached chunks, and no
     embeddings cached yet.
-    Output: embedding.compute_embeddings("fixed")'s return value, and
-    the files written under paths.get_embeddings_path for this test's
-    params.
+    Output: embedding.compute_embeddings()'s return value, and the
+    files written under paths.get_embeddings_path for this test's
+    chunk_config.
 
     Checks the whole pipeline end to end: chunks are loaded, embedded,
     and both returned and persisted to disk.
     """
     data_path = paths.get_processed_dataset_path("myset")
     _touch_processed_document(data_path, "doc1")
-    chunk_path = paths.get_chunk_path("myset", "fixed", 1, 10, 0, 0.0)
+    embedding = _make_embedding(dataset_size=1)
+    chunk_path = paths.get_chunk_path(embedding.chunk_config)
     _write_chunk_file(chunk_path, Chunk(id="doc1_0", text="hello world", size=2, type="fixed"))
     _write_chunk_file(chunk_path, Chunk(id="doc1_1", text="goodbye", size=1, type="fixed"))
-    embedding = _make_embedding(dataset_size=1)
 
-    embeddings = embedding.compute_embeddings("fixed")
+    embeddings = embedding.compute_embeddings()
 
     assert set(embeddings.keys()) == {"doc1_0", "doc1_1"}
     assert embeddings["doc1_0"].chunk_id == "doc1_0"
     assert np.array_equal(embeddings["doc1_0"].embeddings, np.array([float(len("hello world")), 1.0]))
     assert np.array_equal(embeddings["doc1_1"].embeddings, np.array([float(len("goodbye")), 1.0]))
     assert embeddings["doc1_1"].normalized is True
-    output_path = paths.get_embeddings_path("myset", "fixed", 1, 10, 0, 0.0)
+    output_path = paths.get_embeddings_path(embedding.chunk_config)
     assert sorted(os.listdir(output_path)) == ["doc1_0.json", "doc1_1.json"]
 
 
@@ -386,12 +392,12 @@ def test_compute_embeddings_batches_all_pending_chunks_into_one_encode_call(
     data_path = paths.get_processed_dataset_path("myset")
     _touch_processed_document(data_path, "doc1")
     _touch_processed_document(data_path, "doc2")
-    chunk_path = paths.get_chunk_path("myset", "fixed", 1, 10, 0, 0.0)
+    embedding = _make_embedding(dataset_size=2)
+    chunk_path = paths.get_chunk_path(embedding.chunk_config)
     _write_chunk_file(chunk_path, Chunk(id="doc1_0", text="a", size=1, type="fixed"))
     _write_chunk_file(chunk_path, Chunk(id="doc2_0", text="bb", size=1, type="fixed"))
-    embedding = _make_embedding(dataset_size=2)
 
-    embedding.compute_embeddings("fixed")
+    embedding.compute_embeddings()
 
     assert embedding.model.encode_calls == [["a", "bb"]]
 
@@ -403,7 +409,7 @@ def test_compute_embeddings_skips_encode_call_when_every_chunk_already_cached(
     Input: one processed document with one cached chunk, whose
     embedding is already cached on disk.
     Output: embedding.model.encode_calls, and
-    compute_embeddings("fixed")'s return value.
+    compute_embeddings()'s return value.
 
     Checks the per-chunk cache-hit branch: once a chunk's embedding is
     already on disk, compute_embeddings must reuse it straight from
@@ -411,14 +417,14 @@ def test_compute_embeddings_skips_encode_call_when_every_chunk_already_cached(
     """
     data_path = paths.get_processed_dataset_path("myset")
     _touch_processed_document(data_path, "doc1")
-    chunk_path = paths.get_chunk_path("myset", "fixed", 1, 10, 0, 0.0)
-    _write_chunk_file(chunk_path, Chunk(id="doc1_0", text="hello", size=1, type="fixed"))
-    output_path = paths.get_embeddings_path("myset", "fixed", 1, 10, 0, 0.0)
     embedding = _make_embedding(dataset_size=1)
+    chunk_path = paths.get_chunk_path(embedding.chunk_config)
+    _write_chunk_file(chunk_path, Chunk(id="doc1_0", text="hello", size=1, type="fixed"))
+    output_path = paths.get_embeddings_path(embedding.chunk_config)
     cached_embedded = Embedded(chunk_id="doc1_0", embeddings=np.array([9.0, 9.0]), normalized=True)
     embedding._save_embeddings(output_path, "doc1_0", cached_embedded)
 
-    embeddings = embedding.compute_embeddings("fixed")
+    embeddings = embedding.compute_embeddings()
 
     assert embedding.model.encode_calls == []
     assert np.array_equal(embeddings["doc1_0"].embeddings, np.array([9.0, 9.0]))
@@ -431,7 +437,7 @@ def test_compute_embeddings_only_embeds_the_not_yet_cached_chunks(
     Input: one processed document with two cached chunks, one of
     which already has a cached embedding and one of which does not.
     Output: embedding.model.encode_calls, and
-    compute_embeddings("fixed")'s return value.
+    compute_embeddings()'s return value.
 
     Checks that the already-cached chunk's text is never sent to
     model.encode, while the not-yet-cached chunk still gets a freshly
@@ -439,15 +445,15 @@ def test_compute_embeddings_only_embeds_the_not_yet_cached_chunks(
     """
     data_path = paths.get_processed_dataset_path("myset")
     _touch_processed_document(data_path, "doc1")
-    chunk_path = paths.get_chunk_path("myset", "fixed", 1, 10, 0, 0.0)
+    embedding = _make_embedding(dataset_size=1)
+    chunk_path = paths.get_chunk_path(embedding.chunk_config)
     _write_chunk_file(chunk_path, Chunk(id="doc1_0", text="cached chunk", size=2, type="fixed"))
     _write_chunk_file(chunk_path, Chunk(id="doc1_1", text="new", size=1, type="fixed"))
-    output_path = paths.get_embeddings_path("myset", "fixed", 1, 10, 0, 0.0)
-    embedding = _make_embedding(dataset_size=1)
+    output_path = paths.get_embeddings_path(embedding.chunk_config)
     cached_embedded = Embedded(chunk_id="doc1_0", embeddings=np.array([9.0, 9.0]), normalized=True)
     embedding._save_embeddings(output_path, "doc1_0", cached_embedded)
 
-    embeddings = embedding.compute_embeddings("fixed")
+    embeddings = embedding.compute_embeddings()
 
     assert embedding.model.encode_calls == [["new"]]
     assert np.array_equal(embeddings["doc1_0"].embeddings, np.array([9.0, 9.0]))
@@ -460,7 +466,7 @@ def test_compute_embeddings_skips_document_ids_with_no_cached_chunks(
     """
     Input: two processed documents, only one of which has any cached
     chunks.
-    Output: compute_embeddings("fixed")'s return value.
+    Output: compute_embeddings()'s return value.
 
     Checks that a document with no chunks cached yet under chunk_path
     is silently skipped, and does not stop the other document's
@@ -469,10 +475,10 @@ def test_compute_embeddings_skips_document_ids_with_no_cached_chunks(
     data_path = paths.get_processed_dataset_path("myset")
     _touch_processed_document(data_path, "doc1")
     _touch_processed_document(data_path, "doc2")
-    chunk_path = paths.get_chunk_path("myset", "fixed", 1, 10, 0, 0.0)
-    _write_chunk_file(chunk_path, Chunk(id="doc2_0", text="only doc2 has chunks", size=4, type="fixed"))
     embedding = _make_embedding(dataset_size=2)
+    chunk_path = paths.get_chunk_path(embedding.chunk_config)
+    _write_chunk_file(chunk_path, Chunk(id="doc2_0", text="only doc2 has chunks", size=4, type="fixed"))
 
-    embeddings = embedding.compute_embeddings("fixed")
+    embeddings = embedding.compute_embeddings()
 
     assert set(embeddings.keys()) == {"doc2_0"}

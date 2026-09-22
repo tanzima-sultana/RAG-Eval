@@ -3,7 +3,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.." 
 
 source ~/pyenv/bin/activate
-export PYTHONPATH=$(pwd)
+export PYTHONPATH="$(pwd)/src"
 
 mkdir -p log
 LOG="log/log.txt"

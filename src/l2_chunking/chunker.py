@@ -26,10 +26,10 @@ class Chunker(Chunking, abc.ABC):
 
 		Returns nothing.
 		"""
-		self.min_chunk_size = chunking.min_chunk_size
-		self.max_chunk_size = chunking.max_chunk_size
-		self.fixed_chunk_overlap = chunking.fixed_chunk_overlap
-		self.semantic_threshold = chunking.semantic_threshold
+		self.min_chunk_size = chunking.chunk_config.min_chunk_size
+		self.max_chunk_size = chunking.chunk_config.max_chunk_size
+		self.fixed_chunk_overlap = chunking.chunk_config.fixed_chunk_overlap
+		self.semantic_threshold = chunking.chunk_config.semantic_threshold
 		self.model = chunking.model
 		self.tokenizer = chunking.tokenizer
 		

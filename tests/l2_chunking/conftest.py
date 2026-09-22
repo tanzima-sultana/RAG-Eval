@@ -97,16 +97,18 @@ def make_fake_chunking(fake_tokenizer):
         stand-ins default to.
 
     Returns a factory that builds a lightweight stand-in for a
-    Chunking instance, exposing exactly the attributes
-    Chunker.__init__ copies from it (min_chunk_size, max_chunk_size,
-    fixed_chunk_overlap, semantic_threshold, model, tokenizer,
-    all_embeddings, embeddings_offset), each with a sensible default
-    so a test only has to override what it actually cares about.
-    min_chunk_size defaults to 1, which makes SemanticChunking's
-    merge_chunks a no-op for every test that isn't specifically
-    exercising it, since no real chunk has size 0. Used to unit-test
-    a concrete Chunker subclass without constructing a real Chunking
-    (which would load an embedding model).
+    Chunking instance, exposing exactly what Chunker.__init__ reads
+    off it: a chunk_config (with min_chunk_size, max_chunk_size,
+    fixed_chunk_overlap, semantic_threshold -- Chunker.__init__ never
+    reads chunk_config.dataset_name/chunk_type, so this stand-in
+    leaves them out entirely rather than inventing placeholder
+    values), plus model, tokenizer, all_embeddings, embeddings_offset.
+    Each has a sensible default so a test only has to override what it
+    actually cares about. min_chunk_size defaults to 1, which makes
+    SemanticChunking's merge_chunks a no-op for every test that isn't
+    specifically exercising it, since no real chunk has size 0. Used
+    to unit-test a concrete Chunker subclass without constructing a
+    real Chunking (which would load an embedding model).
     """
 
     def _make(
@@ -119,11 +121,14 @@ def make_fake_chunking(fake_tokenizer):
         all_embeddings=None,
         embeddings_offset=None,
     ):
-        return types.SimpleNamespace(
+        chunk_config = types.SimpleNamespace(
             min_chunk_size=min_chunk_size,
             max_chunk_size=max_chunk_size,
             fixed_chunk_overlap=fixed_chunk_overlap,
             semantic_threshold=semantic_threshold,
+        )
+        return types.SimpleNamespace(
+            chunk_config=chunk_config,
             model=model,
             tokenizer=tokenizer if tokenizer is not None else fake_tokenizer,
             all_embeddings=all_embeddings,
