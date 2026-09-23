@@ -3,777 +3,510 @@ test_doc_processing.py
 
 Tests for l1_doc_processing.doc_processing.DocProcessing.
 
-All tests run against the local dataset_path branch (never dataset_url)
-and a fake parser, so they need no network access and no real PDF
-bytes. Filesystem effects are isolated to a temporary directory via the
-isolated_data_dir fixture (see conftest.py), and a local DatasetConfig
-is registered per test via the registered_local_dataset_config fixture
-below.
-
-Two tests are direct regressions for bugs found and fixed earlier on
-this dataset_path/DocProcessing conversion:
-  - test_compute_raw_data_returns_a_plain_dict_when_cache_already_covers_dataset_size
-    guards against compute_raw_data returning a (dict, int) tuple on
-    the cache-satisfied path instead of a plain dict.
-  - test_process_raises_before_touching_the_filesystem_when_doc_type_mismatches
-    guards against process() forgetting to call validate().
+Every test uses a local dataset (a folder of small text files) and a
+fake parser, so no network access and no real PDFs are needed. The
+working directory is a temporary folder (isolated_data_dir), so all
+output under {dataset_name}/data/ stays out of the repo.
 """
 
-import base64
 import datetime
+import json
 import os
 
 import pytest
 
-from common.dataset_config import DatasetConfig
 from common import dataset_config as dataset_config_module
-from common.identifiers import make_content_hash
+from common.dataset_config import DatasetConfig
+from common.identifiers import make_content_hash, make_doc_id
+from l1_doc_processing import doc_processing as doc_processing_module
 from l1_doc_processing.doc_processing import DocProcessing
-from l1_doc_processing.schema import Document
+from l1_doc_processing.schema import Document, Progress
 
 
-class _FakeSplitInfo:
-    """
-    Stand-in for a datasets.SplitInfo: exposes only num_examples, the
-    single attribute get_actual_dataset_size reads.
-    """
-
-    def __init__(self, num_examples):
-        self.num_examples = num_examples
-
-
-class _FakeDatasetInfo:
-    """
-    Stand-in for a datasets.DatasetInfo: exposes only splits, which is
-    either a dict of split name to _FakeSplitInfo, or None for a
-    dataset (e.g. a WebDataset-format one) that publishes no
-    split-size metadata at all.
-    """
-
-    def __init__(self, splits):
-        self.splits = splits
-
-
-class _FakeBuilder:
-    """
-    Stand-in for a datasets.DatasetBuilder: exposes only info, the
-    single attribute get_actual_dataset_size reads.
-    """
-
-    def __init__(self, splits):
-        self.info = _FakeDatasetInfo(splits)
+DATASET_NAME = "myset"
 
 
 class _FakeParser:
     """
-    Stand-in for a real l1_doc_processing.parser.Parser implementation,
-    used so DocProcessing tests do not depend on pypdf or real PDF
-    bytes. Decodes raw_bytes as UTF-8 text and wraps it in a Document.
-    Raises ValueError when raw_bytes equals the sentinel value b"BAD",
-    to exercise process_raw_data's parse-failure handling.
+    Stand-in for a real Parser. Decodes raw_bytes as UTF-8 text and
+    wraps it in a Document. Raises ValueError when the text is "BAD".
 
-    parsed_doc_ids records, in call order, every doc_id this parser was
-    asked to parse (including ones that then raised), so a test can
-    confirm whether parsing did or did not happen for a given doc_id.
+    parsed_doc_ids records every doc_id it was asked to parse, in call
+    order, so a test can check whether parsing happened.
     """
 
     parsed_doc_ids = []
 
     def parse(self, doc_id, raw_bytes, data_path):
+        """
+        doc_id, raw_bytes, data_path: same as Parser.parse.
+
+        Returns a Document built from raw_bytes decoded as text.
+        Raises ValueError if the text is "BAD".
+        """
         _FakeParser.parsed_doc_ids.append(doc_id)
-        if raw_bytes == b"BAD":
-            raise ValueError("simulated parse failure")
         text = raw_bytes.decode("utf-8")
-        return Document(
+        if text == "BAD":
+            raise ValueError("fake parse failure")
+        document = Document(
             id=doc_id,
             text=text,
             title=None,
             path=data_path,
-            format="fake",
+            format="pdf",
             metadata={},
             content_hash=make_content_hash(text),
-            timestamp=datetime.datetime.now(datetime.timezone.utc),
+            timestamp=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
         )
+        return document
 
 
-@pytest.fixture
-def fake_parser_class(monkeypatch):
+def _fake_get_parser(doc_type):
     """
-    monkeypatch: pytest's built-in fixture for reverting changes after
-        the test.
+    doc_type: ignored.
 
-    Replaces l1_doc_processing.doc_processing.get_parser with a stub
-    that always returns _FakeParser, regardless of doc_type, and
-    resets _FakeParser.parsed_doc_ids to an empty list.
-
-    Returns the _FakeParser class, so a test can inspect
-    _FakeParser.parsed_doc_ids after calling DocProcessing methods.
+    Returns the _FakeParser class, in place of get_parser.
     """
-    _FakeParser.parsed_doc_ids = []
-
-    def fake_get_parser(doc_type):
-        return _FakeParser
-
-    monkeypatch.setattr("l1_doc_processing.doc_processing.get_parser", fake_get_parser)
     return _FakeParser
 
 
+def _write_source_files(source_dir, file_texts):
+    """
+    source_dir: folder to write the local dataset files into.
+    file_texts: list of (file_name, text) pairs.
+
+    Writes each text into source_dir/file_name.
+
+    Returns nothing.
+    """
+    os.makedirs(source_dir, exist_ok=True)
+    for file_name, text in file_texts:
+        file_path = os.path.join(source_dir, file_name)
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+
+def _doc_id_for(text):
+    """
+    text: a source file's text.
+
+    Returns the doc_id DocProcessing computes for that file.
+    """
+    return make_doc_id("pdf", text.encode("utf-8"))
+
+
 @pytest.fixture
-def registered_local_dataset_config(isolated_data_dir, monkeypatch):
+def local_dataset(isolated_data_dir, monkeypatch):
     """
-    isolated_data_dir: ensures this runs with an isolated cwd, so the
-        registered dataset_path lives under the same temporary
-        directory DocProcessing will write data/raw and data/processed
-        into.
-    monkeypatch: pytest's built-in fixture for reverting changes after
-        the test.
+    Registers DATASET_NAME as a local dataset whose identifier is a
+    fresh source folder, and swaps in the fake parser.
 
-    Registers a DatasetConfig with doc_type "pdf" under
-    common.dataset_config._DATASET_CONFIGS, keyed by a local
-    dataset_path directory, so a DocProcessing constructed against
-    that dataset_path does not need a real registered dataset or
-    network access. Creates the dataset_path directory on disk. Uses
-    monkeypatch.setitem so the registration is undone after the test.
-
-    Returns the dataset_path string this config is registered under.
+    Returns the source folder path. Tests write their files into it.
     """
-    dataset_path = str(isolated_data_dir / "source_dataset")
-    os.makedirs(dataset_path, exist_ok=True)
+    source_dir = str(isolated_data_dir / "source_docs")
+    os.makedirs(source_dir)
 
-    dataset_config = DatasetConfig(
+    config = DatasetConfig(
+        identifier=source_dir,
         doc_type="pdf",
         extension="pdf",
         content_field="",
         content_encoding="bytes",
         file_name_field="",
-        split="",
-    )
-
-    monkeypatch.setitem(dataset_config_module._DATASET_CONFIGS, dataset_path, dataset_config)
-
-    return dataset_path
-
-
-def _write_bytes(path, content):
-    """
-    path: file path to write.
-    content: bytes to write.
-
-    Writes content to path in binary mode, as a small explicit helper
-    so individual tests don't repeat the open/write boilerplate.
-
-    Returns nothing.
-    """
-    with open(path, "wb") as f:
-        f.write(content)
-
-
-# ---------- __init__ ----------
-
-
-def test_init_computes_raw_and_processed_paths_from_dataset_name(
-    registered_local_dataset_config,
-):
-    """
-    Input: a DocProcessing constructed with doc_type "pdf" and
-    dataset_name "myset".
-    Output: processor.raw_path and processor.processed_path.
-
-    Checks that the cache directories follow common.paths' naming
-    convention.
-    """
-    processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
-
-    assert processor.raw_path == "myset/data/raw"
-    assert processor.processed_path == "myset/data/processed"
-
-
-# ---------- validate ----------
-
-
-def test_validate_passes_when_doc_type_matches_and_dataset_size_fits(
-    registered_local_dataset_config,
-):
-    """
-    Input: a DocProcessing whose doc_type matches its dataset_config's
-    doc_type, with dataset_size no larger than what's actually in
-    dataset_path.
-    Output: none; validate() is expected not to raise.
-    """
-    dataset_path = registered_local_dataset_config
-    _write_bytes(os.path.join(dataset_path, "doc1.pdf"), b"first document")
-    processor = DocProcessing("pdf", "myset", 1, None, dataset_path)
-
-    processor.validate()
-
-
-def test_validate_raises_value_error_when_doc_type_does_not_match(
-    registered_local_dataset_config,
-):
-    """
-    Input: a DocProcessing constructed with a doc_type that does not
-    match its dataset_config's registered doc_type ("pdf"), and
-    dataset_size 0 so the doc_type check is what's under test.
-    Output: none; validate() is expected to raise.
-    """
-    processor = DocProcessing(
-        "not-pdf", "myset", 0, None, registered_local_dataset_config
-    )
-
-    with pytest.raises(ValueError):
-        processor.validate()
-
-
-def test_validate_raises_value_error_when_dataset_size_exceeds_actual_size(
-    registered_local_dataset_config,
-):
-    """
-    Input: a DocProcessing whose doc_type matches, but whose
-    dataset_size (5) is larger than the number of files actually in
-    dataset_path (1).
-    Output: none; validate() is expected to raise.
-
-    Regression coverage for the CUAD run that silently processed only
-    508 of the 5000 requested documents: validate() must now catch
-    this upfront instead of letting the pipeline proceed.
-    """
-    dataset_path = registered_local_dataset_config
-    _write_bytes(os.path.join(dataset_path, "doc1.pdf"), b"first document")
-    processor = DocProcessing("pdf", "myset", 5, None, dataset_path)
-
-    with pytest.raises(ValueError):
-        processor.validate()
-
-
-# ---------- get_actual_dataset_size ----------
-
-
-def test_get_actual_dataset_size_counts_files_for_local_dataset(
-    registered_local_dataset_config,
-):
-    """
-    Input: three files sitting in dataset_path.
-    Output: processor.get_actual_dataset_size()'s return value.
-
-    Checks the local-dataset branch: the actual size is just a file
-    count, with no network access involved.
-    """
-    dataset_path = registered_local_dataset_config
-    _write_bytes(os.path.join(dataset_path, "doc1.pdf"), b"one")
-    _write_bytes(os.path.join(dataset_path, "doc2.pdf"), b"two")
-    _write_bytes(os.path.join(dataset_path, "doc3.pdf"), b"three")
-    processor = DocProcessing("pdf", "myset", 1, None, dataset_path)
-
-    assert processor.get_actual_dataset_size() == 3
-
-
-def test_get_actual_dataset_size_reads_split_num_examples_for_url_dataset(
-    isolated_data_dir, monkeypatch
-):
-    """
-    Input: a DocProcessing constructed against a dataset_url registered
-    with a fake DatasetConfig, with datasets.load_dataset_builder
-    stubbed out to avoid any real network access.
-    Output: processor.get_actual_dataset_size()'s return value.
-
-    Checks the web-dataset branch: the actual size comes from the
-    builder's declared split size, not from downloading/streaming any
-    document content.
-    """
-
-    def fake_load_dataset_builder(dataset_url):
-        return _FakeBuilder({"train": _FakeSplitInfo(num_examples=42)})
-
-    monkeypatch.setattr(
-        "l1_doc_processing.doc_processing.load_dataset_builder",
-        fake_load_dataset_builder,
-    )
-
-    dataset_url = "some-org/some-dataset"
-    dataset_config = DatasetConfig(
-        doc_type="pdf",
-        extension="pdf",
-        content_field="content",
-        content_encoding="bytes",
-        file_name_field="file_name",
         split="train",
     )
-    monkeypatch.setitem(dataset_config_module._DATASET_CONFIGS, dataset_url, dataset_config)
+    monkeypatch.setitem(dataset_config_module._DATASET_CONFIGS, DATASET_NAME, config)
+    monkeypatch.setattr(doc_processing_module, "get_parser", _fake_get_parser)
+    _FakeParser.parsed_doc_ids = []
+    return source_dir
 
-    processor = DocProcessing("pdf", "myset", 1, dataset_url, None)
 
-    assert processor.get_actual_dataset_size() == 42
-
-
-def test_get_actual_dataset_size_is_none_when_builder_publishes_no_splits(
-    isolated_data_dir, monkeypatch
-):
+def _make_processor(source_dir, dataset_size):
     """
-    Input: a DocProcessing constructed against a dataset_url whose
-    builder.info.splits is None, matching WebDataset-format datasets
-    (e.g. pixparse/pdfa-eng-wds) that publish no split-size metadata.
-    Output: processor.get_actual_dataset_size()'s return value.
+    source_dir: the local dataset folder.
+    dataset_size: number of processed documents wanted.
 
-    Checks that a dataset with no declared split-size metadata
-    reports its actual size as None (unknown) rather than raising.
+    Returns a DocProcessing for the registered local dataset.
     """
-
-    def fake_load_dataset_builder(dataset_url):
-        return _FakeBuilder(None)
-
-    monkeypatch.setattr(
-        "l1_doc_processing.doc_processing.load_dataset_builder",
-        fake_load_dataset_builder,
-    )
-
-    dataset_url = "some-org/webdataset-without-split-sizes"
-    dataset_config = DatasetConfig(
-        doc_type="pdf",
-        extension="pdf",
-        content_field="content",
-        content_encoding="bytes",
-        file_name_field="file_name",
-        split="train",
-    )
-    monkeypatch.setitem(dataset_config_module._DATASET_CONFIGS, dataset_url, dataset_config)
-
-    processor = DocProcessing("pdf", "myset", 1, dataset_url, None)
-
-    assert processor.get_actual_dataset_size() is None
+    return DocProcessing("pdf", DATASET_NAME, dataset_size, None, source_dir)
 
 
-def test_validate_proceeds_with_warning_when_dataset_size_is_unknown(
-    isolated_data_dir, monkeypatch, capsys
-):
+def _read_progress_file():
     """
-    Input: a DocProcessing constructed against a dataset_url whose
-    builder.info.splits is None, with any requested dataset_size.
-    Output: none; validate() is expected not to raise, but to print a
-    warning that the size could not be checked.
-
-    Checks that an undeterminable actual size does not block the
-    pipeline (unlike an actual size that's too small, which does).
+    Returns the saved progress.json of DATASET_NAME as a dict.
     """
-
-    def fake_load_dataset_builder(dataset_url):
-        return _FakeBuilder(None)
-
-    monkeypatch.setattr(
-        "l1_doc_processing.doc_processing.load_dataset_builder",
-        fake_load_dataset_builder,
-    )
-
-    dataset_url = "some-org/webdataset-without-split-sizes"
-    dataset_config = DatasetConfig(
-        doc_type="pdf",
-        extension="pdf",
-        content_field="content",
-        content_encoding="bytes",
-        file_name_field="file_name",
-        split="train",
-    )
-    monkeypatch.setitem(dataset_config_module._DATASET_CONFIGS, dataset_url, dataset_config)
-
-    processor = DocProcessing("pdf", "myset", 10, dataset_url, None)
-
-    processor.validate()
-
-    captured = capsys.readouterr()
-    assert "cannot be validated upfront" in captured.out
+    with open(f"{DATASET_NAME}/data/progress.json", encoding="utf-8") as f:
+        return json.load(f)
 
 
-# ---------- load_cache ----------
+# ---------- progress ----------
 
 
-def test_load_cache_reads_every_file_keyed_by_doc_id(registered_local_dataset_config):
+def test_load_progress_returns_empty_progress_on_first_run(local_dataset):
     """
-    Input: two raw cache files already written under processor.raw_path.
-    Output: processor.load_cache()'s return value.
-
-    Checks that load_cache returns every cached file's bytes, keyed by
-    its doc_id (the filename with the extension stripped).
+    Input: no progress.json on disk.
+    Output: load_progress's return value.
     """
-    processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
-    os.makedirs(processor.raw_path, exist_ok=True)
-    _write_bytes(os.path.join(processor.raw_path, "pdf_aaa.pdf"), b"content a")
-    _write_bytes(os.path.join(processor.raw_path, "pdf_bbb.pdf"), b"content b")
+    processor = _make_processor(local_dataset, 1)
 
-    cached = processor.load_cache()
+    progress = processor.load_progress()
 
-    assert cached == {"pdf_aaa": b"content a", "pdf_bbb": b"content b"}
+    assert progress.dataset_identifier == local_dataset
+    assert progress.split == "train"
+    assert progress.doc_type == "pdf"
+    assert progress.rows_consumed == 0
+    assert progress.processed_doc_ids == []
+    assert progress.skipped_doc_ids == []
 
 
-def test_load_cache_returns_empty_dict_when_raw_path_is_empty(
-    registered_local_dataset_config,
-):
+def test_save_and_load_progress_round_trips_and_leaves_no_temp_file(local_dataset):
     """
-    Input: an existing, empty processor.raw_path directory.
-    Output: processor.load_cache()'s return value.
+    Input: a Progress saved with save_progress.
+    Output: the Progress read back with load_progress, and the files
+    left in the data folder.
     """
-    processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
-    os.makedirs(processor.raw_path, exist_ok=True)
+    processor = _make_processor(local_dataset, 1)
+    saved = Progress(local_dataset, "train", "pdf", 7, ["pdf_a", "pdf_b"], ["pdf_c"])
 
-    assert processor.load_cache() == {}
+    processor.save_progress(saved)
+    loaded = processor.load_progress()
+
+    assert loaded == saved
+    assert os.listdir(f"{DATASET_NAME}/data") == ["progress.json"]
 
 
-# ---------- decode_raw_bytes ----------
-
-
-def test_decode_raw_bytes_base64(registered_local_dataset_config):
+def test_make_progress_uses_the_dataset_config(local_dataset):
     """
-    Input: a row whose content field holds base64-encoded text, with
-    dataset_config.content_encoding set to "base64".
-    Output: processor.decode_raw_bytes's return value.
+    Input: counts and id collections for make_progress.
+    Output: the returned Progress.
     """
-    processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
-    processor.dataset_config.content_field = "content"
-    processor.dataset_config.content_encoding = "base64"
-    row = {"content": base64.b64encode(b"hello").decode("ascii")}
+    processor = _make_processor(local_dataset, 1)
 
-    assert processor.decode_raw_bytes(row) == b"hello"
+    progress = processor.make_progress(3, ["pdf_a"], {"pdf_b"})
+
+    assert progress == Progress(local_dataset, "train", "pdf", 3, ["pdf_a"], ["pdf_b"])
 
 
-def test_decode_raw_bytes_bytes(registered_local_dataset_config):
+# ---------- documents on disk ----------
+
+
+def test_document_to_json_dict_and_back_round_trips(local_dataset):
     """
-    Input: a row whose content field already holds raw bytes, with
-    dataset_config.content_encoding set to "bytes".
-    Output: processor.decode_raw_bytes's return value.
+    Input: a Document converted to a JSON dict and back.
+    Output: the rebuilt Document.
     """
-    processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
-    processor.dataset_config.content_field = "content"
-    processor.dataset_config.content_encoding = "bytes"
-    row = {"content": b"already bytes"}
+    processor = _make_processor(local_dataset, 1)
+    document = _FakeParser().parse("pdf_x", b"hello", "some/path")
 
-    assert processor.decode_raw_bytes(row) == b"already bytes"
+    data = processor.document_to_json_dict(document)
+    rebuilt = processor.json_dict_to_document(data)
+
+    assert isinstance(data["timestamp"], str)
+    assert rebuilt == document
 
 
-def test_decode_raw_bytes_text(registered_local_dataset_config):
+def test_save_and_load_processed_document_round_trips(local_dataset):
     """
-    Input: a row whose content field holds plain text, with
-    dataset_config.content_encoding set to "text".
-    Output: processor.decode_raw_bytes's return value.
+    Input: a Document saved with save_processed_document.
+    Output: load_processed_document's return value.
     """
-    processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
-    processor.dataset_config.content_field = "content"
-    processor.dataset_config.content_encoding = "text"
-    row = {"content": "plain text"}
-
-    assert processor.decode_raw_bytes(row) == "plain text".encode("utf-8")
-
-
-def test_decode_raw_bytes_raises_on_unrecognized_encoding(
-    registered_local_dataset_config,
-):
-    """
-    Input: a row, with dataset_config.content_encoding set to a value
-    that is none of "base64", "bytes", or "text".
-    Output: none; decode_raw_bytes is expected to raise.
-    """
-    processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
-    processor.dataset_config.content_field = "content"
-    processor.dataset_config.content_encoding = "zip"
-    row = {"content": "irrelevant"}
-
-    with pytest.raises(ValueError):
-        processor.decode_raw_bytes(row)
-
-
-# ---------- compute_raw_data ----------
-
-
-def test_compute_raw_data_returns_a_plain_dict_when_cache_already_covers_dataset_size(
-    registered_local_dataset_config,
-):
-    """
-    Input: processor.raw_path already holding three cached raw files,
-    and dataset_size set to 2 (less than what's cached).
-    Output: processor.compute_raw_data()'s return value.
-
-    Regression test: compute_raw_data must return a plain dict on
-    every path, not a (dict, int) tuple. It previously returned a
-    tuple specifically on this cache-already-satisfied path, which
-    broke process_raw_data downstream.
-    """
-    processor = DocProcessing("pdf", "myset", 2, None, registered_local_dataset_config)
-    os.makedirs(processor.raw_path, exist_ok=True)
-    _write_bytes(os.path.join(processor.raw_path, "pdf_aaa.pdf"), b"content a")
-    _write_bytes(os.path.join(processor.raw_path, "pdf_bbb.pdf"), b"content b")
-    _write_bytes(os.path.join(processor.raw_path, "pdf_ccc.pdf"), b"content c")
-
-    result = processor.compute_raw_data()
-
-    assert type(result) is dict
-    assert len(result) == 2
-    assert result == {"pdf_aaa": b"content a", "pdf_bbb": b"content b"}
-
-
-def test_compute_raw_data_copies_new_files_from_local_dataset_path(
-    registered_local_dataset_config,
-):
-    """
-    Input: an empty raw cache, and two files sitting in dataset_path.
-    Output: processor.compute_raw_data()'s return value, and the files
-    written under processor.raw_path.
-
-    Checks that the local (non-dataset_url) branch reads files
-    straight from dataset_path and caches them under raw_path.
-    """
-    dataset_path = registered_local_dataset_config
-    _write_bytes(os.path.join(dataset_path, "doc1.pdf"), b"first document")
-    _write_bytes(os.path.join(dataset_path, "doc2.pdf"), b"second document")
-    processor = DocProcessing("pdf", "myset", 2, None, dataset_path)
-
-    result = processor.compute_raw_data()
-
-    assert type(result) is dict
-    assert len(result) == 2
-    cached_file_names = sorted(os.listdir(processor.raw_path))
-    assert len(cached_file_names) == 2
-
-
-def test_compute_raw_data_skips_unreadable_local_entry_and_keeps_the_rest(
-    registered_local_dataset_config,
-):
-    """
-    Input: dataset_path containing one unreadable entry (a directory,
-    which sorts before the real file) and one real file.
-    Output: processor.compute_raw_data()'s return value.
-
-    Checks that a per-file failure in the local branch is logged and
-    skipped rather than aborting the whole batch.
-    """
-    dataset_path = registered_local_dataset_config
-    os.makedirs(os.path.join(dataset_path, "bad_dir"), exist_ok=True)
-    _write_bytes(os.path.join(dataset_path, "good.pdf"), b"good content")
-    processor = DocProcessing("pdf", "myset", 2, None, dataset_path)
-
-    result = processor.compute_raw_data()
-
-    assert len(result) == 1
-    doc_id = list(result.keys())[0]
-    assert result[doc_id] == b"good content"
-
-
-# ---------- process_raw_data ----------
-
-
-def test_process_raw_data_reuses_cached_processed_document_without_reparsing(
-    registered_local_dataset_config, fake_parser_class
-):
-    """
-    Input: a processed Document already saved under processor.processed_path
-    for doc_id "pdf_cached".
-    Output: processor.process_raw_data's return value.
-
-    Checks that an already-processed doc_id is loaded from cache and
-    never handed to the parser again.
-    """
-    processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
-    os.makedirs(processor.processed_path, exist_ok=True)
-    doc_id = "pdf_cached"
-    cached_text = "cached text with plenty of words to build a shingle set from"
-    cached_document = Document(
-        id=doc_id,
-        text=cached_text,
-        title=None,
-        path="irrelevant",
-        format="fake",
-        metadata={},
-        content_hash=make_content_hash(cached_text),
-        timestamp=datetime.datetime.now(datetime.timezone.utc),
-    )
-    processor.save_processed_document(doc_id, cached_document)
-
-    result = processor.process_raw_data({doc_id: b"irrelevant raw bytes"})
-
-    assert doc_id in result
-    assert result[doc_id].text == cached_text
-    assert fake_parser_class.parsed_doc_ids == []
-
-
-def test_process_raw_data_parses_and_saves_a_new_document(
-    registered_local_dataset_config, fake_parser_class
-):
-    """
-    Input: one doc_id with no cached processed Document yet.
-    Output: processor.process_raw_data's return value, and the saved
-    processed JSON file.
-
-    Checks that a new document is parsed exactly once and persisted to
-    processed_path.
-    """
-    processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
-    doc_id = "pdf_new"
-
-    result = processor.process_raw_data({doc_id: b"brand new content words here"})
-
-    assert doc_id in result
-    assert result[doc_id].text == "brand new content words here"
-    assert fake_parser_class.parsed_doc_ids == [doc_id]
-    saved = processor.load_processed_document(doc_id)
-    assert saved is not None
-    assert saved.text == "brand new content words here"
-
-
-def test_process_raw_data_skips_documents_that_fail_to_parse(
-    registered_local_dataset_config, fake_parser_class
-):
-    """
-    Input: two doc_ids, one whose raw_bytes trigger _FakeParser's
-    simulated parse failure (b"BAD") and one that parses fine.
-    Output: processor.process_raw_data's return value.
-
-    Checks that a parse failure is skipped, not saved, and does not
-    stop the rest of the batch from being processed.
-    """
-    processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
-    documents_raw_bytes = {"pdf_bad": b"BAD", "pdf_good": b"fine content words"}
-
-    result = processor.process_raw_data(documents_raw_bytes)
-
-    assert "pdf_bad" not in result
-    assert "pdf_good" in result
-    assert processor.load_processed_document("pdf_bad") is None
-
-
-def test_process_raw_data_skips_exact_duplicate_content(
-    registered_local_dataset_config, fake_parser_class
-):
-    """
-    Input: two different doc_ids whose raw_bytes decode to the exact
-    same text.
-    Output: processor.process_raw_data's return value.
-
-    Checks that the second document to arrive with identical text
-    (identical content_hash) is skipped and never saved, since dict
-    iteration order in CPython follows insertion order.
-    """
-    processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
-    same_text_bytes = b"identical duplicate content shared across two documents"
-    documents_raw_bytes = {"pdf_first": same_text_bytes, "pdf_second": same_text_bytes}
-
-    result = processor.process_raw_data(documents_raw_bytes)
-
-    assert "pdf_first" in result
-    assert "pdf_second" not in result
-    assert processor.load_processed_document("pdf_second") is None
-
-
-# ---------- process ----------
-
-
-def test_process_raises_before_touching_the_filesystem_when_doc_type_mismatches(
-    registered_local_dataset_config,
-):
-    """
-    Input: a DocProcessing whose doc_type does not match its
-    dataset_config's registered doc_type.
-    Output: none; process() is expected to raise.
-
-    Regression test: process() must call validate() before doing any
-    work. It previously never called validate() at all, silently
-    letting a doc_type/dataset mismatch through.
-    """
-    processor = DocProcessing(
-        "not-pdf", "myset", 5, None, registered_local_dataset_config
-    )
-
-    with pytest.raises(ValueError):
-        processor.process()
-
-    assert not os.path.exists(processor.raw_path)
-
-
-def test_process_end_to_end_with_local_dataset(
-    registered_local_dataset_config, fake_parser_class
-):
-    """
-    Input: two files in dataset_path, dataset_size 2, no dataset_url.
-    Output: processor.process()'s return value.
-
-    Checks the full process() pipeline for a local dataset: both files
-    are copied into the raw cache, parsed, and saved as processed
-    Documents.
-    """
-    dataset_path = registered_local_dataset_config
-    _write_bytes(os.path.join(dataset_path, "doc1.pdf"), b"first document body")
-    _write_bytes(os.path.join(dataset_path, "doc2.pdf"), b"second document body")
-    processor = DocProcessing("pdf", "myset", 2, None, dataset_path)
-
-    documents = processor.process()
-
-    assert len(documents) == 2
-    assert set(fake_parser_class.parsed_doc_ids) == set(documents.keys())
-    assert len(os.listdir(processor.processed_path)) == 2
-
-
-# ---------- document_to_json_dict / json_dict_to_document ----------
-
-
-def test_document_to_json_dict_and_back_round_trips(registered_local_dataset_config):
-    """
-    Input: a fully-populated Document.
-    Output: processor.document_to_json_dict then
-    processor.json_dict_to_document, applied in sequence.
-
-    Checks that the JSON-dict conversion is lossless, including the
-    timestamp's ISO-8601 round trip.
-    """
-    processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
-    timestamp = datetime.datetime(2024, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
-    original = Document(
-        id="pdf_x",
-        text="hello",
-        title="A Title",
-        path="p",
-        format="pdf",
-        metadata={"a": 1},
-        content_hash="hash",
-        timestamp=timestamp,
-    )
-
-    data = processor.document_to_json_dict(original)
-
-    assert data["timestamp"] == "2024-01-01T12:00:00+00:00"
-    restored = processor.json_dict_to_document(data)
-    assert restored == original
-
-
-# ---------- save_processed_document / load_processed_document ----------
-
-
-def test_save_and_load_processed_document_round_trips(registered_local_dataset_config):
-    """
-    Input: a Document saved via processor.save_processed_document.
-    Output: processor.load_processed_document's return value.
-    """
-    processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
-    os.makedirs(processor.processed_path, exist_ok=True)
-    document = Document(
-        id="pdf_x",
-        text="hi",
-        title=None,
-        path="p",
-        format="pdf",
-        metadata={},
-        content_hash="h",
-        timestamp=datetime.datetime.now(datetime.timezone.utc),
-    )
+    processor = _make_processor(local_dataset, 1)
+    document = _FakeParser().parse("pdf_x", b"hello", "some/path")
 
     processor.save_processed_document("pdf_x", document)
     loaded = processor.load_processed_document("pdf_x")
 
     assert loaded == document
+    assert os.path.isfile(f"{DATASET_NAME}/data/processed/pdf_x.json")
 
 
-def test_load_processed_document_returns_none_when_missing(
-    registered_local_dataset_config,
+def test_load_processed_document_returns_none_when_missing(local_dataset):
+    """
+    Input: a doc_id with no processed file.
+    Output: load_processed_document's return value.
+    """
+    processor = _make_processor(local_dataset, 1)
+
+    assert processor.load_processed_document("pdf_missing") is None
+
+
+def test_save_raw_bytes_writes_file_and_returns_its_path(local_dataset):
+    """
+    Input: raw bytes for one doc_id.
+    Output: save_raw_bytes's return value and the written file.
+    """
+    processor = _make_processor(local_dataset, 1)
+
+    file_path = processor.save_raw_bytes("pdf_x", b"raw content")
+
+    assert file_path == f"{DATASET_NAME}/data/raw/pdf_x.pdf"
+    with open(file_path, "rb") as f:
+        assert f.read() == b"raw content"
+
+
+# ---------- source rows ----------
+
+
+def test_get_iterator_for_local_dataset_skips_rows_consumed(local_dataset):
+    """
+    Input: three source files and rows_consumed of 1.
+    Output: the file names get_iterator yields.
+    """
+    _write_source_files(local_dataset, [("c.txt", "c"), ("a.txt", "a"), ("b.txt", "b")])
+    processor = _make_processor(local_dataset, 1)
+
+    file_names = []
+    for file_name in processor.get_iterator(1):
+        file_names.append(file_name)
+
+    assert file_names == ["b.txt", "c.txt"]
+
+
+def test_decode_raw_bytes_reads_local_file(local_dataset):
+    """
+    Input: a local file name.
+    Output: decode_raw_bytes's return value.
+    """
+    _write_source_files(local_dataset, [("a.txt", "hello")])
+    processor = _make_processor(local_dataset, 1)
+
+    assert processor.decode_raw_bytes("a.txt") == b"hello"
+
+
+@pytest.mark.parametrize(
+    "content_encoding, raw_value, expected_bytes",
+    [
+        ("base64", "aGVsbG8=", b"hello"),
+        ("bytes", b"hello", b"hello"),
+        ("text", "hello", b"hello"),
+    ],
+)
+def test_decode_raw_bytes_decodes_web_row_per_content_encoding(
+    local_dataset, content_encoding, raw_value, expected_bytes
 ):
     """
-    Input: a processed_path with no file for the requested doc_id.
-    Output: processor.load_processed_document's return value.
+    Input: a web dataset row whose content field uses content_encoding.
+    Output: decode_raw_bytes's return value.
     """
-    processor = DocProcessing("pdf", "myset", 5, None, registered_local_dataset_config)
-    os.makedirs(processor.processed_path, exist_ok=True)
+    processor = _make_processor(local_dataset, 1)
+    processor.dataset_url = "someone/some-dataset"
+    processor.dataset_config.content_field = "content"
+    processor.dataset_config.content_encoding = content_encoding
 
-    assert processor.load_processed_document("does-not-exist") is None
+    assert processor.decode_raw_bytes({"content": raw_value}) == expected_bytes
+
+
+def test_decode_raw_bytes_raises_on_unknown_content_encoding(local_dataset):
+    """
+    Input: a web dataset row with an unknown content_encoding.
+    Output: none; ValueError is expected.
+    """
+    processor = _make_processor(local_dataset, 1)
+    processor.dataset_url = "someone/some-dataset"
+    processor.dataset_config.content_field = "content"
+    processor.dataset_config.content_encoding = "zip"
+
+    with pytest.raises(ValueError):
+        processor.decode_raw_bytes({"content": "x"})
+
+
+# ---------- process ----------
+
+
+def test_process_first_run_processes_dataset_size_documents_in_order(local_dataset):
+    """
+    Input: four source files, dataset_size 3, no earlier progress.
+    Output: process's return value, the saved progress, and the files
+    on disk.
+    """
+    _write_source_files(local_dataset, [("a.txt", "alpha"), ("b.txt", "beta"), ("c.txt", "gamma"), ("d.txt", "delta")])
+    processor = _make_processor(local_dataset, 3)
+
+    documents = processor.process()
+
+    expected_ids = [_doc_id_for("alpha"), _doc_id_for("beta"), _doc_id_for("gamma")]
+    assert list(documents.keys()) == expected_ids
+    progress = _read_progress_file()
+    assert progress["rows_consumed"] == 3
+    assert progress["processed_doc_ids"] == expected_ids
+    assert progress["skipped_doc_ids"] == []
+    assert len(os.listdir(f"{DATASET_NAME}/data/processed")) == 3
+    assert len(os.listdir(f"{DATASET_NAME}/data/raw")) == 3
+
+
+def test_process_returns_cached_documents_without_parsing_when_enough_exist(local_dataset):
+    """
+    Input: a first run with dataset_size 2, then a second run with the
+    same dataset_size.
+    Output: the second run's return value and the parse calls it made.
+    """
+    _write_source_files(local_dataset, [("a.txt", "alpha"), ("b.txt", "beta"), ("c.txt", "gamma")])
+    _make_processor(local_dataset, 2).process()
+    _FakeParser.parsed_doc_ids = []
+
+    documents = _make_processor(local_dataset, 2).process()
+
+    assert list(documents.keys()) == [_doc_id_for("alpha"), _doc_id_for("beta")]
+    assert _FakeParser.parsed_doc_ids == []
+
+
+def test_process_smaller_request_keeps_all_processed_ids_in_progress(local_dataset):
+    """
+    Input: a first run with dataset_size 3, then a second run with
+    dataset_size 1.
+    Output: the second run's return value and the saved progress.
+    """
+    _write_source_files(local_dataset, [("a.txt", "alpha"), ("b.txt", "beta"), ("c.txt", "gamma")])
+    _make_processor(local_dataset, 3).process()
+
+    documents = _make_processor(local_dataset, 1).process()
+
+    assert list(documents.keys()) == [_doc_id_for("alpha")]
+    progress = _read_progress_file()
+    assert progress["processed_doc_ids"] == [_doc_id_for("alpha"), _doc_id_for("beta"), _doc_id_for("gamma")]
+
+
+def test_process_resumes_from_rows_consumed_for_a_bigger_request(local_dataset):
+    """
+    Input: a first run with dataset_size 2, then a second run with
+    dataset_size 4.
+    Output: the second run's return value, its parse calls, and the
+    saved progress.
+    """
+    _write_source_files(local_dataset, [("a.txt", "alpha"), ("b.txt", "beta"), ("c.txt", "gamma"), ("d.txt", "delta")])
+    _make_processor(local_dataset, 2).process()
+    _FakeParser.parsed_doc_ids = []
+
+    documents = _make_processor(local_dataset, 4).process()
+
+    assert len(documents) == 4
+    assert _FakeParser.parsed_doc_ids == [_doc_id_for("gamma"), _doc_id_for("delta")]
+    progress = _read_progress_file()
+    assert progress["rows_consumed"] == 4
+    assert progress["processed_doc_ids"] == [
+        _doc_id_for("alpha"),
+        _doc_id_for("beta"),
+        _doc_id_for("gamma"),
+        _doc_id_for("delta"),
+    ]
+
+
+def test_process_skips_parse_failures_and_reads_more_rows(local_dataset):
+    """
+    Input: a file that fails to parse between good files, dataset_size 2.
+    Output: process's return value and the saved progress.
+    """
+    _write_source_files(local_dataset, [("a.txt", "alpha"), ("b.txt", "BAD"), ("c.txt", "gamma")])
+    processor = _make_processor(local_dataset, 2)
+
+    documents = processor.process()
+
+    assert list(documents.keys()) == [_doc_id_for("alpha"), _doc_id_for("gamma")]
+    progress = _read_progress_file()
+    assert progress["rows_consumed"] == 3
+    assert progress["skipped_doc_ids"] == [_doc_id_for("BAD")]
+
+
+def test_process_does_not_parse_a_previously_skipped_document_again(local_dataset):
+    """
+    Input: a run where one file fails to parse, then a second run over
+    a new copy of the same failing content.
+    Output: the parse calls made by the second run.
+    """
+    _write_source_files(local_dataset, [("a.txt", "BAD"), ("b.txt", "alpha")])
+    _make_processor(local_dataset, 1).process()
+    _write_source_files(local_dataset, [("c.txt", "BAD"), ("d.txt", "beta")])
+    _FakeParser.parsed_doc_ids = []
+
+    _make_processor(local_dataset, 2).process()
+
+    assert _FakeParser.parsed_doc_ids == [_doc_id_for("beta")]
+
+
+def test_process_skips_exact_duplicate_text(local_dataset):
+    """
+    Input: two files with the same text, then a different one,
+    dataset_size 2.
+    Output: process's return value.
+    """
+    _write_source_files(local_dataset, [("a.txt", "alpha"), ("b.txt", "alpha"), ("c.txt", "gamma")])
+    processor = _make_processor(local_dataset, 2)
+
+    documents = processor.process()
+
+    assert list(documents.keys()) == [_doc_id_for("alpha"), _doc_id_for("gamma")]
+    assert _read_progress_file()["rows_consumed"] == 3
+
+
+def _skip_validate_dataset(doc_type, dataset_name, dataset_size, dataset_url, dataset_path):
+    """
+    Same arguments as validate.validate_dataset. Does nothing.
+    """
+    return None
+
+
+def test_process_returns_fewer_documents_when_the_source_runs_out(local_dataset, monkeypatch):
+    """
+    Input: two source files, dataset_size 5.
+    Output: process's return value and the saved progress.
+
+    validate_dataset would reject 5 > 2 files up front (that case is
+    covered in test_validate.py), so it is switched off here to test
+    process's end-of-source handling, e.g. when rows are lost to
+    duplicates or parse failures.
+    """
+    _write_source_files(local_dataset, [("a.txt", "alpha"), ("b.txt", "beta")])
+    monkeypatch.setattr(doc_processing_module.validate, "validate_dataset", _skip_validate_dataset)
+    processor = _make_processor(local_dataset, 5)
+
+    documents = processor.process()
+
+    assert len(documents) == 2
+    progress = _read_progress_file()
+    assert progress["rows_consumed"] == 2
+    assert len(progress["processed_doc_ids"]) == 2
+
+
+def test_process_marks_a_missing_processed_file_as_skipped(local_dataset):
+    """
+    Input: a first run with dataset_size 2, one processed file deleted,
+    then a second run with dataset_size 2.
+    Output: the second run's return value and the saved progress.
+    """
+    _write_source_files(local_dataset, [("a.txt", "alpha"), ("b.txt", "beta"), ("c.txt", "gamma")])
+    _make_processor(local_dataset, 2).process()
+    os.remove(f"{DATASET_NAME}/data/processed/{_doc_id_for('alpha')}.json")
+
+    documents = _make_processor(local_dataset, 2).process()
+
+    assert list(documents.keys()) == [_doc_id_for("beta"), _doc_id_for("gamma")]
+    progress = _read_progress_file()
+    assert progress["processed_doc_ids"] == [_doc_id_for("beta"), _doc_id_for("gamma")]
+    assert progress["skipped_doc_ids"] == [_doc_id_for("alpha")]
+
+
+def test_process_raises_before_writing_anything_when_doc_type_mismatches(local_dataset):
+    """
+    Input: a DocProcessing whose doc_type differs from the registered one.
+    Output: none; ValueError is expected and nothing is written.
+    """
+    _write_source_files(local_dataset, [("a.txt", "alpha")])
+    processor = DocProcessing("html", DATASET_NAME, 1, None, local_dataset)
+
+    with pytest.raises(ValueError):
+        processor.process()
+
+    assert not os.path.exists(DATASET_NAME)
+
+
+def test_process_raises_when_saved_progress_is_from_another_source(local_dataset):
+    """
+    Input: a progress.json saved for a different dataset identifier.
+    Output: none; ValueError is expected.
+    """
+    _write_source_files(local_dataset, [("a.txt", "alpha")])
+    processor = _make_processor(local_dataset, 1)
+    processor.save_progress(Progress("someone/other-dataset", "train", "pdf", 0, [], []))
+
+    with pytest.raises(ValueError):
+        processor.process()

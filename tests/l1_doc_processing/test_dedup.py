@@ -15,44 +15,42 @@ from l1_doc_processing.dedup import (
 
 def test_is_exact_duplicate_true_when_content_hash_already_seen():
     """
-    Input: a content_hash that is already a value in
-    seen_content_hash_dict.
+    Input: a content_hash that is already in seen_content_hashes.
     Output: is_exact_duplicate's return value.
 
     Checks that a content_hash present among the already-seen values is
     reported as an exact duplicate.
     """
-    seen_content_hash_dict = {"doc-1": "hash-a", "doc-2": "hash-b"}
+    seen_content_hashes = {"hash-a", "hash-b"}
 
-    result = is_exact_duplicate("hash-a", seen_content_hash_dict)
+    result = is_exact_duplicate("hash-a", seen_content_hashes)
 
     assert result is True
 
 
 def test_is_exact_duplicate_false_when_content_hash_not_seen():
     """
-    Input: a content_hash that is not a value in
-    seen_content_hash_dict.
+    Input: a content_hash that is not in seen_content_hashes.
     Output: is_exact_duplicate's return value.
 
     Checks that a content_hash absent from the already-seen values is
     not reported as an exact duplicate.
     """
-    seen_content_hash_dict = {"doc-1": "hash-a", "doc-2": "hash-b"}
+    seen_content_hashes = {"hash-a", "hash-b"}
 
-    result = is_exact_duplicate("hash-c", seen_content_hash_dict)
+    result = is_exact_duplicate("hash-c", seen_content_hashes)
 
     assert result is False
 
 
 def test_is_exact_duplicate_false_when_nothing_seen_yet():
     """
-    Input: any content_hash, and an empty seen_content_hash_dict.
+    Input: any content_hash, and an empty seen_content_hashes.
     Output: is_exact_duplicate's return value.
 
     Checks the first-document case, where nothing has been seen yet.
     """
-    result = is_exact_duplicate("hash-a", {})
+    result = is_exact_duplicate("hash-a", set())
 
     assert result is False
 

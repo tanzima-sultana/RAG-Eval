@@ -10,8 +10,8 @@ LOG="log/l1_doc_processing/log.txt"
 
 # 1. Document processing
 DOC_TYPE="pdf"
-DATASET_NAME="CUAD"
-DATASET_SIZE=20
+DATASET_NAME="cuad"
+DATASET_SIZE=500
 DATASET_URL="dvgodoy/CUAD_v1_Contract_Understanding_PDF"
 DATASET_PATH=""
 

@@ -65,7 +65,7 @@ class SemanticChunking(Chunker):
 			tokens_per_sentence = self.tokenizer.encode(per_sentence, add_special_tokens=False)
 
 			# 1. a sentence longer than max_chunk_size on its own: flush what we have,
-            # then split just this sentence with the fixed-window fallback.
+			# then split just this sentence with the fixed-window fallback.
 			if len(tokens_per_sentence) > max_chunk_size:
 				if current_chunk_texts:
 					chunk = self._finalize_chunk(doc_id, chunk_idx, ' '.join(current_chunk_texts), current_chunk_tokens)

@@ -21,9 +21,9 @@ import dataclasses
 
 @dataclasses.dataclass
 class ChunkConfig:
-    dataset_name: str
-    chunk_type: str
-    min_chunk_size: int
-    max_chunk_size: int
-    fixed_chunk_overlap: int
-    semantic_threshold: float
+	dataset_name: str
+	chunk_type: str
+	min_chunk_size: int
+	max_chunk_size: int
+	fixed_chunk_overlap: int
+	semantic_threshold: float

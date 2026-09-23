@@ -29,9 +29,9 @@ from common.chunk_config import ChunkConfig
 # collection_name is the Qdrant collection this build was pushed to.
 @dataclasses.dataclass
 class Index:
-    index_type: str
-    chunk_config: ChunkConfig
-    chunk_ids: list[str]
-    vector_count: int
-    path: str | None = None
-    collection_name: str | None = None
+	index_type: str
+	chunk_config: ChunkConfig
+	chunk_ids: list[str]
+	vector_count: int
+	path: str | None = None
+	collection_name: str | None = None
