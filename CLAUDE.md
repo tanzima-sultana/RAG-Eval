@@ -45,7 +45,11 @@ src/
       text_cleanup.py      # Cleans Document.text. Strips headers/footers, collapses repeated whitespace and blank lines
       metadata.py          # Extracts generic metadata from a document's raw bytes
       dedup.py             # Detects exact duplicates (hash) and near-duplicates (MinHash/LSH)
-      doc_processing.py    # DocProcessing orchestrator 
+      raw_source.py 	   # Raw data batch processing
+	  document_store.py	   # Store and retrieve cached document
+	  progress.py 		   # Save progress of cached and processed documents
+	  summary.py		   # Print summary of l1 layer
+	  doc_processing.py    # DocProcessing orchestrator 
       main.py              # CLI entry point — parses args and wires the pipeline
    
     l2_chunking/
