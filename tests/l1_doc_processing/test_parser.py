@@ -8,6 +8,7 @@ get_parser registry lookup.
 import pytest
 
 from l1_doc_processing.parser import Parser, get_parser
+from l1_doc_processing.parsers.docx import DocxParser
 from l1_doc_processing.parsers.pdf import PDFParser
 
 
@@ -24,6 +25,17 @@ def test_get_parser_returns_pdf_parser_class_for_pdf_doc_type():
     assert parser_cls is PDFParser
 
 
+
+def test_get_parser_returns_docx_parser_class_for_docx_doc_type():
+    """
+    Input: doc_type "docx".
+    Output: get_parser's return value.
+    """
+    parser_cls = get_parser("docx")
+
+    assert parser_cls is DocxParser
+
+
 def test_get_parser_raises_value_error_for_unknown_doc_type():
     """
     Input: a doc_type with no registered parser.
@@ -33,7 +45,7 @@ def test_get_parser_raises_value_error_for_unknown_doc_type():
     silently returning nothing.
     """
     with pytest.raises(ValueError):
-        get_parser("docx")
+        get_parser("html")
 
 
 def test_parser_cannot_be_instantiated_directly():

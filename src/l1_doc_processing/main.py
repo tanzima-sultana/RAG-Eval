@@ -4,7 +4,6 @@ import sys
 import time
 import os 
 
-from common import timing
 from l1_doc_processing.doc_processing import DocProcessing
 
 def parse_args():
@@ -53,7 +52,6 @@ def validate(parsed_args):
 
 if __name__ == "__main__":
 	print("\n ------------- L1 - Document processing -------- \n")
-	timing.reset()
 	start = time.time()
 
 	args = parse_args()
@@ -77,9 +75,11 @@ if __name__ == "__main__":
 		)
 
 	end = time.time()
-	elapsed_time = end - start
-	print("\n\nDocument processing Elapsed time : ", elapsed_time)
-	timing.print_summary()
+	elapsed_seconds = end - start
+	elapsed_minutes = int(elapsed_seconds // 60)
+	remaining_seconds = elapsed_seconds - elapsed_minutes * 60
+	print("\n----- L1 total time -----")
+	print(f"Total : {elapsed_seconds:.3f}s ({elapsed_minutes}m {remaining_seconds:.1f}s)")
 
 	# huggingface `datasets`/fsspec leaves a background thread alive after
 	# streaming a dataset, which crashes normal interpreter shutdown with

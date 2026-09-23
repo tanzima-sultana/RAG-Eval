@@ -19,8 +19,10 @@ from common import dataset_config as dataset_config_module
 from common.dataset_config import DatasetConfig
 from common.identifiers import make_content_hash, make_doc_id
 from l1_doc_processing import doc_processing as doc_processing_module
+from l1_doc_processing import raw_source as raw_source_module
 from l1_doc_processing.doc_processing import DocProcessing
-from l1_doc_processing.schema import Document, Progress
+from l1_doc_processing.progress import Progress, save_progress
+from l1_doc_processing.schema import Document
 
 
 DATASET_NAME = "myset"
@@ -137,177 +139,6 @@ def _read_progress_file():
     """
     with open(f"{DATASET_NAME}/data/progress.json", encoding="utf-8") as f:
         return json.load(f)
-
-
-# ---------- progress ----------
-
-
-def test_load_progress_returns_empty_progress_on_first_run(local_dataset):
-    """
-    Input: no progress.json on disk.
-    Output: load_progress's return value.
-    """
-    processor = _make_processor(local_dataset, 1)
-
-    progress = processor.load_progress()
-
-    assert progress.dataset_identifier == local_dataset
-    assert progress.split == "train"
-    assert progress.doc_type == "pdf"
-    assert progress.rows_consumed == 0
-    assert progress.processed_doc_ids == []
-    assert progress.skipped_doc_ids == []
-
-
-def test_save_and_load_progress_round_trips_and_leaves_no_temp_file(local_dataset):
-    """
-    Input: a Progress saved with save_progress.
-    Output: the Progress read back with load_progress, and the files
-    left in the data folder.
-    """
-    processor = _make_processor(local_dataset, 1)
-    saved = Progress(local_dataset, "train", "pdf", 7, ["pdf_a", "pdf_b"], ["pdf_c"])
-
-    processor.save_progress(saved)
-    loaded = processor.load_progress()
-
-    assert loaded == saved
-    assert os.listdir(f"{DATASET_NAME}/data") == ["progress.json"]
-
-
-def test_make_progress_uses_the_dataset_config(local_dataset):
-    """
-    Input: counts and id collections for make_progress.
-    Output: the returned Progress.
-    """
-    processor = _make_processor(local_dataset, 1)
-
-    progress = processor.make_progress(3, ["pdf_a"], {"pdf_b"})
-
-    assert progress == Progress(local_dataset, "train", "pdf", 3, ["pdf_a"], ["pdf_b"])
-
-
-# ---------- documents on disk ----------
-
-
-def test_document_to_json_dict_and_back_round_trips(local_dataset):
-    """
-    Input: a Document converted to a JSON dict and back.
-    Output: the rebuilt Document.
-    """
-    processor = _make_processor(local_dataset, 1)
-    document = _FakeParser().parse("pdf_x", b"hello", "some/path")
-
-    data = processor.document_to_json_dict(document)
-    rebuilt = processor.json_dict_to_document(data)
-
-    assert isinstance(data["timestamp"], str)
-    assert rebuilt == document
-
-
-def test_save_and_load_processed_document_round_trips(local_dataset):
-    """
-    Input: a Document saved with save_processed_document.
-    Output: load_processed_document's return value.
-    """
-    processor = _make_processor(local_dataset, 1)
-    document = _FakeParser().parse("pdf_x", b"hello", "some/path")
-
-    processor.save_processed_document("pdf_x", document)
-    loaded = processor.load_processed_document("pdf_x")
-
-    assert loaded == document
-    assert os.path.isfile(f"{DATASET_NAME}/data/processed/pdf_x.json")
-
-
-def test_load_processed_document_returns_none_when_missing(local_dataset):
-    """
-    Input: a doc_id with no processed file.
-    Output: load_processed_document's return value.
-    """
-    processor = _make_processor(local_dataset, 1)
-
-    assert processor.load_processed_document("pdf_missing") is None
-
-
-def test_save_raw_bytes_writes_file_and_returns_its_path(local_dataset):
-    """
-    Input: raw bytes for one doc_id.
-    Output: save_raw_bytes's return value and the written file.
-    """
-    processor = _make_processor(local_dataset, 1)
-
-    file_path = processor.save_raw_bytes("pdf_x", b"raw content")
-
-    assert file_path == f"{DATASET_NAME}/data/raw/pdf_x.pdf"
-    with open(file_path, "rb") as f:
-        assert f.read() == b"raw content"
-
-
-# ---------- source rows ----------
-
-
-def test_get_iterator_for_local_dataset_skips_rows_consumed(local_dataset):
-    """
-    Input: three source files and rows_consumed of 1.
-    Output: the file names get_iterator yields.
-    """
-    _write_source_files(local_dataset, [("c.txt", "c"), ("a.txt", "a"), ("b.txt", "b")])
-    processor = _make_processor(local_dataset, 1)
-
-    file_names = []
-    for file_name in processor.get_iterator(1):
-        file_names.append(file_name)
-
-    assert file_names == ["b.txt", "c.txt"]
-
-
-def test_decode_raw_bytes_reads_local_file(local_dataset):
-    """
-    Input: a local file name.
-    Output: decode_raw_bytes's return value.
-    """
-    _write_source_files(local_dataset, [("a.txt", "hello")])
-    processor = _make_processor(local_dataset, 1)
-
-    assert processor.decode_raw_bytes("a.txt") == b"hello"
-
-
-@pytest.mark.parametrize(
-    "content_encoding, raw_value, expected_bytes",
-    [
-        ("base64", "aGVsbG8=", b"hello"),
-        ("bytes", b"hello", b"hello"),
-        ("text", "hello", b"hello"),
-    ],
-)
-def test_decode_raw_bytes_decodes_web_row_per_content_encoding(
-    local_dataset, content_encoding, raw_value, expected_bytes
-):
-    """
-    Input: a web dataset row whose content field uses content_encoding.
-    Output: decode_raw_bytes's return value.
-    """
-    processor = _make_processor(local_dataset, 1)
-    processor.dataset_url = "someone/some-dataset"
-    processor.dataset_config.content_field = "content"
-    processor.dataset_config.content_encoding = content_encoding
-
-    assert processor.decode_raw_bytes({"content": raw_value}) == expected_bytes
-
-
-def test_decode_raw_bytes_raises_on_unknown_content_encoding(local_dataset):
-    """
-    Input: a web dataset row with an unknown content_encoding.
-    Output: none; ValueError is expected.
-    """
-    processor = _make_processor(local_dataset, 1)
-    processor.dataset_url = "someone/some-dataset"
-    processor.dataset_config.content_field = "content"
-    processor.dataset_config.content_encoding = "zip"
-
-    with pytest.raises(ValueError):
-        processor.decode_raw_bytes({"content": "x"})
 
 
 # ---------- process ----------
@@ -506,7 +337,175 @@ def test_process_raises_when_saved_progress_is_from_another_source(local_dataset
     """
     _write_source_files(local_dataset, [("a.txt", "alpha")])
     processor = _make_processor(local_dataset, 1)
-    processor.save_progress(Progress("someone/other-dataset", "train", "pdf", 0, [], []))
+    save_progress(DATASET_NAME, Progress("someone/other-dataset", "train", "pdf", 0, [], []))
 
     with pytest.raises(ValueError):
         processor.process()
+
+
+# ---------- process with web rows, batches and parse times ----------
+
+
+class _FakeUrlResponse:
+    """
+    Stand-in for the response urllib.request.urlopen returns: a context
+    manager whose read() returns fixed bytes.
+    """
+
+    def __init__(self, body):
+        self.body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def read(self):
+        return self.body
+
+
+def _make_web_processor(source_dir, dataset_size, content_encoding, row_filter):
+    """
+    source_dir: the registered local_dataset folder (used only as the
+        config identifier).
+    dataset_size: number of processed documents wanted.
+    content_encoding: content_encoding to set on the config.
+    row_filter: row_filter to set on the config.
+
+    Returns a DocProcessing that behaves like a web dataset whose rows
+    keep their content in the "content" column.
+    """
+    processor = _make_processor(source_dir, dataset_size)
+    processor.dataset_url = "someone/web-dataset"
+    processor.raw_source.dataset_url = "someone/web-dataset"
+    processor.dataset_config.content_field = "content"
+    processor.dataset_config.content_encoding = content_encoding
+    processor.dataset_config.row_filter = row_filter
+    return processor
+
+
+def _fake_rows_iterator(rows):
+    """
+    rows: the web rows to return.
+
+    Returns a get_iterator replacement that yields rows after skipping
+    rows_consumed of them, like the real streamed dataset.
+    """
+    def fake_get_iterator(rows_consumed):
+        return iter(rows[rows_consumed:])
+    return fake_get_iterator
+
+
+def test_process_skips_rows_not_matching_the_row_filter(local_dataset, monkeypatch):
+    """
+    Input: web rows in English and French, row_filter {"language": "en"},
+    dataset_size 2.
+    Output: process's return value, the parse calls, and saved progress.
+    """
+    rows = [
+        {"content": "alpha", "language": "en"},
+        {"content": "bonjour", "language": "fr"},
+        {"content": "beta", "language": "en"},
+        {"content": "gamma", "language": "en"},
+    ]
+    monkeypatch.setattr(doc_processing_module.validate, "validate_dataset", _skip_validate_dataset)
+    processor = _make_web_processor(local_dataset, 2, "text", {"language": "en"})
+    monkeypatch.setattr(processor.raw_source, "get_iterator", _fake_rows_iterator(rows))
+
+    documents = processor.process()
+
+    assert list(documents.keys()) == [_doc_id_for("alpha"), _doc_id_for("beta")]
+    assert _FakeParser.parsed_doc_ids == [_doc_id_for("alpha"), _doc_id_for("beta")]
+    assert _read_progress_file()["rows_consumed"] == 3
+
+
+def test_process_skips_rows_whose_download_fails(local_dataset, monkeypatch):
+    """
+    Input: three url rows where the second download fails, dataset_size 2.
+    Output: process's return value and saved progress.
+    """
+    downloads = {
+        "https://example.com/1": b"alpha",
+        "https://example.com/3": b"gamma",
+    }
+
+    def fake_urlopen(request, timeout):
+        if request.full_url not in downloads:
+            raise raw_source_module.urllib.error.URLError("not found")
+        return _FakeUrlResponse(downloads[request.full_url])
+
+    rows = [
+        {"content": "https://example.com/1"},
+        {"content": "https://example.com/2"},
+        {"content": "https://example.com/3"},
+    ]
+    monkeypatch.setattr(raw_source_module.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(doc_processing_module.validate, "validate_dataset", _skip_validate_dataset)
+    processor = _make_web_processor(local_dataset, 2, "url", None)
+    monkeypatch.setattr(processor.raw_source, "get_iterator", _fake_rows_iterator(rows))
+
+    documents = processor.process()
+
+    assert list(documents.keys()) == [_doc_id_for("alpha"), _doc_id_for("gamma")]
+    assert _read_progress_file()["rows_consumed"] == 3
+
+
+def test_process_prints_parse_time_for_successfully_parsed_documents_only(local_dataset, capsys):
+    """
+    Input: two good files and one that fails to parse, dataset_size 2.
+    Output: the printed parse time summary.
+    """
+    _write_source_files(local_dataset, [("a.txt", "alpha"), ("b.txt", "BAD"), ("c.txt", "gamma")])
+    processor = _make_processor(local_dataset, 2)
+
+    processor.process()
+
+    output = capsys.readouterr().out
+    assert "----- Document parse time -----" in output
+    assert "Documents parsed : 2" in output
+
+
+def test_process_fetches_another_batch_for_the_shortfall(local_dataset, capsys):
+    """
+    Input: four files where the first two fail to parse, dataset_size 2.
+    Output: the printed batch lines and process's return value.
+    """
+    _write_source_files(local_dataset, [("a.txt", "BAD"), ("b.txt", "alpha"), ("c.txt", "gamma"), ("d.txt", "delta")])
+    processor = _make_processor(local_dataset, 2)
+
+    documents = processor.process()
+
+    output = capsys.readouterr().out
+    assert "Batch 1: fetching 2 row(s)." in output
+    assert "Batch 2: fetching 1 row(s)." in output
+    assert list(documents.keys()) == [_doc_id_for("alpha"), _doc_id_for("gamma")]
+    assert _read_progress_file()["rows_consumed"] == 3
+
+
+def test_process_saves_progress_after_each_batch(local_dataset, monkeypatch):
+    """
+    Input: a first batch with one parse failure, then a crash while
+    fetching the second batch.
+    Output: the progress saved before the crash.
+    """
+    _write_source_files(local_dataset, [("a.txt", "alpha"), ("b.txt", "BAD"), ("c.txt", "gamma")])
+    processor = _make_processor(local_dataset, 2)
+    real_fetch_raw_batch = processor.raw_source.fetch_raw_batch
+    fetch_calls = [0]
+
+    def fetch_then_crash(row_iterator, row_count, run_counts):
+        fetch_calls[0] += 1
+        if fetch_calls[0] == 2:
+            raise RuntimeError("simulated crash")
+        return real_fetch_raw_batch(row_iterator, row_count, run_counts)
+
+    monkeypatch.setattr(processor.raw_source, "fetch_raw_batch", fetch_then_crash)
+
+    with pytest.raises(RuntimeError):
+        processor.process()
+
+    progress = _read_progress_file()
+    assert progress["rows_consumed"] == 2
+    assert progress["processed_doc_ids"] == [_doc_id_for("alpha")]
+    assert progress["skipped_doc_ids"] == [_doc_id_for("BAD")]

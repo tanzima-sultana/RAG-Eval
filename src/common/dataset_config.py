@@ -9,6 +9,10 @@ content_encoding: how to turn row[content_field] into raw bytes.
   - "base64": base64-decode it.
   - "bytes": use it as-is.
   - "text": UTF-8 encode it.
+  - "url": it is a download link; download the file's bytes.
+
+row_filter: optional {column: value} pairs a row must match to be
+processed (e.g. {"language": "en"}). None processes every row.
 """
 
 import dataclasses
@@ -23,6 +27,7 @@ class DatasetConfig:
 	content_encoding: str
 	file_name_field: str
 	split: str
+	row_filter: dict[str, str] | None = None
 
 
 _DATASET_CONFIGS: dict[str, DatasetConfig] = {
@@ -43,6 +48,16 @@ _DATASET_CONFIGS: dict[str, DatasetConfig] = {
 		content_encoding="bytes",       
 		file_name_field="__key__",
 		split="train",
+	),
+	"docx-corpus": DatasetConfig(
+		identifier="superdoc-dev/docx-corpus",
+		doc_type="docx",
+		extension="docx",
+		content_field="url",
+		content_encoding="url",
+		file_name_field="filename",
+		split="train",
+		row_filter={"language": "en"},
 	),
 }
 

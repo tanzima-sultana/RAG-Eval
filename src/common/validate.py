@@ -3,7 +3,7 @@ import os
 from datasets import load_dataset_builder
 from datasets.exceptions import DatasetNotFoundError
 from common.dataset_config import DatasetConfig, get_dataset_config
-from l1_doc_processing.schema import Progress
+from l1_doc_processing.progress import Progress
 
 def validate_dataset(doc_type: str, dataset_name: str, dataset_size: int, dataset_url: str, dataset_path: str):
 	"""

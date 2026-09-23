@@ -38,9 +38,11 @@ def get_parser(doc_type: str) -> type[Parser]:
 	# imported here, not at module level, to avoid the circular import
 	# described above
 	from l1_doc_processing.parsers.pdf import PDFParser
+	from l1_doc_processing.parsers.docx import DocxParser
 
 	parser_registry: dict[str, type[Parser]] = {
 		"pdf": PDFParser,
+		"docx": DocxParser,
 	}
 
 	if doc_type not in parser_registry:

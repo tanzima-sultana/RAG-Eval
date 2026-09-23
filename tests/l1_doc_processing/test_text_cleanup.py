@@ -127,3 +127,19 @@ def test_clean_text_returns_empty_string_for_empty_input():
     returns an empty string rather than raising.
     """
     assert clean_text("") == ""
+
+
+def test_clean_text_keeps_repeated_lines_when_header_footer_stripping_is_off():
+    """
+    Input: a short line repeated three times, with
+    strip_headers_footers=False.
+    Output: clean_text's return value.
+
+    Checks that no repeated line is removed, while whitespace is still
+    cleaned.
+    """
+    text = "Yes\nQuestion  one\nYes\nQuestion two\nYes"
+
+    result = clean_text(text, strip_headers_footers=False)
+
+    assert result == "Yes\nQuestion one\nYes\nQuestion two\nYes"

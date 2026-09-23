@@ -102,6 +102,7 @@ def clean_text(
 	min_repeats_to_strip: int = 3,
 	max_repeated_line_length: int = 200,
 	collapse_blank_lines: bool = True,
+	strip_headers_footers: bool = True,
 ) -> str:
 	"""
 	text: raw extracted document text (e.g. from PDFParser).
@@ -112,6 +113,9 @@ def clean_text(
 	collapse_blank_lines: if True, runs of two or more consecutive
 		blank lines are collapsed into a single blank line, so page
 		breaks/paragraph spacing don't turn into large empty gaps.
+	strip_headers_footers: if False, repeated lines are never removed
+		(min_repeats_to_strip and max_repeated_line_length are unused).
+		For formats whose extracted text has no running headers/footers.
 
 	Removes noise from text, noise: repeated header/footer
 	lines, excess in-line whitespace, and optionally redundant blank
@@ -123,9 +127,11 @@ def clean_text(
 	"""
 	lines = text.splitlines()
 
-	header_footer_lines = _find_header_footer_lines(
-		lines, min_repeats_to_strip, max_repeated_line_length
-	)
+	header_footer_lines = set()
+	if strip_headers_footers:
+		header_footer_lines = _find_header_footer_lines(
+			lines, min_repeats_to_strip, max_repeated_line_length
+		)
 
 	cleaned_lines = []
 	previous_line_was_blank = False

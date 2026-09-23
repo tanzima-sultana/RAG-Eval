@@ -1,3 +1,8 @@
+# 1. Doc processing
+
+# Number of documents downloaded/decoded at the same time
+DOWNLOAD_WORKERS = 16
+
 
 
 

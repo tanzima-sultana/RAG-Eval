@@ -1,14 +1,14 @@
 """
 test_schema.py
 
-Tests for l1_doc_processing.schema: Document and Progress, the plain dataclasses
+Tests for l1_doc_processing.schema.Document, the plain dataclass
 shared across the l1_doc_processing pipeline.
 """
 
 import dataclasses
 import datetime
 
-from l1_doc_processing.schema import Document, Progress
+from l1_doc_processing.schema import Document
 
 
 def test_document_holds_every_field_it_is_constructed_with():
@@ -92,32 +92,3 @@ def test_document_converts_to_a_plain_dict_via_dataclasses_asdict():
     assert data["id"] == "pdf_abc123"
     assert data["metadata"] == {"page_count": 1}
     assert data["timestamp"] == timestamp
-
-
-def test_progress_holds_every_field_and_converts_to_a_plain_dict():
-    """
-    Input: a fully-populated Progress.
-    Output: its fields and dataclasses.asdict(progress).
-
-    save_progress writes dataclasses.asdict(progress) as JSON, so every
-    field must be plain JSON data.
-    """
-    progress = Progress(
-        dataset_identifier="someone/dataset",
-        split="train",
-        doc_type="pdf",
-        rows_consumed=12,
-        processed_doc_ids=["pdf_a", "pdf_b"],
-        skipped_doc_ids=["pdf_c"],
-    )
-
-    data = dataclasses.asdict(progress)
-
-    assert data == {
-        "dataset_identifier": "someone/dataset",
-        "split": "train",
-        "doc_type": "pdf",
-        "rows_consumed": 12,
-        "processed_doc_ids": ["pdf_a", "pdf_b"],
-        "skipped_doc_ids": ["pdf_c"],
-    }

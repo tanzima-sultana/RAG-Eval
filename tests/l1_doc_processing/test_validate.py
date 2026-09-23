@@ -14,7 +14,7 @@ from datasets.exceptions import DatasetNotFoundError
 from common import dataset_config as dataset_config_module
 from common import validate
 from common.dataset_config import DatasetConfig
-from l1_doc_processing.schema import Progress
+from l1_doc_processing.progress import Progress
 
 
 class _FakeSplitInfo:
