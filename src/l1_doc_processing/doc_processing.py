@@ -2,12 +2,14 @@ import time
 
 from common.dataset_config import get_dataset_config
 from common import validate
+
+from l1_doc_processing.schema import Document
 from l1_doc_processing.dedup import Deduplicator
-from l1_doc_processing.document_store import load_processed_document, save_processed_document
+from l1_doc_processing.raw_source import RawSource
+
+from l1_doc_processing.cache import load_processed_document, save_processed_document
 from l1_doc_processing.parser import get_parser
 from l1_doc_processing.progress import load_progress, make_progress, save_progress
-from l1_doc_processing.raw_source import RawSource
-from l1_doc_processing.schema import Document
 from l1_doc_processing.summary import RunCounts, print_parse_time_summary, print_run_summary
 
 

@@ -1,8 +1,7 @@
 """
 test_main.py
 
-Tests for l2_chunking.main's CLI wiring: argument parsing and the
-semantic-threshold-required-for-semantic-chunking check. The
+Tests for l2_chunking.main's CLI wiring: argument parsing. The
 if __name__ == "__main__" block itself is not covered here, since it
 only runs the pipeline end-to-end (already covered at the Chunking
 level in test_chunking.py) and is not exercised on import.
@@ -12,47 +11,7 @@ import argparse
 
 import pytest
 
-from l2_chunking.main import parse_args, validate
-
-
-# ---------- validate ----------
-
-
-def test_validate_passes_when_chunk_type_is_fixed_and_semantic_threshold_is_default():
-    """
-    Input: parsed args with chunk_type "fixed" and the default
-    semantic_threshold (0.0).
-    Output: none; validate() is expected not to raise/exit.
-
-    Checks that the semantic-threshold requirement only applies to
-    semantic chunking.
-    """
-    args = argparse.Namespace(chunk_type="fixed", semantic_threshold=0.0)
-
-    validate(args)
-
-
-def test_validate_passes_when_chunk_type_is_semantic_and_threshold_is_nonzero():
-    """
-    Input: parsed args with chunk_type "semantic" and a nonzero
-    semantic_threshold.
-    Output: none; validate() is expected not to raise/exit.
-    """
-    args = argparse.Namespace(chunk_type="semantic", semantic_threshold=0.5)
-
-    validate(args)
-
-
-def test_validate_exits_when_chunk_type_is_semantic_and_threshold_is_default():
-    """
-    Input: parsed args with chunk_type "semantic" and the default
-    semantic_threshold (0.0), i.e. never actually provided.
-    Output: none; validate() is expected to call sys.exit.
-    """
-    args = argparse.Namespace(chunk_type="semantic", semantic_threshold=0.0)
-
-    with pytest.raises(SystemExit):
-        validate(args)
+from l2_chunking.main import parse_args
 
 
 # ---------- parse_args ----------

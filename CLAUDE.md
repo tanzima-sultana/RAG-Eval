@@ -39,28 +39,36 @@ src/
 
     l1_doc_processing/
       schema.py            # Defines the Document dataclass — the normalized record format every parsed document is converted into
-      parser.py            # Abstract parser base class plus the parser registry lookup (maps doc type -> parser)
+      
+	  parser.py            # Abstract parser base class plus the parser registry lookup (maps doc type -> parser)
       parsers/
         pdf.py             # Extracts text from PDF files
-      text_cleanup.py      # Cleans Document.text. Strips headers/footers, collapses repeated whitespace and blank lines
+      
+	  text_cleanup.py      # Cleans Document.text. Strips headers/footers, collapses repeated whitespace and blank lines
       metadata.py          # Extracts generic metadata from a document's raw bytes
       dedup.py             # Detects exact duplicates (hash) and near-duplicates (MinHash/LSH)
       raw_source.py 	   # Raw data batch processing
-	  document_store.py	   # Store and retrieve cached document
 	  progress.py 		   # Save progress of cached and processed documents
-	  summary.py		   # Print summary of l1 layer
+
 	  doc_processing.py    # DocProcessing orchestrator 
+	  cache.py	           # Store and retrieve cached document
+	  summary.py		   # Print summary of l1 layer
       main.py              # CLI entry point — parses args and wires the pipeline
    
     l2_chunking/
       schema.py            # Defines the Chunk dataclass — the normalized record format every created chunk is converted into
+	  
 	  chunker.py           # Abstract base class and common shared methods for chunking types classes
 	  chunkers/
 		fixed.py           # Fixed-size chunking strategy
 		sentence.py        # Sentence-aware chunking strategy
 		semantic.py        # Semantic chunking strategy
+	  
 	  chunking.py          # Chunking orchestrator
+	  cache.py	           # Store and retrieve cached chunks
+	  summary.py		   # Print summary of l2 layer
 	  main.py              # CLI entry point for the chunking layer
+	  
 	l3_embedding/
       schema.py            # Defines the Embedded dataclass — the normalized record format every created embedding is converted into
 	  embedding.py         # Embedding orchestrator

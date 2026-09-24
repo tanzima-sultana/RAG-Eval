@@ -1,8 +1,8 @@
 """
 test_validate.py
 
-Tests for common.validate: validate_dataset, validate_progress and
-validate_processed_dataset. Web datasets use a fake
+Tests for common.validate: validate_dataset and validate_progress.
+Web datasets use a fake
 load_dataset_builder, so no network access is needed.
 """
 
@@ -239,47 +239,3 @@ def test_validate_progress_lists_every_mismatched_field(monkeypatch):
     assert "dataset_identifier" in message
     assert "doc_type" in message
     assert "split:" not in message
-
-
-# ---------- validate_processed_dataset ----------
-
-
-def test_validate_processed_dataset_passes_when_enough_documents_exist(tmp_path):
-    """
-    Input: a folder with 3 files, dataset_size 3.
-    Output: none; nothing should be raised.
-    """
-    folder = _make_local_dataset(tmp_path / "processed", 3)
-
-    validate.validate_processed_dataset(folder, 3)
-
-
-def test_validate_processed_dataset_raises_when_folder_is_missing(tmp_path):
-    """
-    Input: a folder path that does not exist.
-    Output: none; FileNotFoundError is expected.
-    """
-    with pytest.raises(FileNotFoundError):
-        validate.validate_processed_dataset(str(tmp_path / "missing"), 1)
-
-
-def test_validate_processed_dataset_raises_when_folder_is_empty(tmp_path):
-    """
-    Input: an empty folder.
-    Output: none; ValueError is expected.
-    """
-    folder = _make_local_dataset(tmp_path / "processed", 0)
-
-    with pytest.raises(ValueError):
-        validate.validate_processed_dataset(folder, 1)
-
-
-def test_validate_processed_dataset_raises_when_too_few_documents(tmp_path):
-    """
-    Input: a folder with 2 files, dataset_size 3.
-    Output: none; ValueError is expected.
-    """
-    folder = _make_local_dataset(tmp_path / "processed", 2)
-
-    with pytest.raises(ValueError):
-        validate.validate_processed_dataset(folder, 3)

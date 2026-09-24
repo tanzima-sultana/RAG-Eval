@@ -31,9 +31,9 @@ import pytest
 
 from common.chunk_config import ChunkConfig
 from common import paths
+from l1_doc_processing.progress import Progress, save_progress
 from l1_doc_processing.schema import Document
 from l2_chunking.chunking import Chunking
-from l2_chunking.schema import Chunk
 
 
 def _write_processed_document(docs_dir, doc_id, document):
@@ -45,7 +45,7 @@ def _write_processed_document(docs_dir, doc_id, document):
 
     Writes document as {doc_id}.json in the same shape
     l1_doc_processing.doc_processing.DocProcessing.document_to_json_dict
-    produces, so Chunking.load_documents can read it back.
+    produces, so l1_doc_processing.cache.load_documents can read it back.
 
     Returns nothing.
     """
@@ -54,6 +54,20 @@ def _write_processed_document(docs_dir, doc_id, document):
     data["timestamp"] = document.timestamp.isoformat()
     with open(os.path.join(docs_dir, f"{doc_id}.json"), "w", encoding="utf-8") as f:
         json.dump(data, f)
+
+
+def _write_progress(dataset_name, processed_doc_ids):
+    """
+    dataset_name: dataset whose progress.json to write.
+    processed_doc_ids: doc_ids to list as processed.
+
+    Writes the progress.json that l1_doc_processing leaves behind, which
+    compute_chunks requires.
+
+    Returns nothing.
+    """
+    progress = Progress("someone/dataset", "train", "pdf", len(processed_doc_ids), processed_doc_ids, [])
+    save_progress(dataset_name, progress)
 
 
 def _make_document(doc_id, text):
@@ -120,160 +134,6 @@ def test_init_leaves_embeddings_state_unset_until_compute_chunks_runs(
     assert chunking.embeddings_offset is None
 
 
-# ---------- validate ----------
-
-
-def test_validate_raises_when_overlap_is_not_smaller_than_max_chunk_size(
-    isolated_data_dir, fake_sentence_transformer_class
-):
-    """
-    Input: a Chunking with fixed_chunk_overlap equal to max_chunk_size.
-    Output: none; validate() is expected to raise.
-    """
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="fixed",
-        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=10, semantic_threshold=0.5,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
-
-    with pytest.raises(ValueError):
-        chunking.validate()
-
-
-def test_validate_passes_when_overlap_is_smaller_than_max_chunk_size(
-    isolated_data_dir, fake_sentence_transformer_class
-):
-    """
-    Input: a Chunking with fixed_chunk_overlap smaller than
-    max_chunk_size.
-    Output: none; validate() is expected not to raise.
-    """
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="fixed",
-        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=2, semantic_threshold=0.5,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
-
-    chunking.validate()
-
-
-# ---------- chunk_to_json_dict / json_dict_to_chunk ----------
-
-
-def test_chunk_to_json_dict_and_back_round_trips(isolated_data_dir, fake_sentence_transformer_class):
-    """
-    Input: a fully-populated Chunk.
-    Output: chunking.chunk_to_json_dict then chunking.json_dict_to_chunk,
-    applied in sequence.
-    """
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="fixed",
-        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
-    chunk = Chunk(id="doc1_0", text="hello world", size=2, type="fixed")
-
-    data = chunking.chunk_to_json_dict(chunk)
-    restored = chunking.json_dict_to_chunk(data)
-
-    assert restored == chunk
-
-
-# ---------- _save_chunks / _load_cached_chunks ----------
-
-
-def test_save_and_load_chunks_round_trips(isolated_data_dir, fake_sentence_transformer_class):
-    """
-    Input: two Chunks belonging to the same doc_id, saved in one call
-    via chunking._save_chunks.
-    Output: chunking._load_cached_chunks's return value for that
-    doc_id.
-    """
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="fixed",
-        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
-    chunk_path = str(isolated_data_dir / "chunks_out")
-    chunk_a = Chunk(id="doc1_0", text="a", size=1, type="fixed")
-    chunk_b = Chunk(id="doc1_1", text="b", size=1, type="fixed")
-    chunking._save_chunks(chunk_path, {"doc1_0": chunk_a, "doc1_1": chunk_b})
-
-    loaded = chunking._load_cached_chunks(chunk_path, "doc1")
-
-    assert loaded == {"doc1_0": chunk_a, "doc1_1": chunk_b}
-
-
-def test_load_cached_chunks_returns_none_when_chunk_path_does_not_exist(
-    isolated_data_dir, fake_sentence_transformer_class
-):
-    """
-    Input: a chunk_path that has never been created.
-    Output: chunking._load_cached_chunks's return value.
-
-    Checks the "nothing cached yet at all" branch, which must not
-    raise even though chunk_path does not exist on disk.
-    """
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="fixed",
-        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
-    chunk_path = str(isolated_data_dir / "never_created")
-
-    assert chunking._load_cached_chunks(chunk_path, "doc1") is None
-
-
-def test_load_cached_chunks_returns_none_when_doc_id_has_no_cached_files(
-    isolated_data_dir, fake_sentence_transformer_class
-):
-    """
-    Input: chunk_path exists and holds another doc_id's chunks, but
-    none for the doc_id being looked up.
-    Output: chunking._load_cached_chunks's return value.
-
-    Checks that a partially-populated chunk_path (some other document
-    already cached) does not get mistaken for a cache hit on a
-    different, not-yet-chunked doc_id.
-    """
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="fixed",
-        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
-    chunk_path = str(isolated_data_dir / "chunks_out")
-    chunking._save_chunks(chunk_path, {"doc1_0": Chunk(id="doc1_0", text="a", size=1, type="fixed")})
-
-    assert chunking._load_cached_chunks(chunk_path, "doc2") is None
-
-
-# ---------- load_documents ----------
-
-
-def test_load_documents_reads_every_processed_document_file(
-    isolated_data_dir, fake_sentence_transformer_class
-):
-    """
-    Input: two processed Document JSON files written under a
-    directory.
-    Output: chunking.load_documents's return value.
-    """
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="fixed",
-        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
-    docs_dir = str(isolated_data_dir / "docs")
-    _write_processed_document(docs_dir, "doc1", _make_document("doc1", "hello world"))
-    _write_processed_document(docs_dir, "doc2", _make_document("doc2", "goodbye world"))
-
-    documents = chunking.load_documents(docs_dir, dataset_size=2)
-
-    assert set(documents.keys()) == {"doc1", "doc2"}
-    assert documents["doc1"].text == "hello world"
-    assert documents["doc2"].text == "goodbye world"
-
-
 # ---------- compute_chunks ----------
 
 
@@ -293,6 +153,7 @@ def test_compute_chunks_fixed_end_to_end_writes_and_returns_chunks(
     _write_processed_document(
         docs_dir, "doc1", _make_document("doc1", "one two three four five six seven")
     )
+    _write_progress("myset", ["doc1"])
     chunk_config = ChunkConfig(
         dataset_name="myset", chunk_type="fixed",
         min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=1, semantic_threshold=0.0,
@@ -318,7 +179,7 @@ def test_compute_chunks_returns_cached_chunks_without_recomputing_them(
     Output: both calls' return values.
 
     Checks the per-document cache-hit branch added by
-    Chunking._load_cached_chunks: once a document's chunks are already
+    l2_chunking.cache._load_cached_chunks: once a document's chunks are already
     on disk, a second run must reuse them straight from disk instead
     of re-running the chunking strategy on that document. (Per-document
     caching still needs the processed-documents directory to be
@@ -328,6 +189,7 @@ def test_compute_chunks_returns_cached_chunks_without_recomputing_them(
     """
     docs_dir = paths.get_processed_dataset_path("myset")
     _write_processed_document(docs_dir, "doc1", _make_document("doc1", "one two three four"))
+    _write_progress("myset", ["doc1"])
     chunk_config = ChunkConfig(
         dataset_name="myset", chunk_type="fixed",
         min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=0, semantic_threshold=0.0,
@@ -364,6 +226,7 @@ def test_compute_chunks_semantic_builds_embeddings_and_offsets(
     _write_processed_document(
         docs_dir, "doc1", _make_document("doc1", "w1 w2 w3 w4 w5. w6 w7 w8 w9 w10.")
     )
+    _write_progress("myset", ["doc1"])
     chunk_config = ChunkConfig(
         dataset_name="myset", chunk_type="semantic",
         min_chunk_size=1, max_chunk_size=5, fixed_chunk_overlap=0, semantic_threshold=0.5,
@@ -405,3 +268,112 @@ def test_compute_chunks_raises_value_error_for_unknown_chunk_type_before_loading
 
     with pytest.raises(ValueError):
         chunking.compute_chunks()
+
+
+def test_compute_chunks_raises_for_an_invalid_chunk_config_before_loading_documents(
+    isolated_data_dir, fake_sentence_transformer_class
+):
+    """
+    Input: a ChunkConfig whose overlap is not smaller than max_chunk_size,
+    and no processed documents on disk.
+    Output: none; ValueError is expected.
+    """
+    chunk_config = ChunkConfig(
+        dataset_name="myset", chunk_type="fixed",
+        min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=4, semantic_threshold=0.0,
+    )
+    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
+
+    with pytest.raises(ValueError):
+        chunking.compute_chunks()
+
+
+def test_compute_chunks_raises_when_progress_json_is_missing(
+    isolated_data_dir, fake_sentence_transformer_class
+):
+    """
+    Input: one processed document on disk but no progress.json.
+    Output: none; FileNotFoundError is expected.
+    """
+    docs_dir = paths.get_processed_dataset_path("myset")
+    _write_processed_document(docs_dir, "doc1", _make_document("doc1", "one two three four"))
+    chunk_config = ChunkConfig(
+        dataset_name="myset", chunk_type="fixed",
+        min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=0, semantic_threshold=0.0,
+    )
+    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
+
+    with pytest.raises(FileNotFoundError):
+        chunking.compute_chunks()
+
+
+def test_compute_chunks_raises_when_dataset_size_exceeds_processed_documents(
+    isolated_data_dir, fake_sentence_transformer_class
+):
+    """
+    Input: one processed document and its progress.json, dataset_size 2.
+    Output: none; ValueError is expected and no chunks are written.
+    """
+    docs_dir = paths.get_processed_dataset_path("myset")
+    _write_processed_document(docs_dir, "doc1", _make_document("doc1", "one two three four"))
+    _write_progress("myset", ["doc1"])
+    chunk_config = ChunkConfig(
+        dataset_name="myset", chunk_type="fixed",
+        min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=0, semantic_threshold=0.0,
+    )
+    chunking = Chunking(chunk_config, dataset_size=2, model_name="fake")
+
+    with pytest.raises(ValueError):
+        chunking.compute_chunks()
+
+    assert not os.path.exists(paths.get_chunk_path(chunk_config))
+
+
+def test_compute_chunks_prints_new_then_cached_counts_and_chunk_time(
+    isolated_data_dir, fake_sentence_transformer_class, capsys
+):
+    """
+    Input: one processed document chunked twice with the same config.
+    Output: the printed summaries of both runs.
+    """
+    docs_dir = paths.get_processed_dataset_path("myset")
+    _write_processed_document(docs_dir, "doc1", _make_document("doc1", "one two three four five six seven"))
+    _write_progress("myset", ["doc1"])
+    chunk_config = ChunkConfig(
+        dataset_name="myset", chunk_type="fixed",
+        min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=1, semantic_threshold=0.0,
+    )
+    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
+
+    chunking.compute_chunks()
+    first_output = capsys.readouterr().out
+    chunking.compute_chunks()
+    second_output = capsys.readouterr().out
+
+    assert "Newly chunked 1 document(s): 3 chunk(s)." in first_output
+    assert "Documents chunked : 1" in first_output
+    assert "Loaded cached chunks for 1 document(s): 3 chunk(s)." in second_output
+    assert "No documents were chunked in this run." in second_output
+
+
+def test_compute_chunks_prints_sentence_embedding_time_for_semantic(
+    isolated_data_dir, fake_sentence_transformer_class, capsys
+):
+    """
+    Input: one processed document with two sentences, semantic chunking.
+    Output: the printed sentence embedding summary.
+    """
+    docs_dir = paths.get_processed_dataset_path("myset")
+    _write_processed_document(docs_dir, "doc1", _make_document("doc1", "w1 w2 w3 w4 w5. w6 w7 w8 w9 w10."))
+    _write_progress("myset", ["doc1"])
+    chunk_config = ChunkConfig(
+        dataset_name="myset", chunk_type="semantic",
+        min_chunk_size=1, max_chunk_size=5, fixed_chunk_overlap=0, semantic_threshold=0.5,
+    )
+    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
+
+    chunking.compute_chunks()
+
+    output = capsys.readouterr().out
+    assert "----- Sentence embedding time (semantic) -----" in output
+    assert "Sentences embedded : 2" in output
