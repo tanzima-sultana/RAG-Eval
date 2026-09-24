@@ -6,8 +6,8 @@ content_hash, and near-duplicate detection via MinHash + LSH.
 """
 
 import datetime
+import hashlib
 
-from common.identifiers import make_content_hash
 from l1_doc_processing.dedup import Deduplicator
 from l1_doc_processing.schema import Document
 
@@ -139,7 +139,7 @@ def _make_document(text):
         path="path",
         format="pdf",
         metadata={},
-        content_hash=make_content_hash(text),
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         timestamp=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
     )
 
@@ -213,3 +213,21 @@ def test_deduplicator_accepts_short_text_without_shingles():
 
     assert deduplicator.add_if_new("doc-1", _make_document("alpha")) is True
     assert deduplicator.add_if_new("doc-2", _make_document("beta")) is True
+
+
+def test_make_shingles_builds_overlapping_five_word_shingles():
+    """
+    Input: a seven-word text.
+    Output: make_shingles's return value.
+    """
+    shingles = Deduplicator().make_shingles("a b c d e f g")
+
+    assert shingles == {"a b c d e", "b c d e f", "c d e f g"}
+
+
+def test_make_shingles_returns_empty_set_for_fewer_than_five_words():
+    """
+    Input: a four-word text.
+    Output: make_shingles's return value.
+    """
+    assert Deduplicator().make_shingles("a b c d") == set()

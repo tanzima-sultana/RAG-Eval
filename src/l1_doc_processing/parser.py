@@ -2,8 +2,9 @@
 parser.py
 
 Defines the Parser interface every format implementation must follow,
-plus the registry mapping format name -> implementation and the lookup
-function used by doc_processing.py.
+including the content hash every parser computes, plus the registry
+mapping format name -> implementation and the lookup function used by
+doc_processing.py.
 
 Concrete parsers (e.g. PDFParser) subclass Parser, so they import this
 module. Importing them back at the top of this module would create a
@@ -13,19 +14,31 @@ already finished being defined.
 """
 
 import abc
+import hashlib
 
 from l1_doc_processing.schema import Document
 
 
 class Parser(abc.ABC):
+	def make_content_hash(self, text: str) -> str:
+		"""
+		text: a document's extracted text content.
+
+		Hashes text with SHA-256, so two documents can be compared for
+		exact content equality (e.g. for deduplication) independent of
+		doc_id, file name or source location.
+
+		Returns the hex-encoded SHA-256 digest.
+		"""
+		digest = hashlib.sha256(text.encode("utf-8"))
+		return digest.hexdigest()
+
 	@abc.abstractmethod
 	def parse(self, doc_id: str, raw_bytes: bytes, data_path: str) -> Document:
 		"""
-		doc_id: this document's identifier, already computed by the
-			 caller (doc_processing.py) via
-			 common.identifiers.make_doc_id(doc_type, raw_bytes) before
-			 any cache check. Implementations must set Document.id to
-			 this value directly rather than recomputing it.
+		doc_id: this document's identifier, already computed from the raw
+			 bytes by RawSource.make_doc_id. Implementations must set
+			 Document.id to this value directly rather than recomputing it.
 		raw_bytes: the document's raw, undecoded content.
 		data_path: the original raw data path of the document.
 

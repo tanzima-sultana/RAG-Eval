@@ -9,9 +9,11 @@ from sentence_transformers import SentenceTransformer
 from common.chunk_config import ChunkConfig
 from common.constants import SEMANTIC_CHUNKING
 from common import paths
-from common import validate
+
 
 from l1_doc_processing.cache import load_documents
+
+from l2_chunking.validate import validate_chunk_config, validate_processed_dataset
 from l2_chunking.cache import _load_cached_chunks, _save_chunks
 from l2_chunking.schema import Chunk
 from l2_chunking.summary import print_chunk_time_summary, print_run_summary, print_sentence_embedding_summary
@@ -42,10 +44,10 @@ class Chunking:
 		"""
 
 		# 1. validate chunk config
-		validate.validate_chunk_config(self.chunk_config)
+		validate_chunk_config(self.chunk_config)
 
 		# 2. validate processed dataset
-		validate.validate_processed_dataset(self.chunk_config.dataset_name, self.dataset_size)
+		validate_processed_dataset(self.chunk_config.dataset_name, self.dataset_size)
 
 		# imported here, not at module level, to avoid a circular
 		# import: chunker.py imports Chunking (this class) at module

@@ -58,3 +58,19 @@ def test_parser_cannot_be_instantiated_directly():
     """
     with pytest.raises(TypeError):
         Parser()
+
+
+def test_make_content_hash_is_the_sha256_of_the_text_and_depends_only_on_it():
+    """
+    Input: the same text hashed twice, and a different text.
+    Output: make_content_hash's return values.
+    """
+    parser = PDFParser()
+
+    first = parser.make_content_hash("hello world")
+    second = parser.make_content_hash("hello world")
+    other = parser.make_content_hash("hello there")
+
+    assert first == "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+    assert first == second
+    assert first != other

@@ -13,7 +13,6 @@ import io
 import xml.etree.ElementTree as ElementTree
 import zipfile
 
-from common.identifiers import make_content_hash
 from l1_doc_processing.metadata import extract_metadata
 from l1_doc_processing.parser import Parser
 from l1_doc_processing.schema import Document
@@ -195,7 +194,7 @@ class DocxParser(Parser):
 			metadata = extract_metadata(raw_bytes, "docx")
 			metadata.update(_extract_docx_metadata(docx_zip))
 
-		content_hash = make_content_hash(text)
+		content_hash = self.make_content_hash(text)
 
 		timestamp = datetime.datetime.now(datetime.timezone.utc)
 

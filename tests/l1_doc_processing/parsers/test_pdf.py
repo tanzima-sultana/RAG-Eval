@@ -15,7 +15,6 @@ import io
 import pypdf
 import pytest
 
-from common.identifiers import make_content_hash
 from l1_doc_processing.parsers.pdf import (
     PDFParser,
     _extract_pdf_metadata,
@@ -250,7 +249,7 @@ def test_pdf_parser_parse_builds_a_fully_populated_document():
     assert document.format == "pdf"
     assert document.title == "My Contract"
     assert document.text == ""
-    assert document.content_hash == make_content_hash("")
+    assert document.content_hash == PDFParser().make_content_hash("")
     assert document.metadata["format"] == "pdf"
     assert document.metadata["raw_bytes_size"] == len(raw_bytes)
     assert document.metadata["page_count"] == 1

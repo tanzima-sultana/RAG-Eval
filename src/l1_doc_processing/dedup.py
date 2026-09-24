@@ -3,7 +3,7 @@ dedup.py
 
 Detects duplicate and near-duplicate documents. An exact duplicate has
 the same content_hash as a document already seen. A near duplicate has
-a shingle set (see common.identifiers.make_shingles) similar enough,
+a shingle set (see Deduplicator.make_shingles) similar enough,
 by Jaccard similarity, to one already seen, even when its content_hash
 differs.
 
@@ -20,12 +20,10 @@ for a pair below it.
 """
 
 import datasketch
-
-from common.identifiers import make_shingles
 from l1_doc_processing.schema import Document
 
 NUM_PERM = 128
-
+_SHINGLE_SIZE = 5
 
 class Deduplicator:
 	"""
@@ -48,7 +46,7 @@ class Deduplicator:
 
 	def make_minhash(self, shingles: set) -> datasketch.MinHash:
 		"""
-		shingles: a document's shingle set (see common.identifiers.make_shingles).
+		shingles: a document's shingle set (see make_shingles).
 
 		Builds a MinHash signature summarizing shingles, using NUM_PERM hash
 		permutations. A MinHash signature is a fixed-size approximation of a
@@ -76,6 +74,29 @@ class Deduplicator:
 		MinHash signatures and threshold.
 		"""
 		return datasketch.MinHashLSH(threshold=threshold, num_perm=NUM_PERM)
+
+	def make_shingles(self, text: str) -> set[str]:
+		"""
+		text: a document's extracted text content.
+
+		Splits text into whitespace-separated words and builds the set of
+		overlapping word n-grams (shingles) of length _SHINGLE_SIZE. Two
+		documents can share many shingles, and so be near duplicates, even
+		when their content_hash values differ.
+
+		Returns the set of shingle strings.
+		"""
+		words = text.split()
+
+		shingles = set()
+		index = 0
+		while index + _SHINGLE_SIZE <= len(words):
+			shingle_words = words[index:index + _SHINGLE_SIZE]
+			shingle = " ".join(shingle_words)
+			shingles.add(shingle)
+			index += 1
+
+		return shingles
 
 	def is_exact_duplicate(self, content_hash: str) -> bool:
 		"""
@@ -111,7 +132,7 @@ class Deduplicator:
 		Returns nothing.
 		"""
 		self.seen_content_hashes.add(document.content_hash)
-		shingles = make_shingles(document.text)
+		shingles = self.make_shingles(document.text)
 		if len(shingles) > 0:
 			self.lsh_index.insert(doc_id, self.make_minhash(shingles))
 
@@ -129,7 +150,7 @@ class Deduplicator:
 		if self.is_exact_duplicate(document.content_hash):
 			return False
 
-		shingles = make_shingles(document.text)
+		shingles = self.make_shingles(document.text)
 		minhash = None
 		if len(shingles) > 0:
 			minhash = self.make_minhash(shingles)

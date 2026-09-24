@@ -1,12 +1,12 @@
 import time
 
 from common.dataset_config import get_dataset_config
-from common import validate
 
 from l1_doc_processing.schema import Document
 from l1_doc_processing.dedup import Deduplicator
 from l1_doc_processing.raw_source import RawSource
 
+from l1_doc_processing.validate import validate_dataset, validate_progress
 from l1_doc_processing.cache import load_processed_document, save_processed_document
 from l1_doc_processing.parser import get_parser
 from l1_doc_processing.progress import load_progress, make_progress, save_progress
@@ -53,7 +53,7 @@ class DocProcessing:
 		documents = {}
 
 		# 1. Validate dataset
-		validate.validate_dataset(
+		validate_dataset(
 			self.doc_type,
 			self.dataset_name,
 			self.dataset_size,
@@ -63,7 +63,7 @@ class DocProcessing:
 
 		# 2. Validate data download and process progress using progress.json
 		progress = load_progress(self.dataset_name, self.dataset_config, self.doc_type)
-		validate.validate_progress(progress, self.dataset_config, self.doc_type)
+		validate_progress(progress, self.dataset_config, self.doc_type)
 
 		# 3. Check cached processed documents
 		deduplicator = Deduplicator(threshold=0.90)

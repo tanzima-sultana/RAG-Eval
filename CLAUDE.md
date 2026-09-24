@@ -51,6 +51,7 @@ src/
 	  progress.py 		   # Save progress of cached and processed documents
 
 	  doc_processing.py    # DocProcessing orchestrator 
+	  validate.py		   # Validate given parameters and dataset config
 	  cache.py	           # Store and retrieve cached document
 	  summary.py		   # Print summary of l1 layer
       main.py              # CLI entry point — parses args and wires the pipeline
@@ -65,6 +66,7 @@ src/
 		semantic.py        # Semantic chunking strategy
 	  
 	  chunking.py          # Chunking orchestrator
+	  validate.py		   # Validate given parameters
 	  cache.py	           # Store and retrieve cached chunks
 	  summary.py		   # Print summary of l2 layer
 	  main.py              # CLI entry point for the chunking layer
@@ -121,8 +123,9 @@ log/
 common/
   constants.py          # Hardcoded project-wide constants
   dataset_config.py     # Dataset-related config — source URL, name, doc_type, content field, etc.
-  identifiers.py        # Computes hashes for documents/records
+  chunk_config.py       # Chunk-related config.
   paths.py              # Computes file and directory paths used across the project
+  timing.py				# Time 
 
 scripts/
   run.sh                    # Runs the entire pipeline end-to-end

@@ -14,7 +14,6 @@ import time
 import pytest
 
 from common.dataset_config import DatasetConfig
-from common.identifiers import make_doc_id
 from l1_doc_processing import raw_source as raw_source_module
 from l1_doc_processing.raw_source import RawSource
 from l1_doc_processing.summary import RunCounts
@@ -94,7 +93,7 @@ def _doc_id_for(text):
     """
     Returns the doc_id of a row whose raw content is text.
     """
-    return make_doc_id("pdf", text.encode("utf-8"))
+    return _make_web_source().make_doc_id("pdf", text.encode("utf-8"))
 
 
 # ---------- get_iterator ----------
@@ -336,3 +335,22 @@ def test_fetch_raw_batch_counts_filtered_rows_and_decode_errors(isolated_data_di
     assert raw_batch.source_exhausted is True
     assert run_counts.filtered == 1
     assert run_counts.decode_error == 1
+
+
+# ---------- make_doc_id ----------
+
+
+def test_make_doc_id_is_doc_type_plus_16_hex_characters_of_the_raw_bytes_hash():
+    """
+    Input: the same raw bytes twice with doc_type "pdf", and different bytes.
+    Output: make_doc_id's return values.
+    """
+    source = _make_web_source()
+
+    first = source.make_doc_id("pdf", b"hello world")
+    second = source.make_doc_id("pdf", b"hello world")
+    other = source.make_doc_id("pdf", b"hello there")
+
+    assert first == "pdf_b94d27b9934d3e08"
+    assert first == second
+    assert first != other

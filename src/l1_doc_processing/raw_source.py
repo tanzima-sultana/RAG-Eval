@@ -12,12 +12,12 @@ import base64
 import concurrent.futures
 import dataclasses
 import os
+import hashlib
 import urllib.request
 from typing import Iterator
 
 from datasets import load_dataset
 
-from common import identifiers
 from common import paths
 from common.constants import DOWNLOAD_WORKERS
 from common.dataset_config import DatasetConfig
@@ -57,6 +57,29 @@ class RawSource:
 		self.doc_type = doc_type
 		self.dataset_url = dataset_url
 		self.dataset_path = dataset_path
+
+	def make_doc_id(self, doc_type: str, raw_bytes: bytes) -> str:
+		"""
+		doc_type: the document format being processed (e.g. "pdf"), used to
+			prefix doc_id so it stays readable and distinguishable at a
+			glance from a different format's identifiers.
+		raw_bytes: a document's raw, unparsed content — e.g. a PDF's raw
+			bytes decoded from base64, or a row's file read straight off
+			disk — before any format-specific parsing happens.
+
+		Combines doc_type with a truncated SHA-256 hash of raw_bytes into a
+		single, filesystem-safe identifier: purely content-addressed, so
+		the same raw content always produces the same doc_id regardless of
+		which file name, row, or dataset it came from. The hash is
+		truncated to 16 hex characters (64 bits) to keep doc_id and the
+		file names built from it compact; raw and processed files are kept
+		per dataset (see common.paths), so collisions within one dataset
+		stay negligible at realistic dataset sizes.
+
+		Returns the "{doc_type}_{16-hex-char hash}" doc_id string.
+		"""
+		digest = hashlib.sha256(raw_bytes).hexdigest()[:16]
+		return f"{doc_type}_{digest}"
 
 	def get_iterator(self, rows_consumed: int) -> Iterator:
 		"""
@@ -201,7 +224,7 @@ class RawSource:
 			if raw_bytes is None:
 				run_counts.decode_error += 1
 				continue
-			doc_id = identifiers.make_doc_id(self.doc_type, raw_bytes)
+			doc_id = self.make_doc_id(self.doc_type, raw_bytes)
 			source_path = self.save_raw_bytes(doc_id, raw_bytes)
 			raw_items.append((doc_id, source_path))
 

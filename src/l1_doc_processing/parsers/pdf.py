@@ -12,7 +12,6 @@ import io
 
 import pypdf
 
-from common.identifiers import make_content_hash
 from l1_doc_processing.metadata import extract_metadata
 from l1_doc_processing.parser import Parser
 from l1_doc_processing.schema import Document
@@ -107,7 +106,7 @@ class PDFParser(Parser):
 		metadata = extract_metadata(raw_bytes, "pdf")
 		metadata.update(_extract_pdf_metadata(reader))
 
-		content_hash = make_content_hash(text)
+		content_hash = self.make_content_hash(text)
 
 		timestamp = datetime.datetime.now(datetime.timezone.utc)
 

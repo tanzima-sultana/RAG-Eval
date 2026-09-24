@@ -17,10 +17,11 @@ import pytest
 
 from common import dataset_config as dataset_config_module
 from common.dataset_config import DatasetConfig
-from common.identifiers import make_content_hash, make_doc_id
 from l1_doc_processing import doc_processing as doc_processing_module
 from l1_doc_processing import raw_source as raw_source_module
+from l1_doc_processing.raw_source import RawSource
 from l1_doc_processing.doc_processing import DocProcessing
+from l1_doc_processing.parser import Parser
 from l1_doc_processing.progress import Progress, save_progress
 from l1_doc_processing.schema import Document
 
@@ -28,7 +29,7 @@ from l1_doc_processing.schema import Document
 DATASET_NAME = "myset"
 
 
-class _FakeParser:
+class _FakeParser(Parser):
     """
     Stand-in for a real Parser. Decodes raw_bytes as UTF-8 text and
     wraps it in a Document. Raises ValueError when the text is "BAD".
@@ -57,7 +58,7 @@ class _FakeParser:
             path=data_path,
             format="pdf",
             metadata={},
-            content_hash=make_content_hash(text),
+            content_hash=self.make_content_hash(text),
             timestamp=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
         )
         return document
@@ -94,7 +95,8 @@ def _doc_id_for(text):
 
     Returns the doc_id DocProcessing computes for that file.
     """
-    return make_doc_id("pdf", text.encode("utf-8"))
+    source = RawSource(DATASET_NAME, None, "pdf", None, None)
+    return source.make_doc_id("pdf", text.encode("utf-8"))
 
 
 @pytest.fixture
@@ -271,7 +273,7 @@ def test_process_skips_exact_duplicate_text(local_dataset):
 
 def _skip_validate_dataset(doc_type, dataset_name, dataset_size, dataset_url, dataset_path):
     """
-    Same arguments as validate.validate_dataset. Does nothing.
+    Same arguments as l1_doc_processing.validate.validate_dataset. Does nothing.
     """
     return None
 
@@ -287,7 +289,7 @@ def test_process_returns_fewer_documents_when_the_source_runs_out(local_dataset,
     duplicates or parse failures.
     """
     _write_source_files(local_dataset, [("a.txt", "alpha"), ("b.txt", "beta")])
-    monkeypatch.setattr(doc_processing_module.validate, "validate_dataset", _skip_validate_dataset)
+    monkeypatch.setattr(doc_processing_module, "validate_dataset", _skip_validate_dataset)
     processor = _make_processor(local_dataset, 5)
 
     documents = processor.process()
@@ -409,7 +411,7 @@ def test_process_skips_rows_not_matching_the_row_filter(local_dataset, monkeypat
         {"content": "beta", "language": "en"},
         {"content": "gamma", "language": "en"},
     ]
-    monkeypatch.setattr(doc_processing_module.validate, "validate_dataset", _skip_validate_dataset)
+    monkeypatch.setattr(doc_processing_module, "validate_dataset", _skip_validate_dataset)
     processor = _make_web_processor(local_dataset, 2, "text", {"language": "en"})
     monkeypatch.setattr(processor.raw_source, "get_iterator", _fake_rows_iterator(rows))
 
@@ -441,7 +443,7 @@ def test_process_skips_rows_whose_download_fails(local_dataset, monkeypatch):
         {"content": "https://example.com/3"},
     ]
     monkeypatch.setattr(raw_source_module.urllib.request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(doc_processing_module.validate, "validate_dataset", _skip_validate_dataset)
+    monkeypatch.setattr(doc_processing_module, "validate_dataset", _skip_validate_dataset)
     processor = _make_web_processor(local_dataset, 2, "url", None)
     monkeypatch.setattr(processor.raw_source, "get_iterator", _fake_rows_iterator(rows))
 

@@ -1,7 +1,7 @@
 """
 test_validate.py
 
-Tests for the chunking-related checks in common.validate:
+Tests for l2_chunking.validate:
 validate_processed_dataset and validate_chunk_config. The working
 directory is a temporary folder (isolated_data_dir), so files written
 under {dataset_name}/data/ stay out of the repo.
@@ -12,7 +12,7 @@ import os
 import pytest
 
 from common import paths
-from common import validate
+from l2_chunking import validate
 from common.chunk_config import ChunkConfig
 from l1_doc_processing.progress import Progress, save_progress
 

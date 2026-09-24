@@ -1,7 +1,7 @@
 """
 test_validate.py
 
-Tests for common.validate: validate_dataset and validate_progress.
+Tests for l1_doc_processing.validate: validate_dataset and validate_progress.
 Web datasets use a fake
 load_dataset_builder, so no network access is needed.
 """
@@ -12,7 +12,7 @@ import pytest
 from datasets.exceptions import DatasetNotFoundError
 
 from common import dataset_config as dataset_config_module
-from common import validate
+from l1_doc_processing import validate
 from common.dataset_config import DatasetConfig
 from l1_doc_processing.progress import Progress
 

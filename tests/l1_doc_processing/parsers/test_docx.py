@@ -12,7 +12,6 @@ import zipfile
 
 import pytest
 
-from common.identifiers import make_content_hash
 from l1_doc_processing.parsers.docx import DocxParser
 
 
@@ -95,7 +94,7 @@ def test_parse_builds_a_fully_populated_document():
         "page_count": 3,
         "author": "Jane",
     }
-    assert document.content_hash == make_content_hash(document.text)
+    assert document.content_hash == DocxParser().make_content_hash(document.text)
     assert isinstance(document.timestamp, datetime.datetime)
 
 
