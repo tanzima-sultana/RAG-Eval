@@ -2,19 +2,19 @@
 
 ### Overview
 
-`l1_doc_processing` is the first pipeline layer. It takes a dataset registered in `src/common/dataset_config.py` by `--dataset_name` — either a Hugging Face dataset streamed from `--dataset_url` or a folder of files at `--dataset_path` — plus a `--doc_type` and a `--dataset_size`, and produces `dataset_size` unique, parsed `Document` records. `dataset_size` counts processed documents, not raw rows: rows are fetched in batches sized to the number of documents still missing (downloaded or decoded in parallel), parsed, deduplicated, and fetched again for any shortfall caused by parse failures or duplicates, until `dataset_size` documents exist or the source runs out (in which case `main.py` raises an error, and the documents processed so far stay on disk). Raw files are written to `{dataset_name}/data/raw/{doc_id}.{extension}`, each processed `Document` to `{dataset_name}/data/processed/{doc_id}.json`, and the run state (rows read, processed and skipped `doc_id`s in order) to `{dataset_name}/data/progress.json`, which later runs validate and resume from instead of redoing work. `DocProcessing.process()` returns the documents as a dict of `doc_id` to `Document`, in processing order.
+`l1_doc_processing` is the first pipeline layer. It takes a dataset registered in `src/common/dataset_config.py` by `--dataset_name` — either a Hugging Face dataset streamed from `--dataset_url` or a folder of files at `--dataset_path` — plus a `--doc_type` and a `--dataset_size`, and produces `dataset_size` unique, parsed `Document` records. `dataset_size` counts processed documents, not raw rows: rows are fetched in batches sized to the number of documents still missing (downloaded or decoded in `DOWNLOAD_WORKERS` threads), parsed in `PARSE_WORKERS` worker processes, deduplicated, and fetched again for any shortfall caused by parse failures or duplicates, until `dataset_size` documents exist or the source runs out (in which case `main.py` raises an error, and the documents processed so far stay on disk). Raw files are written to `{dataset_name}/data/raw/{doc_id}.{extension}`, each processed `Document` to `{dataset_name}/data/processed/{doc_id}.json`, and the run state (rows read, processed and skipped `doc_id`s in order) to `{dataset_name}/data/progress.json`, which later runs validate and resume from instead of redoing work. `DocProcessing.process()` returns the documents as a dict of `doc_id` to `Document`, in processing order.
 
 ### Architecture
 
 - **`main.py`** — CLI entry point. Parses the layer's arguments, requires exactly one of `--dataset_url`/`--dataset_path`, runs `DocProcessing.process()`, raises if fewer than `dataset_size` documents were produced, and prints the layer's total run time.
-- **`doc_processing.py`** — `DocProcessing`, the orchestrator: validates the dataset and saved progress, loads already processed documents, then runs the fetch → parse → dedup → save batch loop and saves progress after each batch.
+- **`doc_processing.py`** — `DocProcessing`, the orchestrator: validates the dataset and saved progress, loads already processed documents, then runs the fetch → parse → dedup → save batch loop and saves progress after each batch. Each batch is parsed in a process pool; dedup and saves run in the main process, in row order.
 - **`raw_source.py`** — `RawSource`, which reads the dataset's source rows (streamed Hugging Face rows or sorted local files), applies the dataset's `row_filter`, decodes or downloads each row's content in parallel, and saves it to `raw/`.
 - **`cache.py`** — Saves and loads processed `Document`s as JSON files in `processed/`, and loads a dataset's first processed documents in `progress.json` order.
 - **`progress.py`** — The `Progress` dataclass and the functions that build, save and load `progress.json`.
 - **`dedup.py`** — `Deduplicator`, which detects exact duplicates by content hash and near duplicates with MinHash + LSH over word shingles.
 - **`summary.py`** — Counts skipped rows and documents by reason, and prints the run summary and the document parse time summary.
 - **`schema.py`** — Defines `Document`, the layer's output record.
-- **`parser.py`** — The abstract `Parser` class and the registry that maps a `doc_type` to its parser.
+- **`parser.py`** — The abstract `Parser` class, the registry that maps a `doc_type` to its parser, and `parse_document_from_file()`, the function each parse worker process runs.
 - **`parsers/pdf.py`** — `PDFParser`: extracts PDF text, title, author and page count with `pypdf`.
 - **`parsers/docx.py`** — `DocxParser`: extracts Word `.docx` body text, title, author and page count using only the standard library (`zipfile`, `xml.etree`).
 - **`text_cleanup.py`** — `clean_text()`: removes repeated header/footer lines (optional per parser) and collapses extra whitespace and blank lines.
@@ -67,6 +67,59 @@ In both runs the second batch fetched exactly the number of documents the first 
 For CUAD, parsing takes 146.711s of the 185.038s run. `PDFParser` spends that time in `pypdf`'s page-by-page text extraction; CUAD's documents are long legal contracts, and a single document (`pdf_47aecdabb5438fa7`, 52.787s) accounts for about a third of all parse time on its own. The remaining 38.327s covers the dataset check, streaming the rows (whose PDFs are embedded in the rows as base64), deduplication and file writes; the log does not break that remainder down further.
 
 For docx-corpus, parsing takes only 9.340s of the 46.541s run, because a `.docx` file is a zip of XML that `DocxParser` reads directly, with no page layout to reconstruct. Most of the remaining 37.201s is network time: streaming 3,109 metadata rows, of which 2,104 are dropped by the English `row_filter` without being downloaded, and downloading 1,005 files from the dataset's download links, 16 at a time. The log does not break that remainder down further. The 2 parse failures are files that are valid zip archives but contain no `word/document.xml`, so they are not Word documents despite their `.docx` name.
+
+#### docx-corpus: 1,000 vs 5,000 documents
+
+Two consecutive runs of `scripts/run_doc_processing.sh` settings (`--dataset_name docx-corpus --doc_type docx --dataset_url superdoc-dev/docx-corpus`). The 1,000 run started from an empty `docx-corpus/` folder (from `log/l1_doc_processing/log_docx-corpus_1000.txt`). The 5,000 run then resumed from its `progress.json`: it loaded the 1,000 documents already processed and skipped the 3,109 source rows already read, so it only fetched the 4,000 missing documents (from `log/l1_doc_processing/log_docx-corpus_5000_dl16_resumed.txt`). Both runs used 16 download workers and parsed one document at a time. This 1,000 run is a separate run from the docx-corpus 1,000 run above, so its timings differ.
+
+| | 1,000 run | 5,000 run |
+|---|---|---|
+| Already processed documents loaded | 0 | 1000 |
+| Batches | batch 1: 1000 rows, batch 2: 5 rows | batch 1: 4000 rows, batch 2: 21 rows |
+| Documents newly processed | 1000 | 4000 |
+| Total documents | 1000 | 5000 |
+| Rows skipped by `row_filter` (not English) | 2104 | 7718 |
+| Rows skipped due to decode or download errors | 0 | 0 |
+| Documents skipped as failed in an earlier run | 0 | 0 |
+| Documents skipped due to parse errors | 2 | 0 |
+| Documents skipped as duplicates | 3 | 21 |
+| Documents parsed | 1003 | 4021 |
+| Parse time total | 9.126s | 35.426s |
+| Parse time average | 0.009s | 0.009s |
+| Fastest parse | 0.000s (`docx_2ca28b4c230af3a1`) | 0.000s (`docx_88216cc1c7d17ca4`) |
+| Slowest parse | 0.540s (`docx_bbe05264ab95cce9`) | 0.532s (`docx_dd65460867bc5777`) |
+| L1 total time | 55.795s (0m 55.8s) | 209.823s (3m 29.8s) |
+
+The 1,000 run's 2 parse failures are the same two non-Word files as in the earlier run (`docx_6f0aa9bed2d655bf`, `docx_2155fedff637e8b5`). The 5,000 run reports 0 documents skipped as failed in an earlier run because it started reading after the rows that held them, so it never saw them again.
+
+Each run's second batch fetched exactly its first batch's shortfall: 2 parse failures plus 3 duplicates in the 1,000 run, and 21 duplicates in the 5,000 run.
+
+Source rows read: 3,109 in the 1,000 run (1,005 fetched + 2,104 filtered) and 11,739 in the 5,000 run (4,021 fetched + 7,718 filtered). Together that is the 14,848 `rows_consumed` saved in `docx-corpus/data/progress.json`. The `row_filter` dropped about the same share of rows in both runs: 67.7% and 65.7%.
+
+Run time grows in step with the number of source rows read. The 5,000 run read 3.78× as many rows as the 1,000 run and took 3.76× as long. Per newly processed document that is 0.056s in the 1,000 run and 0.052s in the 5,000 run. Parsing costs the same per document in both runs (0.009s average) and is a small share of each run: 9.126s of 55.795s, and 35.426s of 209.823s. The rest (46.669s and 174.397s) goes mostly to streaming metadata rows and downloading files, 16 at a time. The log does not break that remainder down further. Duplicates rise from 3 in 1,003 parsed documents to 21 in 4,021. Each new document is checked against every document processed before it, including the 1,000 loaded from the earlier run, so the pool it can collide with keeps growing.
+
+#### docx-corpus 5,000: download and parse workers
+
+Same settings as above, with `DOWNLOAD_WORKERS` and `PARSE_WORKERS` (`src/common/constants.py`) changed between runs. Every run except the first started from an empty `docx-corpus/` folder. The first row combines the 1,000 run and the resumed 5,000 run above. Runs with "yes" in the token column had `HF_TOKEN` set from `.env`; the others sent unauthenticated Hugging Face requests. `PARSE_DOC_COUNT` (documents sent to a parse worker at a time) was 16 in every parallel run. "Parse workers: 1" means parsing ran in the main process, one document at a time, before parallel parsing was added.
+
+| Download workers | Parse workers | `HF_TOKEN` | Parse time total | Parse time average | Slowest parse | L1 total time | Log |
+|---|---|---|---|---|---|---|---|
+| 16 | 1 | no | 44.552s (9.126s + 35.426s) | 0.009s | 0.540s (`docx_bbe05264ab95cce9`) | 265.618s (55.795s + 209.823s) | `log_docx-corpus_1000.txt` + `log_docx-corpus_5000_dl16_resumed.txt` |
+| 64 | 1 | no | 45.650s | 0.009s | 0.581s (`docx_bbe05264ab95cce9`) | 158.651s (2m 38.7s) | `log_docx-corpus_5000_dl64.txt` |
+| 64 | 16 | yes | 98.916s | 0.020s | 1.220s (`docx_dd65460867bc5777`) | 129.603s (2m 9.6s) | `log_docx-corpus_5000_dl64_parse16.txt` |
+| 128 | 16 | yes | 96.428s | 0.019s | 1.244s (`docx_bbe05264ab95cce9`) | 121.458s (2m 1.5s) | `log_docx-corpus_5000_dl128_parse16.txt` |
+| 64 | 32 | yes | 190.581s | 0.038s | 2.419s (`docx_094d9d56dd7c68a5`) | 124.649s (2m 4.6s) | `log_docx-corpus_5000_dl64_parse32.txt` |
+
+All logs are in `log/l1_doc_processing/`. The document counts are identical in every run: 5,000 documents processed, 9,822 rows skipped by `row_filter`, 0 decode or download errors, 2 parse errors (`docx_6f0aa9bed2d655bf`, `docx_2155fedff637e8b5`), 24 duplicates and 5,024 documents parsed. The runs from an empty folder all used 2 batches, of 5,000 and 26 rows. So the worker counts change only the timing, not the output: parse results come back in row order and dedup runs in that same order.
+
+"Parse time total" is the sum of each document's own parse time. With one parse worker it is the time spent parsing. With parallel workers it is not: 16 or 32 documents are parsed at once, and the log does not record how long the parse step took from start to finish. Dividing the sum by the worker count gives 6.182s, 6.027s and 5.956s for the three parallel runs, which is what the parse step takes if the work is spread evenly across the workers.
+
+- **16 → 64 download workers** (one parse worker, no token): 265.618s → 158.651s, 106.967s (40.3%) less. Parse time is almost unchanged (44.552s vs 45.650s), so the whole difference is outside parsing: 221.066s → 113.001s. With 16 workers, most of that time is spent waiting on individual downloads; 64 workers keep four times as many downloads in progress. The 16-worker figure also includes a second run's startup and dataset check.
+- **1 → 16 parse workers, and `HF_TOKEN` added**: 158.651s → 129.603s, 29.048s (18.3%) less. Both changes happened in the same run, and the log does not separate streaming, download and parse time, so their shares of the difference cannot be told apart. The parse step drops from 45.650s to about 6s, roughly 39.5s less, which is more than the 29.048s the whole run saved. The time outside parsing was therefore about 10s longer in this run, which is within the run-to-run variation of download speed.
+- **64 → 128 download workers**: 129.603s → 121.458s, 8.145s (6.3%) less. Doubling the download workers no longer halves the time outside parsing.
+- **16 → 32 parse workers**: 129.603s → 124.649s, 4.954s (3.8%) less. The average parse time per document doubles (0.020s → 0.038s), and the summed time divided by the worker count stays at about 6s. The machine (Intel Core i7-12700) has 12 physical cores and 20 threads, so 32 worker processes take turns on the same threads and each one runs about half as fast. The same effect explains why the average grows from 0.009s to 0.020s with 16 workers: some of them share a physical core or run on the slower efficiency cores.
+
+Each setup was run once, and download speed varies from run to run, so gaps of a few seconds between the last three runs are within that variation. In those three runs, parsing takes about 6s of 121–130s. The rest is spent outside parsing: reading and filtering 14,848 source rows one at a time in the main process, downloading 5,026 files from the dataset's download links, and dedup and saves, which run one document at a time in row order. Within each batch, parsing starts only after every download in that batch has finished. The log does not break this time down further.
 
 ## l2_chunking
 

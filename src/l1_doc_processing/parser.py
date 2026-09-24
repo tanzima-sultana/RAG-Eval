@@ -15,6 +15,7 @@ already finished being defined.
 
 import abc
 import hashlib
+import time 
 
 from l1_doc_processing.schema import Document
 
@@ -63,3 +64,31 @@ def get_parser(doc_type: str) -> type[Parser]:
 			f"Unknown doc_type '{doc_type}'. Registered types: {list(parser_registry.keys())}"
 		)
 	return parser_registry[doc_type]
+
+def parse_document_from_file(doc_type: str, doc_id: str, source_path: str) -> tuple:
+	"""
+	doc_type: document type (e.g. "docx").
+	doc_id: document identifier.
+	source_path: path of the raw file.
+
+	Reads and parses the raw file in a parse worker process, and times
+	the parse. Parse errors are returned, not raised.
+
+	Returns (doc_id, document, parse_seconds, error_message). On
+	failure, document and parse_seconds are None.
+	"""
+	parser_cls = get_parser(doc_type)
+	parser = parser_cls()
+
+	with open(source_path, "rb") as f:
+		raw_bytes = f.read()
+
+	parse_start = time.perf_counter()
+	try:
+		document = parser.parse(doc_id, raw_bytes, source_path)
+	except Exception as error:
+		error_message = f"{type(error).__name__}: {error}"
+		return (doc_id, None, None, error_message)
+	parse_seconds = time.perf_counter() - parse_start
+
+	return (doc_id, document, parse_seconds, None)

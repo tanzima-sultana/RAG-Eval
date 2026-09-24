@@ -9,22 +9,22 @@ import dataclasses
 
 
 @dataclasses.dataclass
-class RunCounts:
+class SummaryCounts:
 	"""
 	Counts of rows and documents skipped during one process() run, by reason.
 	"""
 	filtered: int = 0
 	decode_error: int = 0
-	previously_skipped: int = 0
 	parse_error: int = 0
+	skipped: int = 0
 	duplicate: int = 0
 
 
-def print_run_summary(cached_count: int, total_count: int, run_counts: RunCounts) -> None:
+def print_run_summary(cached_count: int, total_count: int, summary_counts: SummaryCounts) -> None:
 	"""
 	cached_count: documents loaded from disk at the start of the run.
 	total_count: documents held at the end of the run.
-	run_counts: rows and documents skipped in this run, by reason.
+	summary_counts: rows and documents skipped in this run, by reason.
 
 	Prints how many documents were loaded from cache, newly processed,
 	and skipped by reason.
@@ -33,11 +33,11 @@ def print_run_summary(cached_count: int, total_count: int, run_counts: RunCounts
 	"""
 	print(f"Loaded {cached_count} already processed document(s).")
 	print(f"Newly processed {total_count - cached_count} document(s). Total: {total_count}.")
-	print(f"Skipped {run_counts.filtered} row(s) not matching the dataset's row_filter.")
-	print(f"Skipped {run_counts.decode_error} row(s) due to decode or download errors.")
-	print(f"Skipped {run_counts.previously_skipped} document(s) that failed in an earlier run.")
-	print(f"Skipped {run_counts.parse_error} document(s) due to parse errors.")
-	print(f"Skipped {run_counts.duplicate} document(s) due to duplicate detection.")
+	print(f"Skipped {summary_counts.filtered} row(s) not matching the dataset's row_filter.")
+	print(f"Skipped {summary_counts.decode_error} row(s) due to decode or download errors.")
+	print(f"Skipped {summary_counts.parse_error} document(s) due to parse errors.")
+	print(f"Skipped {summary_counts.skipped} document(s) that failed in an earlier run.")
+	print(f"Skipped {summary_counts.duplicate} document(s) due to duplicate detection.")
 
 
 def print_parse_time_summary(parse_times: list[tuple[str, float]]) -> None:

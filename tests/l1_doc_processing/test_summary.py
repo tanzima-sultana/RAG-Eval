@@ -5,17 +5,17 @@ Tests for l1_doc_processing.summary: the run summary and the document
 parse time summary.
 """
 
-from l1_doc_processing.summary import RunCounts, print_parse_time_summary, print_run_summary
+from l1_doc_processing.summary import SummaryCounts, print_parse_time_summary, print_run_summary
 
 
 def test_print_run_summary_reports_every_count(capsys):
     """
-    Input: cached and total counts, and a RunCounts with every field set.
+    Input: cached and total counts, and a SummaryCounts with every field set.
     Output: the printed summary.
     """
-    run_counts = RunCounts(filtered=5, decode_error=4, previously_skipped=3, parse_error=2, duplicate=1)
+    summary_counts = SummaryCounts(filtered=5, decode_error=4, skipped=3, parse_error=2, duplicate=1)
 
-    print_run_summary(10, 25, run_counts)
+    print_run_summary(10, 25, summary_counts)
 
     output = capsys.readouterr().out
     assert "Loaded 10 already processed document(s)." in output

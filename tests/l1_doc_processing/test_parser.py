@@ -5,9 +5,12 @@ Tests for l1_doc_processing.parser: the Parser interface and the
 get_parser registry lookup.
 """
 
+import io
+import zipfile
+
 import pytest
 
-from l1_doc_processing.parser import Parser, get_parser
+from l1_doc_processing.parser import Parser, get_parser, parse_document_from_file
 from l1_doc_processing.parsers.docx import DocxParser
 from l1_doc_processing.parsers.pdf import PDFParser
 
@@ -74,3 +77,57 @@ def test_make_content_hash_is_the_sha256_of_the_text_and_depends_only_on_it():
     assert first == "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
     assert first == second
     assert first != other
+
+
+def _write_minimal_docx(file_path, text):
+    """
+    file_path: path to write the .docx file to.
+    text: text of the document's single paragraph.
+
+    Returns nothing.
+    """
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:body><w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:body>"
+        "</w:document>"
+    )
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as docx_zip:
+        docx_zip.writestr("word/document.xml", document_xml)
+    with open(file_path, "wb") as f:
+        f.write(buffer.getvalue())
+
+
+def test_parse_document_from_file_returns_the_parsed_document(tmp_path):
+    """
+    Input: a valid .docx file.
+    Output: (doc_id, document, parse_seconds, error_message).
+    """
+    file_path = str(tmp_path / "docx_abc.docx")
+    _write_minimal_docx(file_path, "hello world")
+
+    doc_id, document, parse_seconds, error_message = parse_document_from_file("docx", "docx_abc", file_path)
+
+    assert doc_id == "docx_abc"
+    assert document.id == "docx_abc"
+    assert "hello world" in document.text
+    assert parse_seconds >= 0
+    assert error_message is None
+
+
+def test_parse_document_from_file_returns_the_error_instead_of_raising(tmp_path):
+    """
+    Input: a .docx file whose bytes are not a zip archive.
+    Output: (doc_id, document, parse_seconds, error_message).
+    """
+    file_path = str(tmp_path / "docx_bad.docx")
+    with open(file_path, "wb") as f:
+        f.write(b"not a docx")
+
+    doc_id, document, parse_seconds, error_message = parse_document_from_file("docx", "docx_bad", file_path)
+
+    assert doc_id == "docx_bad"
+    assert document is None
+    assert parse_seconds is None
+    assert error_message.startswith("BadZipFile:")

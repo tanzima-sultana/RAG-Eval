@@ -18,6 +18,7 @@ import pytest
 from common import dataset_config as dataset_config_module
 from common.dataset_config import DatasetConfig
 from l1_doc_processing import doc_processing as doc_processing_module
+from l1_doc_processing import parser as parser_module
 from l1_doc_processing import raw_source as raw_source_module
 from l1_doc_processing.raw_source import RawSource
 from l1_doc_processing.doc_processing import DocProcessing
@@ -73,6 +74,44 @@ def _fake_get_parser(doc_type):
     return _FakeParser
 
 
+class _InlineExecutor:
+    """
+    Stand-in for ProcessPoolExecutor that runs every call in the test
+    process, in order, so the fake parser and its records are used.
+    """
+
+    def __init__(self, max_workers=None, mp_context=None):
+        """
+        max_workers, mp_context: ignored.
+        """
+        pass
+
+    def __enter__(self):
+        """
+        Returns this executor.
+        """
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """
+        Returns False, so exceptions are not suppressed.
+        """
+        return False
+
+    def map(self, function, *iterables, chunksize=1):
+        """
+        function: callable to run.
+        iterables: argument lists, one per parameter.
+        chunksize: ignored.
+
+        Returns the results of function over the zipped arguments, in order.
+        """
+        results = []
+        for arguments in zip(*iterables):
+            results.append(function(*arguments))
+        return results
+
+
 def _write_source_files(source_dir, file_texts):
     """
     source_dir: folder to write the local dataset files into.
@@ -120,7 +159,8 @@ def local_dataset(isolated_data_dir, monkeypatch):
         split="train",
     )
     monkeypatch.setitem(dataset_config_module._DATASET_CONFIGS, DATASET_NAME, config)
-    monkeypatch.setattr(doc_processing_module, "get_parser", _fake_get_parser)
+    monkeypatch.setattr(parser_module, "get_parser", _fake_get_parser)
+    monkeypatch.setattr(doc_processing_module.concurrent.futures, "ProcessPoolExecutor", _InlineExecutor)
     _FakeParser.parsed_doc_ids = []
     return source_dir
 
@@ -496,11 +536,11 @@ def test_process_saves_progress_after_each_batch(local_dataset, monkeypatch):
     real_fetch_raw_batch = processor.raw_source.fetch_raw_batch
     fetch_calls = [0]
 
-    def fetch_then_crash(row_iterator, row_count, run_counts):
+    def fetch_then_crash(row_iterator, row_count, summary_counts):
         fetch_calls[0] += 1
         if fetch_calls[0] == 2:
             raise RuntimeError("simulated crash")
-        return real_fetch_raw_batch(row_iterator, row_count, run_counts)
+        return real_fetch_raw_batch(row_iterator, row_count, summary_counts)
 
     monkeypatch.setattr(processor.raw_source, "fetch_raw_batch", fetch_then_crash)
 

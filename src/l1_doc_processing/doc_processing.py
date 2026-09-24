@@ -1,6 +1,9 @@
 import time
+import concurrent.futures
+import multiprocessing
 
 from common.dataset_config import get_dataset_config
+from common.constants import PARSE_DOC_COUNT, PARSE_WORKERS
 
 from l1_doc_processing.schema import Document
 from l1_doc_processing.dedup import Deduplicator
@@ -8,9 +11,9 @@ from l1_doc_processing.raw_source import RawSource
 
 from l1_doc_processing.validate import validate_dataset, validate_progress
 from l1_doc_processing.cache import load_processed_document, save_processed_document
-from l1_doc_processing.parser import get_parser
+from l1_doc_processing.parser import parse_document_from_file
 from l1_doc_processing.progress import load_progress, make_progress, save_progress
-from l1_doc_processing.summary import RunCounts, print_parse_time_summary, print_run_summary
+from l1_doc_processing.summary import SummaryCounts, print_parse_time_summary, print_run_summary
 
 
 class DocProcessing:
@@ -37,6 +40,7 @@ class DocProcessing:
 
 		self.dataset_config = get_dataset_config(self.dataset_name)
 		self.raw_source = RawSource(self.dataset_name, self.dataset_config, self.doc_type, self.dataset_url, self.dataset_path)
+
 
 	def process(self) -> dict[str, Document]:
 		"""
@@ -101,58 +105,80 @@ class DocProcessing:
 		# 4. Fetch raw data in batches, then process each batch
 		row_iterator = self.raw_source.get_iterator(rows_consumed)
 
-		parser_cls = get_parser(self.doc_type)
-		parser = parser_cls()
-
+		# For result summary
 		cached_count = len(documents)
-		run_counts = RunCounts()
+		summary_counts = SummaryCounts()
+
 		# (doc_id, seconds) for every document parsed successfully in this run
 		parse_times = []
 		batch_number = 0
 		source_exhausted = False
 
-		while len(documents) < self.dataset_size and not source_exhausted:
-			# 4a. Download/decode exactly as many rows as documents still missing
-			batch_number += 1
-			rows_needed = self.dataset_size - len(documents)
-			print(f"Batch {batch_number}: fetching {rows_needed} row(s).")
-			raw_batch = self.raw_source.fetch_raw_batch(row_iterator, rows_needed, run_counts)
-			rows_consumed += raw_batch.rows_read
-			source_exhausted = raw_batch.source_exhausted
+		# "spawn" starts each worker as a fresh Python process instead of
+		# forking this one, so workers never inherit threads or locks left
+		# open by the Hugging Face streaming and download code
+		spawn_context = multiprocessing.get_context("spawn")
+		with concurrent.futures.ProcessPoolExecutor(max_workers=PARSE_WORKERS, mp_context=spawn_context) as parse_executor:
 
-			# 4b. Parse, dedup and save the batch, in row order
-			for doc_id, source_path in raw_batch.raw_items:
-				if doc_id in skipped_doc_ids:
-					run_counts.previously_skipped += 1
-					continue
+			while len(documents) < self.dataset_size and not source_exhausted:
 
-				with open(source_path, "rb") as f:
-					raw_bytes = f.read()
+				# 4a. Download/decode exactly as many rows as documents still missing
+				batch_number += 1
+				rows_needed = self.dataset_size - len(documents)
+				print(f"Batch {batch_number}: fetching {rows_needed} row(s).")
 
-				parse_start = time.perf_counter()
-				try:
-					processed_doc = parser.parse(doc_id, raw_bytes, source_path)
-					parse_seconds = time.perf_counter() - parse_start
+				raw_batch = self.raw_source.fetch_raw_batch(row_iterator, rows_needed, summary_counts)
+				rows_consumed += raw_batch.rows_read
+				source_exhausted = raw_batch.source_exhausted
+
+				# 4b. Collect the batch's documents that still need parsing
+				# Need list to parallel process
+				doc_type_to_parse = []
+				doc_ids_to_parse = []
+				source_paths_to_parse = []
+				for doc_id, source_path in raw_batch.raw_items:
+					if doc_id in skipped_doc_ids:
+						summary_counts.skipped += 1
+						continue
+					doc_type_to_parse.append(self.doc_type)
+					doc_ids_to_parse.append(doc_id)
+					source_paths_to_parse.append(source_path)
+
+				# 4c. Parse them in parallel, in PARSE_WORKERS processes.
+				# executor.map returns results in the same order as doc_ids_to_parse
+				parse_results = parse_executor.map(
+						parse_document_from_file,
+						doc_type_to_parse,
+						doc_ids_to_parse,
+						source_paths_to_parse,
+						chunksize=PARSE_DOC_COUNT,
+				)
+			
+				# 4d. Dedup and save the parsed documents one by one, in row order
+				for doc_id, processed_doc, parse_seconds, error_message in parse_results:
+					if error_message is not None:
+						print(f"Skipping document {doc_id}: parse failed: {error_message}")
+						skipped_doc_ids.add(doc_id)
+						summary_counts.parse_error += 1
+						continue
+
 					parse_times.append((doc_id, parse_seconds))
-				except Exception as error:
-					print(f"Skipping document {doc_id}: parse failed: {type(error).__name__}: {error}")
-					skipped_doc_ids.add(doc_id)
-					run_counts.parse_error += 1
-					continue
 
-				if not deduplicator.add_if_new(doc_id, processed_doc):
-					run_counts.duplicate += 1
-					continue
+					if not deduplicator.add_if_new(doc_id, processed_doc):
+						summary_counts.duplicate += 1
+						continue
 
-				processed_doc_ids.append(doc_id)
-				documents[doc_id] = processed_doc
-				save_processed_document(self.dataset_name, doc_id, processed_doc)
+					processed_doc_ids.append(doc_id)
+					documents[doc_id] = processed_doc
+					save_processed_document(self.dataset_name, doc_id, processed_doc)
 
-			# 4c. Save progress after every batch
-			save_progress(self.dataset_name, make_progress(self.dataset_config, self.doc_type, rows_consumed, processed_doc_ids, skipped_doc_ids))
+				# 4e. Save progress after every batch
+				save_progress(self.dataset_name, make_progress(self.dataset_config, self.doc_type, rows_consumed, processed_doc_ids, skipped_doc_ids))
 
-		print_run_summary(cached_count, len(documents), run_counts)
+
+		print_run_summary(cached_count, len(documents), summary_counts)
 		print_parse_time_summary(parse_times)
 		if len(documents) < self.dataset_size:
 			print("Reached the end of the dataset.")
+
 		return documents

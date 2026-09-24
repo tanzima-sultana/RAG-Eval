@@ -21,7 +21,7 @@ from datasets import load_dataset
 from common import paths
 from common.constants import DOWNLOAD_WORKERS
 from common.dataset_config import DatasetConfig
-from l1_doc_processing.summary import RunCounts
+from l1_doc_processing.summary import SummaryCounts
 
 
 @dataclasses.dataclass
@@ -186,11 +186,11 @@ class RawSource:
 			f.write(raw_bytes)
 		return file_path
 
-	def fetch_raw_batch(self, row_iterator: Iterator, row_count: int, run_counts: RunCounts) -> RawBatch:
+	def fetch_raw_batch(self, row_iterator: Iterator, row_count: int, summary_counts: SummaryCounts) -> RawBatch:
 		"""
 		row_iterator: the source rows, from get_iterator.
 		row_count: number of rows matching the row_filter to fetch.
-		run_counts: counts to add filtered rows and decode errors to.
+		summary_counts: counts to add filtered rows and decode errors to.
 
 		Reads rows until row_count of them match the row_filter or the
 		source runs out. Decodes (or downloads) the matching rows in
@@ -211,7 +211,7 @@ class RawSource:
 			rows_read += 1
 
 			if not self.row_matches_filter(row):
-				run_counts.filtered += 1
+				summary_counts.filtered += 1
 				continue
 			rows_to_decode.append(row)
 
@@ -222,7 +222,7 @@ class RawSource:
 		raw_items = []
 		for raw_bytes in decoded_results:
 			if raw_bytes is None:
-				run_counts.decode_error += 1
+				summary_counts.decode_error += 1
 				continue
 			doc_id = self.make_doc_id(self.doc_type, raw_bytes)
 			source_path = self.save_raw_bytes(doc_id, raw_bytes)

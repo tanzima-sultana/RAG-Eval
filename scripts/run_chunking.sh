@@ -6,8 +6,8 @@ source ~/pyenv/bin/activate
 export PYTHONPATH="$(pwd)/src"
 
 # 2. Chunking
-DATASET_NAME="cuad"
-DATASET_SIZE=200
+DATASET_NAME="docx-corpus"
+DATASET_SIZE=5000
 
 CHUNK_TYPE="fixed" # fixed, sentence, semantic
 MIN_CHUNK_SIZE=128

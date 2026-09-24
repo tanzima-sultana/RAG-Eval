@@ -16,7 +16,7 @@ import pytest
 from common.dataset_config import DatasetConfig
 from l1_doc_processing import raw_source as raw_source_module
 from l1_doc_processing.raw_source import RawSource
-from l1_doc_processing.summary import RunCounts
+from l1_doc_processing.summary import SummaryCounts
 
 
 DATASET_NAME = "myset"
@@ -267,7 +267,7 @@ def test_fetch_raw_batch_keeps_row_order_when_downloads_finish_out_of_order(isol
     source = _make_web_source(content_encoding="url")
     rows = [{"content": "https://example.com/1"}, {"content": "https://example.com/2"}, {"content": "https://example.com/3"}]
 
-    raw_batch = source.fetch_raw_batch(iter(rows), 3, RunCounts())
+    raw_batch = source.fetch_raw_batch(iter(rows), 3, SummaryCounts())
 
     doc_ids = []
     for doc_id, source_path in raw_batch.raw_items:
@@ -303,7 +303,7 @@ def test_fetch_raw_batch_downloads_in_parallel(isolated_data_dir, monkeypatch):
     for index in range(8):
         rows.append({"content": f"https://example.com/{index}"})
 
-    source.fetch_raw_batch(iter(rows), 8, RunCounts())
+    source.fetch_raw_batch(iter(rows), 8, SummaryCounts())
 
     assert most_running[0] > 1
 
@@ -312,7 +312,7 @@ def test_fetch_raw_batch_counts_filtered_rows_and_decode_errors(isolated_data_di
     """
     Input: rows where one is filtered out and one fails to download,
     asking for 3 matching rows from a source that has only 2.
-    Output: the RawBatch and the RunCounts.
+    Output: the RawBatch and the SummaryCounts.
     """
     def fake_urlopen(request, timeout):
         if request.full_url == "https://example.com/bad":
@@ -326,15 +326,15 @@ def test_fetch_raw_batch_counts_filtered_rows_and_decode_errors(isolated_data_di
         {"content": "https://example.com/fr", "language": "fr"},
         {"content": "https://example.com/bad", "language": "en"},
     ]
-    run_counts = RunCounts()
+    summary_counts = SummaryCounts()
 
-    raw_batch = source.fetch_raw_batch(iter(rows), 3, run_counts)
+    raw_batch = source.fetch_raw_batch(iter(rows), 3, summary_counts)
 
     assert len(raw_batch.raw_items) == 1
     assert raw_batch.rows_read == 3
     assert raw_batch.source_exhausted is True
-    assert run_counts.filtered == 1
-    assert run_counts.decode_error == 1
+    assert summary_counts.filtered == 1
+    assert summary_counts.decode_error == 1
 
 
 # ---------- make_doc_id ----------
