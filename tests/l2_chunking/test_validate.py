@@ -14,7 +14,6 @@ import pytest
 from common import paths
 from l2_chunking import validate
 from common.chunk_config import ChunkConfig
-from l1_doc_processing.progress import Progress, save_progress
 
 
 DATASET_NAME = "myset"

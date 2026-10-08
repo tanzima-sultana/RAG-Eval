@@ -31,8 +31,6 @@ import pytest
 
 from common.chunk_config import ChunkConfig
 from common import paths
-from l1_doc_processing.progress import Progress, save_progress
-from l1_doc_processing.schema import Document
 from l2_chunking.chunking import Chunking
 
 

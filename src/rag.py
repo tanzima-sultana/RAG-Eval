@@ -1,55 +1,103 @@
 import argparse
-import os
 import time
-import sys
 
-from l1_doc_processing.doc_processing import DocProcessing
+from common.args import IngestArgs
+from l1_ingestion.ingestion import ingestion
 
 
 def parse_args():
+	"""
+	Input: none. Reads the command line arguments passed to rag.py.
+	Output: an argparse.Namespace with one attribute per IngestArgs field.
+	What it does: defines the ingestion command line parameters and parses
+	them. Defaults match the defaults in IngestArgs.
+	"""
 	parser = argparse.ArgumentParser(description="RAG-Eval Parameters")
 
 	parser.add_argument(
-		"--doc_type",
-		type=str,
-		required=True,
-		help="Document type")
-	parser.add_argument(
-		"--dataset_name",
-		type=str,
-		required=True,
-		help="Dataset name")
-	parser.add_argument(
 		"--dataset_size",
 		type=int,
-		required=True,
-		help="Number of documents in the dataset to process")
+		required=False,
+		default=0,
+		help="Number of documents to ingest")
 	parser.add_argument(
-		"--dataset_url",
+		"--input_path",
 		type=str,
 		required=False,
-		default=None,
-		help="Dataset web URL")
+		default="",
+		help="Input dataset local path or Hugging Face dataset id")
 	parser.add_argument(
-		"--dataset_path",
+		"--output_path",
 		type=str,
 		required=False,
-		default=None,
-		help="Dataset local path")
+		default="",
+		help="Directory where ingested documents are written")
+	parser.add_argument(
+		"--download_workers",
+		type=int,
+		required=False,
+		default=1,
+		help="Number of parallel download workers")
+	parser.add_argument(
+		"--max_batch_rows",
+		type=int,
+		required=False,
+		default=1,
+		help="Maximum number of source rows per batch")
+	parser.add_argument(
+		"--hugging_face_split",
+		type=str,
+		required=False,
+		default="train",
+		help="Hugging Face dataset split to read")
+	parser.add_argument(
+		"--parse_workers",
+		type=int,
+		required=False,
+		default=16,
+		help="Number of parallel parse workers")
+	parser.add_argument(
+		"--parse_timeout_seconds",
+		type=int,
+		required=False,
+		default=0,
+		help="Per-document parse timeout in seconds")
+	parser.add_argument(
+		"--dedup_threshold",
+		type=float,
+		required=False,
+		default=0.0,
+		help="Near-duplicate similarity threshold")
+	parser.add_argument(
+		"--pdf_parser",
+		type=str,
+		required=False,
+		default="pypdf",
+		help="Library used to parse PDF files: pypdf or pypdfium2")
 
 	return parser.parse_args()
 
 
-# 1. args - doc_processing
-def validate_doc_processing_args(parsed_args):
-	url = parsed_args.dataset_url is not None
-	path = parsed_args.dataset_path is not None
-
-	if url and path:
-		sys.exit("Error: provide only one of --dataset_url or --dataset_path, not both.")
-
-	if not url and not path:
-		sys.exit("Error: at least one of --dataset_url or --dataset_path is required.")
+def make_ingest_args(parsed_args):
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args().
+	Output: an IngestArgs object holding the same values.
+	What it does: copies each parsed command line value into the matching
+	IngestArgs field.
+	"""
+	ingest_args = IngestArgs(
+		dataset_size=parsed_args.dataset_size,
+		input_path=parsed_args.input_path,
+		output_path=parsed_args.output_path,
+		download_workers=parsed_args.download_workers,
+		max_batch_rows=parsed_args.max_batch_rows,
+		hugging_face_split=parsed_args.hugging_face_split,
+		parse_workers=parsed_args.parse_workers,
+		parse_timeout_seconds=parsed_args.parse_timeout_seconds,
+		dedup_threshold=parsed_args.dedup_threshold,
+		pdf_parser=parsed_args.pdf_parser
+	)
+	return ingest_args
 
 
 if __name__ == "__main__":
@@ -59,32 +107,15 @@ if __name__ == "__main__":
 	args = parse_args()
 	print(args)
 
-	# 1. Doc processing
-	validate_doc_processing_args(args)
-	
-	doc_type = args.doc_type
-	dataset_name = args.dataset_name
-	dataset_size = args.dataset_size
-	dataset_url = args.dataset_url
-	dataset_path = args.dataset_path
+	# 1. Ingestion
+	ingest_args = make_ingest_args(args)
 
 	s1 = time.time()
-	processor = DocProcessing(doc_type, dataset_name, dataset_size, dataset_url, dataset_path)
-	documents = processor.process()
-	size = len(documents.values())
+	documents = ingestion(ingest_args)
 	e1 = time.time() - s1
-	print("\n------------------ Document processing time : ", e1)
+	print("\n------------------ Ingestion time : ", e1)
 
 	# ---------
 	end = time.time()
 	elapsed_time = end - start
 	print("\n\nElapsed time : ", elapsed_time)
-
-	# huggingface `datasets`/fsspec leaves a background thread alive after
-	# streaming a dataset, which crashes normal interpreter shutdown with
-	# "Fatal Python error: PyGILState_Release" (known upstream bug,
-	# huggingface/datasets#7357). All work is done by this point, so skip
-	# Python's normal finalization/thread-teardown instead of hitting it.
-	sys.stdout.flush()
-	sys.stderr.flush()
-	os._exit(0)

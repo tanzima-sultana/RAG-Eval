@@ -1,14 +1,13 @@
 from nltk.tokenize import sent_tokenize
 
 from common.constants import SENTENCE_CHUNKING
-from l1_doc_processing.schema import Document
 from l2_chunking.chunker import Chunker
 from l2_chunking.schema import Chunk
 
 class SentenceChunking(Chunker):
 	chunk_type = SENTENCE_CHUNKING
 
-	def chunk(self, document: Document) -> dict[str, Chunk]:
+	def chunk(self, document) -> dict[str, Chunk]:
 
 		chunks = {}
 

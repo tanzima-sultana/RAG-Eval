@@ -11,8 +11,6 @@ from common.constants import SEMANTIC_CHUNKING
 from common import paths
 
 
-from l1_doc_processing.cache import load_documents
-
 from l2_chunking.validate import validate_chunk_config, validate_processed_dataset
 from l2_chunking.cache import _load_cached_chunks, _save_chunks
 from l2_chunking.schema import Chunk

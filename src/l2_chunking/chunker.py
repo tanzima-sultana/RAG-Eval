@@ -1,6 +1,5 @@
 import abc
 
-from l1_doc_processing.schema import Document
 from l2_chunking.schema import Chunk
 from l2_chunking.chunking import Chunking
 
@@ -97,7 +96,7 @@ class Chunker(Chunking, abc.ABC):
 		return chunks, chunk_idx
 
 	@abc.abstractmethod
-	def chunk(self, document: Document) -> dict[str, Chunk]:
+	def chunk(self, document) -> dict[str, Chunk]:
 		"""
 		document: the Document to split into chunks.
 

@@ -10,7 +10,6 @@ import types
 import numpy as np
 import pytest
 
-from l1_doc_processing.schema import Document
 
 
 @pytest.fixture
