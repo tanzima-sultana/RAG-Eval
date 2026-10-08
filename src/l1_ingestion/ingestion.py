@@ -20,9 +20,17 @@ def ingestion(ingest_args: IngestArgs) -> list[Document]:
 	ingest_result = ingest_documents(
 		size=ingest_args.dataset_size,
 		input_path=ingest_args.input_path,
+		cache_dir=ingest_args.output_path,
+		download_settings=download_settings,
+		process_settings=process_settings,
 		parser_settings=parser_settings,
 	)
 
 	documents = ingest_result.documents
-	print(ingest_result.summary)
+	processed_dir = ingest_result.processed_dir
+	summary = ingest_result.summary
+
+	print(processed_dir)
+	print(summary)
+
 	return documents

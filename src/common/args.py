@@ -17,4 +17,13 @@ class IngestArgs:
 	dedup_threshold: float = 0.0
 	pdf_parser: str = "pypdf"
 
+@dataclasses.dataclass
+class ChunkArgs:
+	dataset_name: str
+	chunk_type: str
+	min_chunk_size: int
+	max_chunk_size: int
+	fixed_chunk_overlap: int
+	semantic_threshold: float
+
 

@@ -108,12 +108,13 @@ if __name__ == "__main__":
 	print(args)
 
 	# 1. Ingestion
+	print("\nIngestion")
 	ingest_args = make_ingest_args(args)
 
 	s1 = time.time()
 	documents = ingestion(ingest_args)
 	e1 = time.time() - s1
-	print("\n------------------ Ingestion time : ", e1)
+	print("\nIngestion time : ", e1)
 
 	# ---------
 	end = time.time()

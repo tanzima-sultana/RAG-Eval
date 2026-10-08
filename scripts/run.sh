@@ -12,7 +12,7 @@ mkdir -p log
 LOG="log/log.txt"
 
 # 1. Ingestion
-DATASET_SIZE=20
+DATASET_SIZE=1000
 INPUT_PATH="pixparse/pdfa-eng-wds"
 OUTPUT_PATH="outputs"
 DOWNLOAD_WORKERS=1
