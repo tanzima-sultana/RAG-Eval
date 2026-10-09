@@ -60,20 +60,22 @@ src/
       schema.py            # Defines the Embedded dataclass — the normalized record format every created embedding is converted into
 	  embedding.py         # Embedding orchestrator
 	  main.py              # CLI entry point for the embedding layer
+	  
 	l4_indexing/
       schema.py            # Defines the Index dataclass — the normalized record format every created index is converted into
-	  index.py             # Abstract base class and common shared methods for index types classes
-	  indexes/
+	  indexer.py            # Abstract base class and common shared methods for index types classes
+	  indexers/
 		faiss.py           # FAISS(flatip, ivf, hnsw) strategy
 		bm25.py            # BM25 strategy
-	  vectordb/
-		qdrant.py          # Vector DB qdrant strategy
+	  	qdrant.py          # Vector store qdrant strategy
 	  indexing.py          # Indexing orchestrator
-	  main.py              # CLI entry point for the indexing layer
+	  validate.py		   # Validate given parameters
+	  cache.py	           # Store and retrieve cached index
+	  langchain.py		   # langchain indexing
 
-tests/                # Test suite
+tests/                  # Test suite
 
-dataset_name/			# a folder for each dataset
+outputs/dataset_name/	# A folder for each dataset
   data/
 	raw/                # Raw input documents
 	processed/          # Output of processed documents
@@ -107,11 +109,9 @@ log/
 
 common/
   constants.py          # Hardcoded project-wide constants
-  dataset_config.py     # Dataset-related config — source URL, name, doc_type, content field, etc.
+  args.py               # Layer related command line args
   chunk_config.py       # Chunk-related config.
-  paths.py              # Computes file and directory paths used across the project
   timing.py				# Time 
 
 scripts/
   run.sh                    # Runs the entire pipeline end-to-end
-  run_doc_processing.sh     # Runs only the l1_doc_processing layer

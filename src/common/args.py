@@ -27,4 +27,13 @@ class ChunkingArgs:
 	fixed_chunk_overlap: int
 	semantic_threshold: float
 
-
+@dataclasses.dataclass
+class IndexArgs:
+	faiss_index_type: str
+	ivf_nlist: int
+	hnsw_m: int
+	hnsw_ef_construction: int
+	bm25_k1: float
+	bm25_b: float
+	bm25_tokenizer: str
+	qdrant_batch_size: int

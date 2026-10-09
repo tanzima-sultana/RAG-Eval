@@ -5,9 +5,11 @@ import time
 from common import constants
 from common.args import IngestArgs
 from common.args import ChunkingArgs
+from common.args import IndexArgs
 from l1_ingestion.ingestion import ingestion
 from l2_chunking.chunking import Chunking
 from l3_embedding.embedding import Embedding
+from l4_indexing.indexing import Indexing
 
 def parse_args():
 	"""
@@ -120,6 +122,54 @@ def parse_args():
 		required=False,
 		default=constants.SEMANTIC_THRESHOLD,
 		help="Similarity threshold used by semantic chunking")
+	parser.add_argument(
+		"--faiss_index_type",
+		type=str,
+		required=False,
+		default=constants.FAISS_FLATIP_INDEX,
+		help="FAISS index type: faiss_flatip, faiss_ivf or faiss_hnsw")
+	parser.add_argument(
+		"--ivf_nlist",
+		type=int,
+		required=False,
+		default=constants.IVF_NLIST,
+		help="Number of IVF clusters for faiss_ivf")
+	parser.add_argument(
+		"--hnsw_m",
+		type=int,
+		required=False,
+		default=constants.HNSW_M,
+		help="Number of neighbours per node in the HNSW graph")
+	parser.add_argument(
+		"--hnsw_ef_construction",
+		type=int,
+		required=False,
+		default=constants.HNSW_EF_CONSTRUCTION,
+		help="HNSW candidate list size used while building the graph")
+	parser.add_argument(
+		"--bm25_k1",
+		type=float,
+		required=False,
+		default=constants.BM25_K1,
+		help="BM25 term frequency saturation")
+	parser.add_argument(
+		"--bm25_b",
+		type=float,
+		required=False,
+		default=constants.BM25_B,
+		help="BM25 document length normalization")
+	parser.add_argument(
+		"--bm25_tokenizer",
+		type=str,
+		required=False,
+		default=constants.BM25_TOKENIZER,
+		help="Tokenizer used to split text into BM25 terms")
+	parser.add_argument(
+		"--qdrant_batch_size",
+		type=int,
+		required=False,
+		default=constants.QDRANT_BATCH_SIZE,
+		help="Number of vectors sent to Qdrant per upsert")
 
 	return parser.parse_args()
 
@@ -163,6 +213,26 @@ def make_chunking_args(parsed_args):
 		semantic_threshold=parsed_args.semantic_threshold
 	)
 	return chunking_args
+
+
+def make_index_args(parsed_args):
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args().
+	Output: an IndexArgs object holding the indexing values.
+	What it does: copies each parsed indexing command line value into the
+	matching IndexArgs field.
+	"""
+	index_args = IndexArgs(
+		faiss_index_type=parsed_args.faiss_index_type,
+		ivf_nlist=parsed_args.ivf_nlist,
+		hnsw_m=parsed_args.hnsw_m,
+		hnsw_ef_construction=parsed_args.hnsw_ef_construction,
+		bm25_k1=parsed_args.bm25_k1,
+		bm25_b=parsed_args.bm25_b,
+		bm25_tokenizer=parsed_args.bm25_tokenizer,
+		qdrant_batch_size=parsed_args.qdrant_batch_size
+	)
+	return index_args
 
 def get_output_path(input_path:str, output_path:str) -> str:
 	"""
@@ -214,6 +284,15 @@ if __name__ == "__main__":
 	embeddings = Embedding(chunking_args).compute_embeddings(chunks, output_path)
 	e3 = time.time() - s3
 	print("\nEmbedding time : ", e3)
+
+	# 4. Indexing
+	print("\n\nIndexing")
+	index_args = make_index_args(args)
+
+	s4 = time.time()
+	faiss_index, bm25_index, qdrant_index = Indexing(index_args, chunking_args).compute_index(chunks, embeddings, output_path)
+	e4 = time.time() - s4
+	print("\nIndexing time : ", e4)
 
 	# ---------
 	end = time.time()
