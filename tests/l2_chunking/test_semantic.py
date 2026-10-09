@@ -1,243 +1,169 @@
 """
 test_semantic.py
 
-Tests for l2_chunking.semantic.SemanticChunking: sentence-aware
-chunking that also splits on a semantic dissimilarity boundary between
-consecutive sentences, using precomputed sentence embeddings.
+Tests for l2_chunking.chunkers.semantic.SemanticChunking. Embeddings come
+from the conftest FakeSentenceTransformer: sentences with "cat" are
+[1, 0] and all others [0, 1], so a switch between them is a topic change.
 """
 
 import numpy as np
+from nltk.tokenize import sent_tokenize
 
-from common.constants import SEMANTIC_CHUNKING
 from l2_chunking.chunkers.semantic import SemanticChunking
 from l2_chunking.schema import Chunk
 
 
-def test_chunk_splits_at_a_dissimilar_sentence_boundary(make_fake_chunking, document_factory):
+def get_chunk_texts(chunks):
     """
-    Input: 4 sentences whose embeddings form two dissimilar pairs
-    (sentences 0-1 similar, 2-3 similar, but 1-2 dissimilar), a token
-    budget large enough that only the dissimilarity check can trigger
-    a split.
-    Output: chunk()'s return value.
+    Input: chunks, a dict of chunk_id to Chunk.
+    Output: the list of chunk texts in order.
+    What it does: collects each chunk's text.
     """
-    embeddings = np.array(
-        [
-            [1.0, 0.0],
-            [0.9, 0.1],
-            [0.0, 1.0],
-            [0.1, 0.9],
-        ]
-    )
-    fake_chunking = make_fake_chunking(
-        max_chunk_size=100,
-        fixed_chunk_overlap=0,
-        semantic_threshold=0.5,
-        all_embeddings=embeddings,
-        embeddings_offset={"doc1": (0, 4)},
-    )
-    chunker = SemanticChunking(fake_chunking)
-    document = document_factory("doc1", "alpha one. alpha two. beta one. beta two.")
-
-    chunks = chunker.chunk(document)
-
-    texts = [chunk.text for _, chunk in sorted(chunks.items())]
-    assert texts == ["alpha one. alpha two.", "beta one. beta two."]
+    chunk_texts = []
+    for chunk_id in chunks:
+        chunk_texts.append(chunks[chunk_id].text)
+    return chunk_texts
 
 
-def test_chunk_splits_on_token_budget_when_sentences_are_all_similar(
-    make_fake_chunking, document_factory
-):
+def make_semantic_chunker(make_chunker, chunking_args, document):
     """
-    Input: 3 sentences with identical embeddings (never dissimilar),
-    each with 3 tokens, max_chunk_size 5.
-    Output: chunk()'s return value.
-
-    Checks that the token-budget split still works independently of
-    the dissimilarity check.
+    Input: the make_chunker fixture, chunking_args and one document.
+    Output: a SemanticChunking ready to chunk that document.
+    What it does: embeds the document's sentences the way Chunking does and
+    passes the embeddings and offsets to the chunker.
     """
-    embeddings = np.ones((3, 2))
-    fake_chunking = make_fake_chunking(
-        max_chunk_size=5,
-        fixed_chunk_overlap=0,
-        semantic_threshold=0.5,
-        all_embeddings=embeddings,
-        embeddings_offset={"doc1": (0, 3)},
-    )
-    chunker = SemanticChunking(fake_chunking)
-    document = document_factory("doc1", "w1 w2 w3. w4 w5 w6. w7 w8 w9.")
-
-    chunks = chunker.chunk(document)
-
-    assert len(chunks) == 3
-    for chunk in chunks.values():
-        assert chunk.size == 3
+    probe_chunker = make_chunker(SemanticChunking, chunking_args)
+    sentences = sent_tokenize(document.text)
+    all_embeddings = probe_chunker.model.encode(sentences)
+    embeddings_offset = {}
+    embeddings_offset[document.id] = (0, len(sentences))
+    return make_chunker(SemanticChunking, chunking_args, all_embeddings, embeddings_offset)
 
 
-def test_chunk_falls_back_to_a_fixed_window_for_an_oversized_sentence(
-    make_fake_chunking, document_factory
-):
+# ---------- _is_dissimilar ----------
+
+
+def test_is_dissimilar_false_for_same_direction(make_chunker, make_chunking_args):
     """
-    Input: a document with a short sentence, a long sentence (way
-    over max_chunk_size), and another short sentence, all with
-    identical embeddings.
-    Output: chunk()'s return value.
-
-    Checks that the oversized middle sentence is split via the
-    fixed-window fallback, and the short sentences on either side are
-    left as their own chunks.
+    Input: two identical embeddings with threshold 0.5.
+    Output: _is_dissimilar's result.
+    What it does: checks cosine similarity 1 is not dissimilar.
     """
-    embeddings = np.ones((3, 2))
-    fake_chunking = make_fake_chunking(
-        max_chunk_size=3,
-        fixed_chunk_overlap=0,
-        semantic_threshold=0.5,
-        all_embeddings=embeddings,
-        embeddings_offset={"doc1": (0, 3)},
-    )
-    chunker = SemanticChunking(fake_chunking)
-    text = "short one. this sentence has way more than three tokens in it. short two."
-    document = document_factory("doc1", text)
+    chunker = make_chunker(SemanticChunking, make_chunking_args(chunk_type="semantic", semantic_threshold=0.5))
+    embeddings = np.array([[1.0, 0.0], [1.0, 0.0]])
 
-    chunks = chunker.chunk(document)
-
-    texts = [chunk.text for _, chunk in sorted(chunks.items())]
-    assert texts[0] == "short one."
-    assert texts[-1] == "short two."
-    assert len(texts) == 6
+    assert not chunker._is_dissimilar(embeddings, 0, 1)
 
 
-def test_is_dissimilar_returns_false_when_either_embedding_is_a_zero_vector(make_fake_chunking):
+def test_is_dissimilar_true_for_orthogonal(make_chunker, make_chunking_args):
     """
-    Input: two embeddings where one is the zero vector.
-    Output: _is_dissimilar's return value.
-
-    Checks the divide-by-zero guard: a zero-norm embedding must not
-    force a split (or crash), regardless of semantic_threshold.
+    Input: two orthogonal embeddings with threshold 0.5.
+    Output: _is_dissimilar's result.
+    What it does: checks cosine similarity 0 is dissimilar.
     """
+    chunker = make_chunker(SemanticChunking, make_chunking_args(chunk_type="semantic", semantic_threshold=0.5))
+    embeddings = np.array([[1.0, 0.0], [0.0, 1.0]])
+
+    assert chunker._is_dissimilar(embeddings, 0, 1)
+
+
+def test_is_dissimilar_false_for_zero_vector(make_chunker, make_chunking_args):
+    """
+    Input: an all-zero embedding and a normal one.
+    Output: _is_dissimilar's result.
+    What it does: checks a zero vector does not divide by zero and is not dissimilar.
+    """
+    chunker = make_chunker(SemanticChunking, make_chunking_args(chunk_type="semantic", semantic_threshold=0.5))
     embeddings = np.array([[0.0, 0.0], [1.0, 0.0]])
-    chunker = SemanticChunking(
-        make_fake_chunking(semantic_threshold=0.9, all_embeddings=embeddings, embeddings_offset={})
-    )
 
-    assert chunker._is_dissimilar(embeddings, 0, 1) is False
-
-
-def test_chunk_returns_empty_dict_for_empty_text(make_fake_chunking, document_factory):
-    """
-    Input: a document with empty text, and an embeddings_offset entry
-    pointing at an empty embeddings slice.
-    Output: chunk()'s return value.
-    """
-    fake_chunking = make_fake_chunking(
-        max_chunk_size=10,
-        fixed_chunk_overlap=0,
-        all_embeddings=np.empty((0, 0)),
-        embeddings_offset={"doc1": (0, 0)},
-    )
-    chunker = SemanticChunking(fake_chunking)
-    document = document_factory("doc1", "")
-
-    chunks = chunker.chunk(document)
-
-    assert chunks == {}
+    assert not chunker._is_dissimilar(embeddings, 0, 1)
 
 
 # ---------- merge_chunks ----------
 
 
-def _chunk(chunk_id, text, size):
+def test_merge_chunks_merges_small_chunk_into_previous(make_chunker, make_chunking_args):
     """
-    Builds a Chunk directly, for tests that exercise merge_chunks on
-    its own rather than through chunk()'s sentence-splitting logic.
+    Input: chunks of size 5, 1 and 5 with min 2 and max 10.
+    Output: the merged chunks.
+    What it does: checks the size-1 chunk joins the chunk before it,
+    which keeps its own id.
     """
-    return Chunk(id=chunk_id, text=text, size=size, type=SEMANTIC_CHUNKING)
+    chunker = make_chunker(SemanticChunking, make_chunking_args(chunk_type="semantic", min_chunk_size=2, max_chunk_size=10))
+    chunks = {}
+    chunks["doc_0"] = Chunk("doc_0", "first", 5, "semantic")
+    chunks["doc_1"] = Chunk("doc_1", "tiny", 1, "semantic")
+    chunks["doc_2"] = Chunk("doc_2", "third", 5, "semantic")
+
+    merged_chunks = chunker.merge_chunks(chunks)
+
+    assert list(merged_chunks.keys()) == ["doc_0", "doc_2"]
+    assert merged_chunks["doc_0"].text == "first tiny"
+    assert merged_chunks["doc_0"].size == 6
 
 
-def test_merge_chunks_merges_consecutive_chunks_under_min_size_that_fit_the_budget(
-    make_fake_chunking,
-):
+def test_merge_chunks_does_not_merge_past_max_size(make_chunker, make_chunking_args):
     """
-    Input: three chunks, each below min_chunk_size, whose combined
-    size still fits max_chunk_size.
-    Output: merge_chunks's return value.
-
-    Checks the basic case: a run of undersized chunks collapses into
-    one.
+    Input: chunks of size 9 and 1 with min 2 and max 9.
+    Output: the merged chunks.
+    What it does: checks the small chunk stays separate when merging
+    would go over max_chunk_size.
     """
-    chunker = SemanticChunking(make_fake_chunking(min_chunk_size=128, max_chunk_size=256))
-    chunks = {
-        "doc1_0": _chunk("doc1_0", "AAAA", 50),
-        "doc1_1": _chunk("doc1_1", "BBBB", 50),
-        "doc1_2": _chunk("doc1_2", "CCCC", 50),
-    }
+    chunker = make_chunker(SemanticChunking, make_chunking_args(chunk_type="semantic", min_chunk_size=2, max_chunk_size=9))
+    chunks = {}
+    chunks["doc_0"] = Chunk("doc_0", "big", 9, "semantic")
+    chunks["doc_1"] = Chunk("doc_1", "tiny", 1, "semantic")
 
-    merged = chunker.merge_chunks(chunks)
+    merged_chunks = chunker.merge_chunks(chunks)
 
-    assert len(merged) == 1
-    merged_chunk = list(merged.values())[0]
-    assert merged_chunk.text == "AAAA BBBB CCCC"
-    assert merged_chunk.size == 150
+    assert list(merged_chunks.keys()) == ["doc_0", "doc_1"]
 
 
-def test_merge_chunks_merges_into_the_actual_immediately_preceding_chunk(make_fake_chunking):
+# ---------- chunk ----------
+
+
+def test_semantic_starts_new_chunk_at_topic_change(make_chunker, make_chunking_args, make_document):
     """
-    Input: chunk A (too big to merge with B), chunk B (small, but its
-    combined size with A exceeds max_chunk_size so it stays
-    unmerged), chunk C (small enough to merge with B).
-    Output: merge_chunks's return value.
-
-    Regression test: C must merge into B, its real predecessor in the
-    output sequence -- not into A, an earlier chunk that never
-    actually preceded C once B was kept separate.
+    Input: two cat sentences then two dog sentences, all fitting in max 20.
+    Output: the chunks.
+    What it does: checks the chunk is split where the topic changes, even
+    though the size limit was not reached.
     """
-    chunker = SemanticChunking(make_fake_chunking(min_chunk_size=128, max_chunk_size=256))
-    chunks = {
-        "doc1_0": _chunk("doc1_0", "AAAA", 200),
-        "doc1_1": _chunk("doc1_1", "BBBB", 100),
-        "doc1_2": _chunk("doc1_2", "CCCC", 50),
-    }
+    chunking_args = make_chunking_args(chunk_type="semantic", min_chunk_size=1, max_chunk_size=20, semantic_threshold=0.5)
+    document = make_document("doc", "The cat sat. The cat ran. Dogs bark loudly. Dogs run fast.")
+    chunker = make_semantic_chunker(make_chunker, chunking_args, document)
 
-    merged = chunker.merge_chunks(chunks)
+    chunks = chunker.chunk(document)
 
-    assert len(merged) == 2
-    assert merged["doc1_0"].text == "AAAA"
-    assert merged["doc1_0"].size == 200
-    assert merged["doc1_1"].text == "BBBB CCCC"
-    assert merged["doc1_1"].size == 150
+    assert get_chunk_texts(chunks) == ["The cat sat. The cat ran.", "Dogs bark loudly. Dogs run fast."]
+    assert chunks["doc_0"].type == "semantic"
 
 
-def test_merge_chunks_does_not_mutate_the_input_chunks_dict(make_fake_chunking):
+def test_semantic_keeps_one_topic_together(make_chunker, make_chunking_args, make_document):
     """
-    Input: two chunks that merge_chunks will merge.
-    Output: merge_chunks's return value, and the original chunks dict
-    passed in.
-
-    Checks that merge_chunks builds new Chunk objects rather than
-    mutating the caller's original Chunk objects in place.
+    Input: three dog sentences, all fitting in max 20.
+    Output: the chunks.
+    What it does: checks similar sentences stay in one chunk.
     """
-    chunker = SemanticChunking(make_fake_chunking(min_chunk_size=128, max_chunk_size=256))
-    original_a = _chunk("doc1_0", "AAAA", 200)
-    chunks = {"doc1_0": original_a, "doc1_1": _chunk("doc1_1", "BBBB", 50)}
+    chunking_args = make_chunking_args(chunk_type="semantic", min_chunk_size=1, max_chunk_size=20, semantic_threshold=0.5)
+    document = make_document("doc", "Dogs bark. Dogs run. Dogs sleep.")
+    chunker = make_semantic_chunker(make_chunker, chunking_args, document)
 
-    chunker.merge_chunks(chunks)
+    chunks = chunker.chunk(document)
 
-    assert chunks["doc1_0"] is original_a
-    assert original_a.text == "AAAA"
-    assert original_a.size == 200
+    assert get_chunk_texts(chunks) == ["Dogs bark. Dogs run. Dogs sleep."]
 
 
-def test_merge_chunks_leaves_chunks_at_or_above_min_size_alone(make_fake_chunking):
+def test_semantic_splits_a_too_long_sentence_with_fixed_windows(make_chunker, make_chunking_args, make_document):
     """
-    Input: two chunks, neither below min_chunk_size.
-    Output: merge_chunks's return value.
+    Input: a 10-word sentence with max_chunk_size 4 and overlap 1.
+    Output: the chunks.
+    What it does: checks the sentence is split into overlapping windows.
     """
-    chunker = SemanticChunking(make_fake_chunking(min_chunk_size=128, max_chunk_size=256))
-    chunks = {
-        "doc1_0": _chunk("doc1_0", "AAAA", 200),
-        "doc1_1": _chunk("doc1_1", "BBBB", 200),
-    }
+    chunking_args = make_chunking_args(chunk_type="semantic", min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=1, semantic_threshold=0.5)
+    document = make_document("doc", "a b c d e f g h i j.")
+    chunker = make_semantic_chunker(make_chunker, chunking_args, document)
 
-    merged = chunker.merge_chunks(chunks)
+    chunks = chunker.chunk(document)
 
-    assert merged == chunks
+    assert get_chunk_texts(chunks) == ["a b c d", "d e f g", "g h i j.", "j."]

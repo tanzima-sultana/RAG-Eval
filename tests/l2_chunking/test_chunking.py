@@ -1,377 +1,169 @@
 """
 test_chunking.py
 
-Tests for l2_chunking.chunking.Chunking: the orchestrator that loads
-processed documents, dispatches to a registered chunking strategy,
-and saves/caches the resulting chunks.
-
-Every test here uses isolated_data_dir (so writes to a dataset's
-data/processed/ and chunks/ land in a temporary directory, never this
-repo's real files) and fake_sentence_transformer_class (so
-constructing a Chunking never downloads or runs a real embedding
-model).
-
-Chunking takes a ChunkConfig (dataset_name, chunk_type,
-min_chunk_size, max_chunk_size, fixed_chunk_overlap,
-semantic_threshold bundled together -- see common.chunk_config) plus
-dataset_size and model_name as constructor arguments, the way a real
-run's l2_chunking.main wires them in from its own CLI args. Tests that
-call compute_chunks construct Chunking with a ChunkConfig whose
-dataset_name matches the one they write processed documents under,
-and whose chunk_type is the strategy that test means to run.
+Tests for l2_chunking.chunking.Chunking, the l2 orchestrator. The real
+SentenceTransformer is replaced by the conftest FakeSentenceTransformer,
+and chunks are written under pytest's tmp_path.
 """
 
-import dataclasses
-import datetime
 import json
 import os
 
-import numpy as np
 import pytest
 
-from common.chunk_config import ChunkConfig
-from common import paths
+from common.paths import get_chunk_path
 from l2_chunking.chunking import Chunking
 
 
-def _write_processed_document(docs_dir, doc_id, document):
+def make_documents(make_document):
     """
-    docs_dir: directory to write the processed document JSON file
-        into (created if missing).
-    doc_id: identifies the file to write.
-    document: the Document to persist.
-
-    Writes document as {doc_id}.json in the same shape
-    l1_doc_processing.doc_processing.DocProcessing.document_to_json_dict
-    produces, so l1_doc_processing.cache.load_documents can read it back.
-
-    Returns nothing.
+    Input: the make_document fixture.
+    Output: a dict of doc_id to Document with two documents.
+    What it does: builds a cat document and a dog document.
     """
-    os.makedirs(docs_dir, exist_ok=True)
-    data = dataclasses.asdict(document)
-    data["timestamp"] = document.timestamp.isoformat()
-    with open(os.path.join(docs_dir, f"{doc_id}.json"), "w", encoding="utf-8") as f:
-        json.dump(data, f)
+    documents = {}
+    documents["d1"] = make_document("d1", "The cat sat. The cat ran. The cat slept.")
+    documents["d2"] = make_document("d2", "Dogs bark loudly. Dogs run fast.")
+    return documents
 
 
-def _write_progress(dataset_name, processed_doc_ids):
+def count_json_files(folder):
     """
-    dataset_name: dataset whose progress.json to write.
-    processed_doc_ids: doc_ids to list as processed.
-
-    Writes the progress.json that l1_doc_processing leaves behind, which
-    compute_chunks requires.
-
-    Returns nothing.
+    Input: folder, a folder path.
+    Output: the number of .json files in it.
+    What it does: counts the saved document cache files.
     """
-    progress = Progress("someone/dataset", "train", "pdf", len(processed_doc_ids), processed_doc_ids, [])
-    save_progress(dataset_name, progress)
+    json_file_count = 0
+    for file_name in os.listdir(folder):
+        if file_name.endswith(".json"):
+            json_file_count += 1
+    return json_file_count
 
 
-def _make_document(doc_id, text):
+def test_init_loads_model_by_name_and_uses_its_tokenizer(fake_sentence_transformer, make_chunking_args):
     """
-    doc_id: id to give the Document.
-    text: the Document's text content.
-
-    Returns a minimally-populated Document, matching
-    conftest.document_factory but usable outside a fixture (some
-    tests here build several documents at once, keyed by doc_id).
+    Input: ChunkingArgs with model_name "fake-model".
+    Output: the Chunking object's model and tokenizer.
+    What it does: checks the model is loaded with model_name and its
+    tokenizer is kept.
     """
-    return Document(
-        id=doc_id,
-        text=text,
-        title=None,
-        path="irrelevant",
-        format="fake",
-        metadata={},
-        content_hash="irrelevant",
-        timestamp=datetime.datetime.now(datetime.timezone.utc),
-    )
+    chunking = Chunking(make_chunking_args(model_name="fake-model"))
 
-
-# ---------- __init__ ----------
-
-
-def test_init_sets_tokenizer_from_the_loaded_model(
-    isolated_data_dir, fake_sentence_transformer_class
-):
-    """
-    Input: a Chunking constructed with the SentenceTransformer class
-    faked out.
-    Output: chunking.tokenizer.
-
-    Checks that __init__ wires tokenizer up from the loaded model.
-    """
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="fixed",
-        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
-
+    assert chunking.model.model_name == "fake-model"
     assert chunking.tokenizer is chunking.model.tokenizer
 
 
-def test_init_leaves_embeddings_state_unset_until_compute_chunks_runs(
-    isolated_data_dir, fake_sentence_transformer_class
-):
+def test_compute_chunks_raises_for_invalid_args_and_writes_nothing(fake_sentence_transformer, make_chunking_args, make_document, tmp_path):
     """
-    Input: a freshly constructed Chunking.
-    Output: chunking.all_embeddings and chunking.embeddings_offset.
-
-    Checks that embeddings-related state starts out unset, since it
-    is only ever needed (and only ever computed) for semantic
-    chunking, inside compute_chunks.
+    Input: ChunkingArgs with min_chunk_size larger than max_chunk_size.
+    Output: ValueError, and the output folder after the call.
+    What it does: checks validation runs before any chunk is written.
     """
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="fixed",
-        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.5,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
-
-    assert chunking.all_embeddings is None
-    assert chunking.embeddings_offset is None
-
-
-# ---------- compute_chunks ----------
-
-
-def test_compute_chunks_fixed_end_to_end_writes_and_returns_chunks(
-    isolated_data_dir, fake_sentence_transformer_class
-):
-    """
-    Input: one processed document written to the path implied by
-    dataset_name "myset".
-    Output: chunking.compute_chunks()'s return value, and the files
-    written under paths.get_chunk_path for this test's chunk_config.
-
-    Checks the whole pipeline end to end: documents are loaded,
-    chunked, and both returned and persisted to disk.
-    """
-    docs_dir = paths.get_processed_dataset_path("myset")
-    _write_processed_document(
-        docs_dir, "doc1", _make_document("doc1", "one two three four five six seven")
-    )
-    _write_progress("myset", ["doc1"])
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="fixed",
-        min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=1, semantic_threshold=0.0,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
-
-    chunks = chunking.compute_chunks()
-
-    assert len(chunks) == 3
-    assert chunks["doc1_0"].text == "one two three four"
-    output_path = paths.get_chunk_path(chunk_config)
-    assert sorted(os.listdir(output_path)) == ["doc1_0.json", "doc1_1.json", "doc1_2.json"]
-
-
-def test_compute_chunks_returns_cached_chunks_without_recomputing_them(
-    isolated_data_dir, fake_sentence_transformer_class, monkeypatch
-):
-    """
-    Input: a first compute_chunks() call that writes doc1's chunks to
-    disk under its per-document cache, followed by a second
-    compute_chunks() call with FixedChunking.chunk patched to raise if
-    it is invoked again.
-    Output: both calls' return values.
-
-    Checks the per-document cache-hit branch added by
-    l2_chunking.cache._load_cached_chunks: once a document's chunks are already
-    on disk, a second run must reuse them straight from disk instead
-    of re-running the chunking strategy on that document. (Per-document
-    caching still needs the processed-documents directory to be
-    present, unlike the old whole-run cache, since compute_chunks
-    loads every document up front to know which doc_ids to check the
-    cache for.)
-    """
-    docs_dir = paths.get_processed_dataset_path("myset")
-    _write_processed_document(docs_dir, "doc1", _make_document("doc1", "one two three four"))
-    _write_progress("myset", ["doc1"])
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="fixed",
-        min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=0, semantic_threshold=0.0,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
-
-    first_run = chunking.compute_chunks()
-
-    def fail_if_called(self, document):
-        raise AssertionError("chunk() should not run again once chunks are cached")
-
-    monkeypatch.setattr(
-        "l2_chunking.chunkers.fixed.FixedChunking.chunk", fail_if_called
-    )
-
-    second_run = chunking.compute_chunks()
-
-    assert second_run == first_run
-
-
-def test_compute_chunks_semantic_builds_embeddings_and_offsets(
-    isolated_data_dir, fake_sentence_transformer_class
-):
-    """
-    Input: one processed document with two sentences, under
-    dataset_name "myset".
-    Output: chunking.compute_chunks()'s return value, and
-    chunking.all_embeddings / chunking.embeddings_offset afterward.
-
-    Checks that the semantic branch actually computes embeddings for
-    every sentence and records each document's slice into them.
-    """
-    docs_dir = paths.get_processed_dataset_path("myset")
-    _write_processed_document(
-        docs_dir, "doc1", _make_document("doc1", "w1 w2 w3 w4 w5. w6 w7 w8 w9 w10.")
-    )
-    _write_progress("myset", ["doc1"])
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="semantic",
-        min_chunk_size=1, max_chunk_size=5, fixed_chunk_overlap=0, semantic_threshold=0.5,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
-
-    chunks = chunking.compute_chunks()
-
-    assert chunking.embeddings_offset == {"doc1": (0, 2)}
-    assert isinstance(chunking.all_embeddings, np.ndarray)
-    assert chunking.all_embeddings.shape[0] == 2
-    assert len(chunks) == 2
-    for chunk in chunks.values():
-        assert chunk.size == 5
-
-
-def test_compute_chunks_raises_value_error_for_unknown_chunk_type_before_loading_documents(
-    isolated_data_dir, fake_sentence_transformer_class
-):
-    """
-    Input: a ChunkConfig with an unknown chunk_type, and no
-    processed-documents directory created at all.
-    Output: none; compute_chunks is expected to raise ValueError.
-
-    Per compute_chunks's own docstring: "Looks up chunk_type in the
-    chunking strategy registry first, raising ValueError immediately
-    if it is not a registered, implemented strategy, before any
-    document loading happens." This checks that contract directly: if
-    chunk_type validation ran before document loading as documented,
-    a missing documents directory would never be touched, so the
-    failure here must be ValueError, not a filesystem error from
-    trying to list a directory that doesn't exist.
-    """
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="totally-bogus-chunk-type",
-        min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.0,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
+    chunking = Chunking(make_chunking_args(min_chunk_size=10, max_chunk_size=6))
+    output_path = str(tmp_path)
 
     with pytest.raises(ValueError):
-        chunking.compute_chunks()
+        chunking.compute_chunks(make_documents(make_document), output_path)
+
+    assert os.listdir(output_path) == []
 
 
-def test_compute_chunks_raises_for_an_invalid_chunk_config_before_loading_documents(
-    isolated_data_dir, fake_sentence_transformer_class
-):
+@pytest.mark.parametrize("chunk_type", ["fixed", "sentence", "semantic"])
+def test_compute_chunks_chunks_every_document_and_saves_them(fake_sentence_transformer, make_chunking_args, make_document, tmp_path, chunk_type):
     """
-    Input: a ChunkConfig whose overlap is not smaller than max_chunk_size,
-    and no processed documents on disk.
-    Output: none; ValueError is expected.
+    Input: two documents, for each chunk type.
+    Output: the returned chunks and the saved chunk files.
+    What it does: checks both documents have chunks of the right type and
+    each document is saved as one file in the chunk folder.
     """
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="fixed",
-        min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=4, semantic_threshold=0.0,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
+    chunking_args = make_chunking_args(chunk_type=chunk_type)
+    chunking = Chunking(chunking_args)
+    output_path = str(tmp_path)
 
-    with pytest.raises(ValueError):
-        chunking.compute_chunks()
+    chunks = chunking.compute_chunks(make_documents(make_document), output_path)
+
+    assert "d1_0" in chunks
+    assert "d2_0" in chunks
+    for chunk_id in chunks:
+        assert chunks[chunk_id].type == chunk_type
+    chunk_path = get_chunk_path(output_path, chunking_args)
+    assert count_json_files(chunk_path) == 2
 
 
-def test_compute_chunks_raises_when_progress_json_is_missing(
-    isolated_data_dir, fake_sentence_transformer_class
-):
+def test_compute_chunks_loads_saved_chunks_on_second_run(fake_sentence_transformer, make_chunking_args, make_document, tmp_path):
     """
-    Input: one processed document on disk but no progress.json.
-    Output: none; FileNotFoundError is expected.
+    Input: two runs over the same documents, with one saved document file
+    edited between the runs.
+    Output: the chunks from the second run.
+    What it does: checks the second run returns the saved file's content
+    instead of chunking the document again.
     """
-    docs_dir = paths.get_processed_dataset_path("myset")
-    _write_processed_document(docs_dir, "doc1", _make_document("doc1", "one two three four"))
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="fixed",
-        min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=0, semantic_threshold=0.0,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
+    chunking_args = make_chunking_args()
+    chunking = Chunking(chunking_args)
+    output_path = str(tmp_path)
+    documents = make_documents(make_document)
+    chunking.compute_chunks(documents, output_path)
 
-    with pytest.raises(FileNotFoundError):
-        chunking.compute_chunks()
+    saved_file_path = os.path.join(get_chunk_path(output_path, chunking_args), "d1.json")
+    with open(saved_file_path, encoding="utf-8") as saved_file:
+        saved_chunks = json.load(saved_file)
+    saved_chunks[0]["text"] = "EDITED IN CACHE"
+    with open(saved_file_path, "w", encoding="utf-8") as saved_file:
+        json.dump(saved_chunks, saved_file)
+
+    chunks = chunking.compute_chunks(documents, output_path)
+
+    assert chunks["d1_0"].text == "EDITED IN CACHE"
 
 
-def test_compute_chunks_raises_when_dataset_size_exceeds_processed_documents(
-    isolated_data_dir, fake_sentence_transformer_class
-):
+def test_compute_chunks_only_chunks_documents_not_in_cache(fake_sentence_transformer, make_chunking_args, make_document, tmp_path, capsys):
     """
-    Input: one processed document and its progress.json, dataset_size 2.
-    Output: none; ValueError is expected and no chunks are written.
+    Input: a first run with d1 only, then a second run with d1 and d2.
+    Output: what the second run printed.
+    What it does: checks d1 comes from the cache and only d2 is newly chunked.
     """
-    docs_dir = paths.get_processed_dataset_path("myset")
-    _write_processed_document(docs_dir, "doc1", _make_document("doc1", "one two three four"))
-    _write_progress("myset", ["doc1"])
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="fixed",
-        min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=0, semantic_threshold=0.0,
-    )
-    chunking = Chunking(chunk_config, dataset_size=2, model_name="fake")
+    chunking = Chunking(make_chunking_args())
+    output_path = str(tmp_path)
+    documents = make_documents(make_document)
+    first_run_documents = {}
+    first_run_documents["d1"] = documents["d1"]
+    chunking.compute_chunks(first_run_documents, output_path)
+    capsys.readouterr()
 
-    with pytest.raises(ValueError):
-        chunking.compute_chunks()
+    chunking.compute_chunks(documents, output_path)
 
-    assert not os.path.exists(paths.get_chunk_path(chunk_config))
+    printed = capsys.readouterr().out
+    assert "Documents : 2 (1 from cache, 1 newly chunked)" in printed
 
 
-def test_compute_chunks_prints_new_then_cached_counts_and_chunk_time(
-    isolated_data_dir, fake_sentence_transformer_class, capsys
-):
+def test_compute_chunks_semantic_embeds_only_uncached_documents(fake_sentence_transformer, make_chunking_args, make_document, tmp_path):
     """
-    Input: one processed document chunked twice with the same config.
-    Output: the printed summaries of both runs.
+    Input: a semantic first run with d1 only, then a run with d1 and d2.
+    Output: the sentences the model embedded in the second run.
+    What it does: checks d1's sentences are not embedded again once its
+    chunks are cached.
     """
-    docs_dir = paths.get_processed_dataset_path("myset")
-    _write_processed_document(docs_dir, "doc1", _make_document("doc1", "one two three four five six seven"))
-    _write_progress("myset", ["doc1"])
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="fixed",
-        min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=1, semantic_threshold=0.0,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
+    chunking = Chunking(make_chunking_args(chunk_type="semantic"))
+    output_path = str(tmp_path)
+    documents = make_documents(make_document)
+    first_run_documents = {}
+    first_run_documents["d1"] = documents["d1"]
+    chunking.compute_chunks(first_run_documents, output_path)
+    chunking.model.encoded_sentences = []
 
-    chunking.compute_chunks()
-    first_output = capsys.readouterr().out
-    chunking.compute_chunks()
-    second_output = capsys.readouterr().out
+    chunking.compute_chunks(documents, output_path)
 
-    assert "Newly chunked 1 document(s): 3 chunk(s)." in first_output
-    assert "Documents chunked : 1" in first_output
-    assert "Loaded cached chunks for 1 document(s): 3 chunk(s)." in second_output
-    assert "No documents were chunked in this run." in second_output
+    assert chunking.model.encoded_sentences == ["Dogs bark loudly.", "Dogs run fast."]
 
 
-def test_compute_chunks_prints_sentence_embedding_time_for_semantic(
-    isolated_data_dir, fake_sentence_transformer_class, capsys
-):
+def test_compute_chunks_with_no_documents_returns_empty_dict(fake_sentence_transformer, make_chunking_args, tmp_path):
     """
-    Input: one processed document with two sentences, semantic chunking.
-    Output: the printed sentence embedding summary.
+    Input: an empty documents dict.
+    Output: compute_chunks's return value.
+    What it does: checks an empty dict is returned without errors.
     """
-    docs_dir = paths.get_processed_dataset_path("myset")
-    _write_processed_document(docs_dir, "doc1", _make_document("doc1", "w1 w2 w3 w4 w5. w6 w7 w8 w9 w10."))
-    _write_progress("myset", ["doc1"])
-    chunk_config = ChunkConfig(
-        dataset_name="myset", chunk_type="semantic",
-        min_chunk_size=1, max_chunk_size=5, fixed_chunk_overlap=0, semantic_threshold=0.5,
-    )
-    chunking = Chunking(chunk_config, dataset_size=1, model_name="fake")
+    chunking = Chunking(make_chunking_args())
 
-    chunking.compute_chunks()
+    chunks = chunking.compute_chunks({}, str(tmp_path))
 
-    output = capsys.readouterr().out
-    assert "----- Sentence embedding time (semantic) -----" in output
-    assert "Sentences embedded : 2" in output
+    assert chunks == {}

@@ -6,20 +6,21 @@ import dataclasses
 
 @dataclasses.dataclass
 class IngestArgs:
-	dataset_size: int = 0
-	input_path: str = ""
-	output_path: str = ""
-	download_workers: int = 1
-	max_batch_rows: int = 1
-	hugging_face_split: str = "train"
-	parse_workers: int = 16
-	parse_timeout_seconds: int = 0
-	dedup_threshold: float = 0.0
-	pdf_parser: str = "pypdf"
+	dataset_size: int 
+	input_path: str
+	output_path: str 
+	download_workers: int 
+	max_batch_rows: int 
+	hugging_face_split: str 
+	parse_workers: int 
+	parse_timeout_seconds: int 
+	dedup_threshold: float 
+	pdf_parser: str 
 
 @dataclasses.dataclass
-class ChunkArgs:
-	dataset_name: str
+class ChunkingArgs:
+	framework: str
+	model_name: str
 	chunk_type: str
 	min_chunk_size: int
 	max_chunk_size: int

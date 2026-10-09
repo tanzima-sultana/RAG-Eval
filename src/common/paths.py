@@ -1,45 +1,20 @@
 
 import os
 
-from common.chunk_config import ChunkConfig
-
-# ------ Dataset
-def get_raw_dataset_path(dataset_name:str) -> str:
-
-	return f"{dataset_name}/data/raw"
-
-def get_processed_dataset_path(dataset_name:str) -> str:
-	return f"{dataset_name}/data/processed"
-
-def get_progress_path(dataset_name:str) -> str:
-	return f"{dataset_name}/data/"
-
-def get_file_path(path: str, file_name: str, extension: str) -> str:
-	return os.path.join(path, f"{file_name}.{extension}")
+from common.args import ChunkingArgs
 
 # ------ Chunking
-def get_chunk_path(chunk_config: ChunkConfig) -> str:
+def get_chunk_path(output_path:str, chunking_args: ChunkingArgs) -> str:
+	"""
+	Input: output_path, the dataset's output folder; chunking_args, the
+	chunking parameters.
+	Output: the chunk folder path as a string, ending with "/".
+	What it does: builds the folder that holds one chunking run's chunks:
+	{output_path}/chunks/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/
+	"""
 
 	return (
-		f"{chunk_config.dataset_name}/chunks/{chunk_config.chunk_type}/"
-		f"{chunk_config.min_chunk_size}_{chunk_config.max_chunk_size}_"
-		f"{chunk_config.fixed_chunk_overlap}_{chunk_config.semantic_threshold}/"
-	)
-
-# ------ Embedding
-def get_embeddings_path(chunk_config: ChunkConfig) -> str:
-
-	return (
-		f"{chunk_config.dataset_name}/embeddings/{chunk_config.chunk_type}/"
-		f"{chunk_config.min_chunk_size}_{chunk_config.max_chunk_size}_"
-		f"{chunk_config.fixed_chunk_overlap}_{chunk_config.semantic_threshold}/"
-	)
-
-# ------ Indexing
-def get_index_path(index_type:str, chunk_config: ChunkConfig) -> str:
-
-	return (
-		f"{chunk_config.dataset_name}/index_{index_type}/{chunk_config.chunk_type}/"
-		f"{chunk_config.min_chunk_size}_{chunk_config.max_chunk_size}_"
-		f"{chunk_config.fixed_chunk_overlap}_{chunk_config.semantic_threshold}/"
+		f"{output_path}/chunks/{chunking_args.chunk_type}/{chunking_args.model_name}/"
+		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
+		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}/"
 	)

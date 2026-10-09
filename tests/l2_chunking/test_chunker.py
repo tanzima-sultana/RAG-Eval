@@ -1,188 +1,154 @@
 """
 test_chunker.py
 
-Tests for l2_chunking.chunker: the Chunker abstract base class (its
-shared __init__, _finalize_chunk, and _split_tokens_into_chunks
-helpers, used by every concrete strategy) and the get_chunker registry
-lookup.
+Tests for l2_chunking.chunker: the shared Chunker base class helpers and
+the get_chunker registry lookup.
 """
 
+import numpy as np
 import pytest
 
-from l2_chunking.chunker import Chunker, get_chunker
+from l2_chunking.chunker import Chunker
+from l2_chunking.chunker import get_chunker
 from l2_chunking.chunkers.fixed import FixedChunking
-from l2_chunking.chunkers.sentence import SentenceChunking
 from l2_chunking.chunkers.semantic import SemanticChunking
-from l2_chunking.schema import Chunk
+from l2_chunking.chunkers.sentence import SentenceChunking
 
 
-class _MinimalChunker(Chunker):
+class MinimalChunker(Chunker):
     """
-    Smallest possible concrete Chunker, used to exercise the shared
-    base-class machinery (__init__, _finalize_chunk,
-    _split_tokens_into_chunks) directly, without going through a real
-    strategy's own chunk() logic.
+    Smallest concrete Chunker, used to test the base class helpers
+    without any real strategy's chunk() logic.
     """
 
-    chunk_type = "minimal_test"
+    chunk_type = "minimal"
 
     def chunk(self, document):
+        """
+        Input: document (ignored).
+        Output: an empty dict.
+        What it does: nothing; only here so the class can be created.
+        """
         return {}
 
 
 # ---------- get_chunker ----------
 
 
-def test_get_chunker_returns_fixed_chunking_class_for_fixed_chunk_type():
+@pytest.mark.parametrize(
+    "chunk_type, expected_class",
+    [("fixed", FixedChunking), ("sentence", SentenceChunking), ("semantic", SemanticChunking)],
+)
+def test_get_chunker_returns_registered_class(chunk_type, expected_class):
     """
-    Input: chunk_type "fixed".
-    Output: get_chunker's return value.
+    Input: each supported chunk_type.
+    Output: the class get_chunker returns.
+    What it does: checks each chunk_type maps to its strategy class.
     """
-    assert get_chunker("fixed") is FixedChunking
+    assert get_chunker(chunk_type) is expected_class
 
 
-def test_get_chunker_returns_sentence_chunking_class_for_sentence_chunk_type():
+def test_get_chunker_raises_for_unknown_chunk_type():
     """
-    Input: chunk_type "sentence".
-    Output: get_chunker's return value.
+    Input: chunk_type "paragraph".
+    Output: ValueError mentioning the unknown type.
+    What it does: checks an unregistered chunk_type is rejected.
     """
-    assert get_chunker("sentence") is SentenceChunking
-
-
-def test_get_chunker_returns_semantic_chunking_class_for_semantic_chunk_type():
-    """
-    Input: chunk_type "semantic".
-    Output: get_chunker's return value.
-    """
-    assert get_chunker("semantic") is SemanticChunking
-
-
-def test_get_chunker_raises_value_error_for_unknown_chunk_type():
-    """
-    Input: a chunk_type with no registered strategy.
-    Output: none; get_chunker is expected to raise.
-    """
-    with pytest.raises(ValueError):
-        get_chunker("unknown-strategy")
-
-
-# ---------- Chunker (abstract) ----------
-
-
-def test_chunker_cannot_be_instantiated_directly(make_fake_chunking):
-    """
-    Input: none.
-    Output: none; Chunker(...) is expected to raise.
-
-    Checks that Chunker is an abstract base class: it declares chunk
-    as abstract, so it cannot be instantiated on its own even though
-    __init__ itself is concrete.
-    """
-    with pytest.raises(TypeError):
-        Chunker(make_fake_chunking())
+    with pytest.raises(ValueError, match="paragraph"):
+        get_chunker("paragraph")
 
 
 # ---------- Chunker.__init__ ----------
 
 
-def test_chunker_init_copies_config_and_model_state_from_chunking(
-    make_fake_chunking, fake_tokenizer
-):
+def test_init_copies_settings_model_and_embeddings(make_chunker, make_chunking_args):
     """
-    Input: a fake Chunking-like object with distinct, recognizable
-    values for every attribute Chunker.__init__ copies.
-    Output: the constructed _MinimalChunker's own attributes.
-
-    Checks that every attribute Chunker.__init__ documents copying is
-    actually copied onto the strategy instance.
+    Input: ChunkingArgs and semantic embeddings passed through a stand-in Chunking.
+    Output: the Chunker's attributes.
+    What it does: checks sizes, threshold, tokenizer and embeddings are copied.
     """
-    fake_chunking = make_fake_chunking(
-        max_chunk_size=42,
-        fixed_chunk_overlap=7,
-        semantic_threshold=0.3,
-        model="fake-model-object",
-        all_embeddings="fake-embeddings",
-        embeddings_offset={"doc1": (0, 1)},
-    )
+    chunking_args = make_chunking_args(min_chunk_size=3, max_chunk_size=9, fixed_chunk_overlap=1, semantic_threshold=0.7)
+    all_embeddings = np.zeros((2, 2))
+    embeddings_offset = {"doc": (0, 2)}
 
-    chunker = _MinimalChunker(fake_chunking)
+    chunker = make_chunker(MinimalChunker, chunking_args, all_embeddings, embeddings_offset)
 
-    assert chunker.max_chunk_size == 42
-    assert chunker.fixed_chunk_overlap == 7
-    assert chunker.semantic_threshold == 0.3
-    assert chunker.model == "fake-model-object"
-    assert chunker.tokenizer is fake_tokenizer
-    assert chunker.all_embeddings == "fake-embeddings"
-    assert chunker.embeddings_offset == {"doc1": (0, 1)}
+    assert chunker.min_chunk_size == 3
+    assert chunker.max_chunk_size == 9
+    assert chunker.fixed_chunk_overlap == 1
+    assert chunker.semantic_threshold == 0.7
+    assert chunker.tokenizer is chunker.model.tokenizer
+    assert chunker.all_embeddings is all_embeddings
+    assert chunker.embeddings_offset is embeddings_offset
 
 
 # ---------- _finalize_chunk ----------
 
 
-def test_finalize_chunk_builds_chunk_with_id_from_doc_id_and_chunk_idx(make_fake_chunking):
+def test_finalize_chunk_builds_id_size_and_type(make_chunker, make_chunking_args):
     """
-    Input: a doc_id, a chunk_idx, chunk text, and a token list.
-    Output: _finalize_chunk's return value.
-
-    Checks the id format, size accounting, and chunk_type stamping.
+    Input: doc_id "doc", chunk_idx 3, a text and 4 tokens.
+    Output: the Chunk built.
+    What it does: checks the id is "doc_3", size is the token count and
+    type is the chunker's chunk_type.
     """
-    chunker = _MinimalChunker(make_fake_chunking())
+    chunker = make_chunker(MinimalChunker, make_chunking_args())
 
-    chunk = chunker._finalize_chunk("doc1", 3, "some text", ["t1", "t2", "t3"])
+    chunk = chunker._finalize_chunk("doc", 3, "a b c d", ["a", "b", "c", "d"])
 
-    assert chunk == Chunk(id="doc1_3", text="some text", size=3, type="minimal_test")
+    assert chunk.id == "doc_3"
+    assert chunk.text == "a b c d"
+    assert chunk.size == 4
+    assert chunk.type == "minimal"
 
 
 # ---------- _split_tokens_into_chunks ----------
 
 
-def test_split_tokens_into_chunks_slides_a_window_with_overlap(make_fake_chunking):
+def test_split_tokens_slides_window_with_overlap(make_chunker, make_chunking_args):
     """
-    Input: 7 whitespace-separated tokens, max_chunk_size 4, overlap 1.
-    Output: _split_tokens_into_chunks's return value.
-
-    Checks the sliding-window math: window size, step size, and the
-    final, shorter trailing window.
+    Input: 10 tokens with max_chunk_size 4 and overlap 1 (step 3).
+    Output: the chunks and the next chunk index.
+    What it does: checks windows start at 0, 3, 6 and 9, share one token
+    with the window before, and the next index is 4.
     """
-    chunker = _MinimalChunker(make_fake_chunking(max_chunk_size=4, fixed_chunk_overlap=1))
-    tokens = "one two three four five six seven".split()
+    chunker = make_chunker(MinimalChunker, make_chunking_args(min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=1))
+    tokens = "a b c d e f g h i j".split()
 
-    chunks, next_idx = chunker._split_tokens_into_chunks("doc1", tokens)
+    chunks, next_chunk_idx = chunker._split_tokens_into_chunks("doc", tokens)
 
-    assert next_idx == 3
-    assert chunks["doc1_0"].text == "one two three four"
-    assert chunks["doc1_1"].text == "four five six seven"
-    assert chunks["doc1_2"].text == "seven"
-    assert chunks["doc1_2"].size == 1
+    chunk_texts = []
+    for chunk_id in chunks:
+        chunk_texts.append(chunks[chunk_id].text)
+    assert chunk_texts == ["a b c d", "d e f g", "g h i j", "j"]
+    assert list(chunks.keys()) == ["doc_0", "doc_1", "doc_2", "doc_3"]
+    assert next_chunk_idx == 4
 
 
-def test_split_tokens_into_chunks_starts_numbering_from_given_chunk_idx(make_fake_chunking):
+def test_split_tokens_continues_numbering_from_given_index(make_chunker, make_chunking_args):
     """
-    Input: 4 tokens, max_chunk_size 2, overlap 0, chunk_idx starting
-    at 5.
-    Output: _split_tokens_into_chunks's return value.
-
-    Checks that a caller resuming numbering after already-emitted
-    chunks (e.g. sentence/semantic's long-sentence fallback) gets
-    chunk ids that continue the sequence instead of restarting at 0.
+    Input: 6 tokens with max_chunk_size 4, overlap 1, starting at chunk_idx 5.
+    Output: the chunk ids and the next chunk index.
+    What it does: checks numbering starts at 5 instead of 0.
     """
-    chunker = _MinimalChunker(make_fake_chunking(max_chunk_size=2, fixed_chunk_overlap=0))
-    tokens = "a b c d".split()
+    chunker = make_chunker(MinimalChunker, make_chunking_args(min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=1))
+    tokens = "a b c d e f".split()
 
-    chunks, next_idx = chunker._split_tokens_into_chunks("doc1", tokens, chunk_idx=5)
+    chunks, next_chunk_idx = chunker._split_tokens_into_chunks("doc", tokens, 5)
 
-    assert set(chunks.keys()) == {"doc1_5", "doc1_6"}
-    assert next_idx == 7
+    assert list(chunks.keys()) == ["doc_5", "doc_6"]
+    assert next_chunk_idx == 7
 
 
-def test_split_tokens_into_chunks_returns_empty_dict_for_empty_tokens(make_fake_chunking):
+def test_split_tokens_with_no_tokens_returns_nothing(make_chunker, make_chunking_args):
     """
-    Input: an empty token list.
-    Output: _split_tokens_into_chunks's return value.
+    Input: an empty token list starting at chunk_idx 2.
+    Output: the chunks and the next chunk index.
+    What it does: checks no chunks are made and the index is unchanged.
     """
-    chunker = _MinimalChunker(make_fake_chunking(max_chunk_size=4, fixed_chunk_overlap=0))
+    chunker = make_chunker(MinimalChunker, make_chunking_args())
 
-    chunks, next_idx = chunker._split_tokens_into_chunks("doc1", [])
+    chunks, next_chunk_idx = chunker._split_tokens_into_chunks("doc", [], 2)
 
     assert chunks == {}
-    assert next_idx == 0
+    assert next_chunk_idx == 2

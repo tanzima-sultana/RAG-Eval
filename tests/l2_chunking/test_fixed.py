@@ -1,62 +1,62 @@
 """
 test_fixed.py
 
-Tests for l2_chunking.fixed.FixedChunking: the fixed-window chunking
-strategy, which slides a max_chunk_size window across a document's
-whole token stream.
+Tests for l2_chunking.chunkers.fixed.FixedChunking.
 """
 
 from l2_chunking.chunkers.fixed import FixedChunking
 
 
-def test_chunk_slides_a_window_with_overlap_across_the_whole_document(
-    make_fake_chunking, document_factory
-):
+def get_chunk_texts(chunks):
     """
-    Input: a document with 7 whitespace-separated tokens,
-    max_chunk_size 4, overlap 1.
-    Output: chunk()'s return value.
+    Input: chunks, a dict of chunk_id to Chunk.
+    Output: the list of chunk texts in order.
+    What it does: collects each chunk's text.
+    """
+    chunk_texts = []
+    for chunk_id in chunks:
+        chunk_texts.append(chunks[chunk_id].text)
+    return chunk_texts
 
-    Checks the sliding-window split end to end: window text, size,
-    and chunk_type stamping.
+
+def test_fixed_splits_document_into_overlapping_windows(make_chunker, make_chunking_args, make_document):
     """
-    chunker = FixedChunking(make_fake_chunking(max_chunk_size=4, fixed_chunk_overlap=1))
-    document = document_factory("doc1", "one two three four five six seven")
+    Input: a 10-word document with max_chunk_size 4 and overlap 1.
+    Output: the chunks.
+    What it does: checks the windows, sizes and fixed type.
+    """
+    chunker = make_chunker(FixedChunking, make_chunking_args(min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=1))
+    document = make_document("doc", "a b c d e f g h i j")
 
     chunks = chunker.chunk(document)
 
-    assert chunks["doc1_0"].text == "one two three four"
-    assert chunks["doc1_1"].text == "four five six seven"
-    assert chunks["doc1_2"].text == "seven"
-    assert chunks["doc1_2"].size == 1
-    assert all(chunk.type == "fixed" for chunk in chunks.values())
+    assert get_chunk_texts(chunks) == ["a b c d", "d e f g", "g h i j", "j"]
+    assert chunks["doc_0"].size == 4
+    assert chunks["doc_3"].size == 1
+    assert chunks["doc_0"].type == "fixed"
 
 
-def test_chunk_produces_a_single_chunk_when_text_fits_within_max_chunk_size(
-    make_fake_chunking, document_factory
-):
+def test_fixed_short_document_gives_one_chunk(make_chunker, make_chunking_args, make_document):
     """
-    Input: a document with 2 tokens and max_chunk_size 10.
-    Output: chunk()'s return value.
+    Input: a 3-word document with max_chunk_size 6.
+    Output: the chunks.
+    What it does: checks the whole document becomes one chunk.
     """
-    chunker = FixedChunking(make_fake_chunking(max_chunk_size=10, fixed_chunk_overlap=2))
-    document = document_factory("doc1", "short text")
+    chunker = make_chunker(FixedChunking, make_chunking_args(max_chunk_size=6))
+    document = make_document("doc", "a b c")
 
     chunks = chunker.chunk(document)
 
-    assert len(chunks) == 1
-    assert chunks["doc1_0"].text == "short text"
-    assert chunks["doc1_0"].size == 2
+    assert get_chunk_texts(chunks) == ["a b c"]
 
 
-def test_chunk_returns_empty_dict_for_empty_text(make_fake_chunking, document_factory):
+def test_fixed_empty_document_gives_no_chunks(make_chunker, make_chunking_args, make_document):
     """
     Input: a document with empty text.
-    Output: chunk()'s return value.
+    Output: the chunks.
+    What it does: checks no chunks are made.
     """
-    chunker = FixedChunking(make_fake_chunking(max_chunk_size=4, fixed_chunk_overlap=0))
-    document = document_factory("doc1", "")
+    chunker = make_chunker(FixedChunking, make_chunking_args())
+    document = make_document("doc", "")
 
-    chunks = chunker.chunk(document)
-
-    assert chunks == {}
+    assert chunker.chunk(document) == {}

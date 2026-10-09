@@ -1,160 +1,168 @@
 """
 conftest.py
 
-Shared pytest fixtures for the l2_chunking test suite.
+Shared fakes and fixtures for the l2_chunking test suite.
+
+FakeTokenizer counts one token per whitespace-separated word, so chunk
+sizes are easy to work out by hand. FakeSentenceTransformer replaces the
+real model so no model is downloaded or run.
 """
 
-import datetime
 import types
 
 import numpy as np
 import pytest
 
-
-
-@pytest.fixture
-def isolated_data_dir(tmp_path, monkeypatch):
-    """
-    tmp_path: pytest's built-in temporary directory for this test.
-    monkeypatch: pytest's built-in fixture for reverting changes after
-        the test.
-
-    Changes the current working directory to tmp_path for the
-    duration of the test, so any code under test that writes to
-    relative paths (a dataset's data/processed/ and chunks/ -- see
-    common.paths) writes into an isolated temporary directory instead
-    of this repo's real files.
-
-    Returns tmp_path, the isolated working directory.
-    """
-    monkeypatch.chdir(tmp_path)
-    return tmp_path
+from common.args import ChunkingArgs
+from l1_ingestion.schema import Document
+from l1_ingestion.schema import DocumentType
+from l1_ingestion.schema import Metadata
+from l2_chunking import chunking as chunking_module
 
 
 class FakeTokenizer:
     """
-    Stand-in for a SentenceTransformer model's tokenizer: encodes text
-    by splitting on whitespace (one token per word) and decodes by
-    joining tokens back with a space, so token counts and chunk text
-    stay simple and predictable in tests.
+    Stand-in for a SentenceTransformer tokenizer: one token per word.
     """
 
     def encode(self, text, add_special_tokens=False):
+        """
+        Input: text, and add_special_tokens (ignored).
+        Output: the list of words in text.
+        What it does: splits text on whitespace.
+        """
         return text.split()
 
     def decode(self, tokens, skip_special_tokens=True):
+        """
+        Input: tokens, a list of words, and skip_special_tokens (ignored).
+        Output: the words joined with single spaces.
+        What it does: turns tokens back into text.
+        """
         return " ".join(tokens)
-
-
-@pytest.fixture
-def fake_tokenizer():
-    """
-    Returns a fresh FakeTokenizer instance.
-    """
-    return FakeTokenizer()
 
 
 class FakeSentenceTransformer:
     """
-    Stand-in for sentence_transformers.SentenceTransformer: exposes
-    only .tokenizer and .encode(), the two attributes/methods
-    Chunking actually uses, so tests never download or run a real
-    embedding model. encode() returns the same fixed vector for every
-    sentence, so sentences never look dissimilar to each other unless
-    a test overrides all_embeddings itself afterward.
+    Stand-in for sentence_transformers.SentenceTransformer. A sentence
+    containing "cat" is embedded as [1, 0] and any other sentence as
+    [0, 1], so cat sentences and other sentences are fully dissimilar.
+    Every encoded sentence is recorded in encoded_sentences.
     """
 
     def __init__(self, model_name=None, device=None):
+        """
+        Input: model_name and device, as the real model takes them.
+        Output: nothing.
+        What it does: stores both and creates a FakeTokenizer.
+        """
         self.model_name = model_name
         self.device = device
         self.tokenizer = FakeTokenizer()
+        self.encoded_sentences = []
 
-    def encode(self, sentences, batch_size=256, show_progress_bar=False):
-        return np.ones((len(sentences), 2))
+    def encode(self, sentences, batch_size=32, show_progress_bar=False):
+        """
+        Input: sentences, a list of strings; batch_size and
+        show_progress_bar (ignored).
+        Output: a numpy array with one 2-number embedding per sentence.
+        What it does: records each sentence and embeds it by the cat rule.
+        """
+        vectors = []
+        for sentence in sentences:
+            self.encoded_sentences.append(sentence)
+            if "cat" in sentence.lower():
+                vectors.append([1.0, 0.0])
+            else:
+                vectors.append([0.0, 1.0])
+        return np.array(vectors)
 
 
 @pytest.fixture
-def fake_sentence_transformer_class(monkeypatch):
+def fake_sentence_transformer(monkeypatch):
     """
-    monkeypatch: pytest's built-in fixture for reverting changes after
-        the test.
-
-    Replaces l2_chunking.chunking.SentenceTransformer with
-    FakeSentenceTransformer, so constructing a Chunking instance never
-    downloads or loads a real embedding model.
-
-    Returns the FakeSentenceTransformer class.
+    Input: pytest's monkeypatch fixture.
+    Output: the FakeSentenceTransformer class.
+    What it does: makes Chunking load FakeSentenceTransformer instead of
+    the real model for the duration of the test.
     """
-    monkeypatch.setattr("l2_chunking.chunking.SentenceTransformer", FakeSentenceTransformer)
+    monkeypatch.setattr(chunking_module, "SentenceTransformer", FakeSentenceTransformer)
     return FakeSentenceTransformer
 
 
 @pytest.fixture
-def make_fake_chunking(fake_tokenizer):
+def make_chunking_args():
     """
-    fake_tokenizer: the FakeTokenizer this factory's chunking
-        stand-ins default to.
-
-    Returns a factory that builds a lightweight stand-in for a
-    Chunking instance, exposing exactly what Chunker.__init__ reads
-    off it: a chunk_config (with min_chunk_size, max_chunk_size,
-    fixed_chunk_overlap, semantic_threshold -- Chunker.__init__ never
-    reads chunk_config.dataset_name/chunk_type, so this stand-in
-    leaves them out entirely rather than inventing placeholder
-    values), plus model, tokenizer, all_embeddings, embeddings_offset.
-    Each has a sensible default so a test only has to override what it
-    actually cares about. min_chunk_size defaults to 1, which makes
-    SemanticChunking's merge_chunks a no-op for every test that isn't
-    specifically exercising it, since no real chunk has size 0. Used
-    to unit-test a concrete Chunker subclass without constructing a
-    real Chunking (which would load an embedding model).
+    Input: none.
+    Output: a function that builds a ChunkingArgs.
+    What it does: returns a builder with small default sizes (min 2, max 6,
+    overlap 2) where any field can be overridden by keyword.
     """
+    def build_chunking_args(**overrides):
+        """
+        Input: any ChunkingArgs field as a keyword argument.
+        Output: a ChunkingArgs with the defaults plus the overrides.
+        What it does: fills in defaults for every field not overridden.
+        """
+        field_values = {}
+        field_values["framework"] = ""
+        field_values["model_name"] = "fake-model"
+        field_values["chunk_type"] = "fixed"
+        field_values["min_chunk_size"] = 2
+        field_values["max_chunk_size"] = 6
+        field_values["fixed_chunk_overlap"] = 2
+        field_values["semantic_threshold"] = 0.5
+        for field_name in overrides:
+            field_values[field_name] = overrides[field_name]
+        return ChunkingArgs(**field_values)
 
-    def _make(
-        min_chunk_size=1,
-        max_chunk_size=10,
-        fixed_chunk_overlap=0,
-        semantic_threshold=0.5,
-        model=None,
-        tokenizer=None,
-        all_embeddings=None,
-        embeddings_offset=None,
-    ):
-        chunk_config = types.SimpleNamespace(
-            min_chunk_size=min_chunk_size,
-            max_chunk_size=max_chunk_size,
-            fixed_chunk_overlap=fixed_chunk_overlap,
-            semantic_threshold=semantic_threshold,
-        )
-        return types.SimpleNamespace(
-            chunk_config=chunk_config,
-            model=model,
-            tokenizer=tokenizer if tokenizer is not None else fake_tokenizer,
-            all_embeddings=all_embeddings,
-            embeddings_offset=embeddings_offset,
-        )
-
-    return _make
+    return build_chunking_args
 
 
 @pytest.fixture
-def document_factory():
+def make_document():
     """
-    Returns a factory that builds a minimally-populated Document for
-    chunking tests, where only id and text actually matter -- every
-    other field gets a placeholder value.
+    Input: none.
+    Output: a function that builds a Document from an id and text.
+    What it does: returns a builder that fills in minimal valid metadata.
     """
+    def build_document(doc_id, text):
+        """
+        Input: doc_id and text.
+        Output: a pdf Document with that id and text.
+        What it does: builds the Document with placeholder metadata.
+        """
+        metadata = Metadata(source="file.pdf", file_size_bytes=1, content_hash="hash")
+        return Document(id=doc_id, type=DocumentType.PDF, text=text, metadata=metadata)
 
-    def _make(doc_id, text):
-        return Document(
-            id=doc_id,
-            text=text,
-            title=None,
-            path="irrelevant",
-            format="fake",
-            metadata={},
-            content_hash="irrelevant",
-            timestamp=datetime.datetime.now(datetime.timezone.utc),
+    return build_document
+
+
+@pytest.fixture
+def make_chunker():
+    """
+    Input: none.
+    Output: a function that builds a Chunker subclass instance directly,
+    without going through Chunking.
+    What it does: returns a builder that wraps chunking_args, a
+    FakeTokenizer and optional semantic embeddings in a stand-in for the
+    Chunking object a Chunker copies its settings from.
+    """
+    def build_chunker(chunker_class, chunking_args, all_embeddings=None, embeddings_offset=None):
+        """
+        Input: chunker_class, the Chunker subclass to build; chunking_args;
+        all_embeddings and embeddings_offset for semantic chunking.
+        Output: an instance of chunker_class.
+        What it does: builds a stand-in Chunking and passes it to the class.
+        """
+        fake_model = FakeSentenceTransformer()
+        chunking = types.SimpleNamespace(
+            chunking_args=chunking_args,
+            model=fake_model,
+            tokenizer=fake_model.tokenizer,
+            all_embeddings=all_embeddings,
+            embeddings_offset=embeddings_offset,
         )
+        return chunker_class(chunking)
 
-    return _make
+    return build_chunker

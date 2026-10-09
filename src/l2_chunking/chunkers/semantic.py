@@ -9,6 +9,14 @@ class SemanticChunking(Chunker):
 	chunk_type = SEMANTIC_CHUNKING
 
 	def _is_dissimilar(self, sentence_embeddings, prev_idx, curr_idx):
+		"""
+		Input: sentence_embeddings, this document's sentence embeddings;
+		prev_idx and curr_idx, the positions of two sentences in it.
+		Output: True if the two sentences are dissimilar, otherwise False.
+		What it does: computes the cosine similarity of the two sentence
+		embeddings and returns True when it is below semantic_threshold.
+		Returns False if either embedding is all zeros.
+		"""
 		embedding_1 = sentence_embeddings[prev_idx]
 		embedding_2 = sentence_embeddings[curr_idx]
 		denom = np.linalg.norm(embedding_1) * np.linalg.norm(embedding_2)
@@ -18,6 +26,14 @@ class SemanticChunking(Chunker):
 		return cosine_similarity < self.semantic_threshold
 
 	def merge_chunks(self, chunks) -> dict[str, Chunk]:
+		"""
+		Input: chunks, a dict of chunk_id to Chunk for one document, in order.
+		Output: a dict of chunk_id to Chunk after merging small chunks.
+		What it does: walks the chunks in order and merges each chunk
+		smaller than min_chunk_size into the chunk before it, as long as
+		the merged size stays within max_chunk_size. A merged chunk keeps
+		the earlier chunk's id.
+		"""
 		merged_chunks = {}
 
 		prev_chunk = None
@@ -40,6 +56,15 @@ class SemanticChunking(Chunker):
 		return merged_chunks
 
 	def chunk(self, document) -> dict[str, Chunk]:
+		"""
+		Input: document, the Document to split. Its sentence embeddings must
+		already be in all_embeddings at embeddings_offset[document.id].
+		Output: a dict of chunk_id to Chunk for this document.
+		What it does: packs sentences into chunks like sentence chunking,
+		but also starts a new chunk when a sentence is dissimilar from the
+		one before it. A sentence longer than max_chunk_size is split with
+		the fixed-window fallback. Small chunks are merged at the end.
+		"""
 
 		chunks = {}
 

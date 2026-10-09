@@ -3,7 +3,7 @@ import abc
 from l2_chunking.schema import Chunk
 from l2_chunking.chunking import Chunking
 
-class Chunker(Chunking, abc.ABC):
+class Chunker(abc.ABC):
 	# The chunk_type (e.g. "fixed") this strategy is registered under
 	# in get_chunker's chunker_registry. Every concrete subclass must
 	# set this to the same string it is registered with, so the
@@ -16,19 +16,17 @@ class Chunker(Chunking, abc.ABC):
 			instance running this pipeline, with its config already
 			set and its SentenceTransformer model already loaded.
 
-		Copies chunking's config and loaded model/tokenizer onto this
-		strategy instance, instead of calling Chunking.__init__ (which
-		would reload the SentenceTransformer model a second time).
-		This is what lets a Chunker subclass use Chunking's own
-		methods (e.g. save_chunk, load_documents) via inheritance
-		while still sharing the one already-loaded model.
+		Copies chunking's chunk sizes, loaded model/tokenizer and
+		semantic embeddings onto this strategy instance, so every
+		strategy shares the one already-loaded model instead of
+		loading the SentenceTransformer model a second time.
 
 		Returns nothing.
 		"""
-		self.min_chunk_size = chunking.chunk_config.min_chunk_size
-		self.max_chunk_size = chunking.chunk_config.max_chunk_size
-		self.fixed_chunk_overlap = chunking.chunk_config.fixed_chunk_overlap
-		self.semantic_threshold = chunking.chunk_config.semantic_threshold
+		self.min_chunk_size = chunking.chunking_args.min_chunk_size
+		self.max_chunk_size = chunking.chunking_args.max_chunk_size
+		self.fixed_chunk_overlap = chunking.chunking_args.fixed_chunk_overlap
+		self.semantic_threshold = chunking.chunking_args.semantic_threshold
 		self.model = chunking.model
 		self.tokenizer = chunking.tokenizer
 		
@@ -104,7 +102,7 @@ class Chunker(Chunking, abc.ABC):
 		strategy's rule. self.chunk_type identifies which strategy
 		this is, for stamping into each produced Chunk's type field.
 
-		Returns the list of Chunks produced from document.
+		Returns a dict of chunk_id to Chunk produced from document.
 		"""
 		raise NotImplementedError
 
@@ -115,8 +113,7 @@ def get_chunker(chunk_type: str) -> type[Chunker]:
 		"fixed", "sentence", "semantic" from common.constants).
 
 	Looks up chunk_type in the registry of implemented chunking
-	strategies, mirroring l1_doc_processing.parser.get_parser's
-	doc_type -> parser lookup. Validates that the class registered
+	strategies. Validates that the class registered
 	under chunk_type declares that same chunk_type as its own,
 	catching a registry entry that was mistakenly pointed at the
 	wrong strategy class.

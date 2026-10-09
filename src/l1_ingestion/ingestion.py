@@ -1,17 +1,52 @@
 from doc_ingest import ingest_documents
 from doc_ingest import settings
-from doc_ingest.schema import Document
 
 from common.args import IngestArgs
+from l1_ingestion.schema import Document
+from l1_ingestion.schema import DocumentType
+from l1_ingestion.schema import Metadata
 
 
-def ingestion(ingest_args: IngestArgs) -> list[Document]:
+def convert_document(library_document) -> Document:
+	"""
+	Input: library_document, one doc_ingest.schema.Document returned by
+	ingest_documents.
+	Output: the same document as this project's l1_ingestion.schema.Document.
+	What it does: copies every field, including each metadata field, from
+	the library's Document into a new Document of our own schema.
+	"""
+	library_metadata = library_document.metadata
+
+	metadata = Metadata(
+		source=library_metadata.source,
+		file_size_bytes=library_metadata.file_size_bytes,
+		content_hash=library_metadata.content_hash,
+		minhash_signature=library_metadata.minhash_signature,
+		page_count=library_metadata.page_count,
+		parser=library_metadata.parser,
+		author=library_metadata.author,
+		title=library_metadata.title,
+		creation_date=library_metadata.creation_date,
+	)
+
+	document_type = DocumentType(library_document.type.value)
+
+	document = Document(
+		id=library_document.id,
+		type=document_type,
+		text=library_document.text,
+		metadata=metadata,
+	)
+	return document
+
+
+def ingestion(ingest_args: IngestArgs) -> dict[str, Document]:
 	"""
 	Input: ingest_args, an IngestArgs holding the ingestion settings.
-	Output: a list of doc_ingest Documents, one per ingested document.
+	Output: a dict of doc_id to this project's Document, one per ingested document.
 	What it does: runs the doc_ingest library on ingest_args.input_path,
-	caching results under ingest_args.output_path, prints the run summary
-	and returns the documents.
+	caching results under ingest_args.output_path, prints the run summary,
+	converts each library Document into our own Document and returns them.
 	"""
 	download_settings = settings.DownloadSettings(download_workers=ingest_args.download_workers)
 	process_settings = settings.ProcessSettings(parse_workers=ingest_args.parse_workers)
@@ -26,11 +61,16 @@ def ingestion(ingest_args: IngestArgs) -> list[Document]:
 		parser_settings=parser_settings,
 	)
 
-	documents = ingest_result.documents
+	library_documents = ingest_result.documents
 	processed_dir = ingest_result.processed_dir
 	summary = ingest_result.summary
 
 	print(processed_dir)
 	print(summary)
+
+	documents = {}
+	for library_document in library_documents:
+		document = convert_document(library_document)
+		documents[document.id] = document
 
 	return documents

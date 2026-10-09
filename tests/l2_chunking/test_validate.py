@@ -1,185 +1,100 @@
 """
 test_validate.py
 
-Tests for l2_chunking.validate:
-validate_processed_dataset and validate_chunk_config. The working
-directory is a temporary folder (isolated_data_dir), so files written
-under {dataset_name}/data/ stay out of the repo.
+Tests for l2_chunking.validate.validate_chunking_args.
 """
-
-import os
 
 import pytest
 
-from common import paths
-from l2_chunking import validate
-from common.chunk_config import ChunkConfig
+from l2_chunking.validate import validate_chunking_args
 
 
-DATASET_NAME = "myset"
-
-
-def _write_processed_files(file_count):
+@pytest.mark.parametrize("chunk_type", ["fixed", "sentence", "semantic"])
+def test_valid_args_pass_for_each_chunk_type(make_chunking_args, chunk_type):
     """
-    file_count: number of processed document files to create.
-
-    Returns nothing.
+    Input: valid ChunkingArgs for each supported chunk_type.
+    Output: nothing raised.
+    What it does: checks valid args pass every check.
     """
-    processed_path = paths.get_processed_dataset_path(DATASET_NAME)
-    os.makedirs(processed_path, exist_ok=True)
-    for index in range(file_count):
-        with open(os.path.join(processed_path, f"doc{index}.json"), "w", encoding="utf-8") as f:
-            f.write("{}")
+    validate_chunking_args(make_chunking_args(chunk_type=chunk_type))
 
 
-def _write_progress(processed_count):
+def test_langchain_framework_passes(make_chunking_args):
     """
-    processed_count: number of doc_ids to list as processed in progress.json.
-
-    Returns nothing.
+    Input: framework "langchain".
+    Output: nothing raised.
+    What it does: checks "langchain" is an accepted framework.
     """
-    processed_doc_ids = []
-    for index in range(processed_count):
-        processed_doc_ids.append(f"doc{index}")
-    save_progress(DATASET_NAME, Progress("someone/dataset", "train", "pdf", processed_count, processed_doc_ids, []))
+    validate_chunking_args(make_chunking_args(framework="langchain"))
 
 
-def _make_chunk_config(chunk_type="fixed", min_chunk_size=10, max_chunk_size=100, fixed_chunk_overlap=0, semantic_threshold=0.0):
+def test_unknown_framework_raises(make_chunking_args):
     """
-    Returns a ChunkConfig with the given values.
+    Input: framework "llamaindex".
+    Output: ValueError mentioning framework.
+    What it does: checks only "" and "langchain" are accepted.
     """
-    return ChunkConfig(
-        dataset_name=DATASET_NAME,
-        chunk_type=chunk_type,
-        min_chunk_size=min_chunk_size,
-        max_chunk_size=max_chunk_size,
-        fixed_chunk_overlap=fixed_chunk_overlap,
-        semantic_threshold=semantic_threshold,
-    )
+    with pytest.raises(ValueError, match="framework"):
+        validate_chunking_args(make_chunking_args(framework="llamaindex"))
 
 
-# ---------- validate_processed_dataset ----------
-
-
-def test_validate_processed_dataset_passes_when_enough_documents_are_processed(isolated_data_dir):
+@pytest.mark.parametrize("model_name", ["", "   "])
+def test_empty_model_name_raises(make_chunking_args, model_name):
     """
-    Input: 3 processed files and a progress.json listing 3 doc_ids, dataset_size 3.
-    Output: none; nothing should be raised.
+    Input: an empty or whitespace-only model_name.
+    Output: ValueError mentioning model_name.
+    What it does: checks a model name must be given.
     """
-    _write_processed_files(3)
-    _write_progress(3)
-
-    validate.validate_processed_dataset(DATASET_NAME, 3)
+    with pytest.raises(ValueError, match="model_name"):
+        validate_chunking_args(make_chunking_args(model_name=model_name))
 
 
-def test_validate_processed_dataset_raises_when_processed_folder_is_missing(isolated_data_dir):
-    """
-    Input: no processed folder at all.
-    Output: none; FileNotFoundError is expected.
-    """
-    with pytest.raises(FileNotFoundError):
-        validate.validate_processed_dataset(DATASET_NAME, 1)
-
-
-def test_validate_processed_dataset_raises_when_processed_folder_is_empty(isolated_data_dir):
-    """
-    Input: an empty processed folder.
-    Output: none; ValueError is expected.
-    """
-    _write_processed_files(0)
-
-    with pytest.raises(ValueError):
-        validate.validate_processed_dataset(DATASET_NAME, 1)
-
-
-def test_validate_processed_dataset_raises_when_too_few_processed_files(isolated_data_dir):
-    """
-    Input: 2 processed files, dataset_size 3.
-    Output: none; ValueError is expected.
-    """
-    _write_processed_files(2)
-    _write_progress(2)
-
-    with pytest.raises(ValueError):
-        validate.validate_processed_dataset(DATASET_NAME, 3)
-
-
-def test_validate_processed_dataset_raises_when_progress_json_is_missing(isolated_data_dir):
-    """
-    Input: 3 processed files but no progress.json.
-    Output: none; FileNotFoundError is expected.
-    """
-    _write_processed_files(3)
-
-    with pytest.raises(FileNotFoundError):
-        validate.validate_processed_dataset(DATASET_NAME, 3)
-
-
-def test_validate_processed_dataset_raises_when_progress_lists_too_few_doc_ids(isolated_data_dir):
-    """
-    Input: 3 processed files but a progress.json listing only 2 doc_ids,
-    dataset_size 3.
-    Output: none; ValueError is expected.
-    """
-    _write_processed_files(3)
-    _write_progress(2)
-
-    with pytest.raises(ValueError):
-        validate.validate_processed_dataset(DATASET_NAME, 3)
-
-
-# ---------- validate_chunk_config ----------
-
-
-@pytest.mark.parametrize(
-    "chunk_type, semantic_threshold",
-    [
-        ("fixed", 0.0),
-        ("sentence", 0.0),
-        ("semantic", 0.5),
-    ],
-)
-def test_validate_chunk_config_passes_for_each_supported_chunk_type(chunk_type, semantic_threshold):
-    """
-    Input: a valid ChunkConfig for each supported chunk_type.
-    Output: none; nothing should be raised.
-    """
-    validate.validate_chunk_config(_make_chunk_config(chunk_type=chunk_type, semantic_threshold=semantic_threshold))
-
-
-def test_validate_chunk_config_raises_for_an_unknown_chunk_type():
+def test_unknown_chunk_type_raises(make_chunking_args):
     """
     Input: chunk_type "paragraph".
-    Output: none; ValueError is expected.
+    Output: ValueError mentioning chunk_type.
+    What it does: checks only fixed, sentence and semantic are accepted.
     """
-    with pytest.raises(ValueError):
-        validate.validate_chunk_config(_make_chunk_config(chunk_type="paragraph"))
+    with pytest.raises(ValueError, match="chunk_type"):
+        validate_chunking_args(make_chunking_args(chunk_type="paragraph"))
 
 
-@pytest.mark.parametrize("min_chunk_size", [100, 150])
-def test_validate_chunk_config_raises_when_min_chunk_size_is_not_smaller_than_max(min_chunk_size):
+@pytest.mark.parametrize("min_chunk_size", [6, 7])
+def test_min_chunk_size_not_smaller_than_max_raises(make_chunking_args, min_chunk_size):
     """
-    Input: min_chunk_size equal to or larger than max_chunk_size (100).
-    Output: none; ValueError is expected.
+    Input: min_chunk_size equal to or larger than max_chunk_size (6).
+    Output: ValueError mentioning min_chunk_size.
+    What it does: checks min_chunk_size must be smaller than max_chunk_size.
     """
-    with pytest.raises(ValueError):
-        validate.validate_chunk_config(_make_chunk_config(min_chunk_size=min_chunk_size, max_chunk_size=100))
+    with pytest.raises(ValueError, match="min_chunk_size"):
+        validate_chunking_args(make_chunking_args(min_chunk_size=min_chunk_size, max_chunk_size=6))
 
 
-@pytest.mark.parametrize("fixed_chunk_overlap", [100, 150])
-def test_validate_chunk_config_raises_when_overlap_is_not_smaller_than_max(fixed_chunk_overlap):
+@pytest.mark.parametrize("fixed_chunk_overlap", [6, 7])
+def test_overlap_not_smaller_than_max_raises(make_chunking_args, fixed_chunk_overlap):
     """
-    Input: fixed_chunk_overlap equal to or larger than max_chunk_size (100).
-    Output: none; ValueError is expected.
+    Input: fixed_chunk_overlap equal to or larger than max_chunk_size (6).
+    Output: ValueError mentioning fixed_chunk_overlap.
+    What it does: checks the overlap must be smaller than max_chunk_size.
     """
-    with pytest.raises(ValueError):
-        validate.validate_chunk_config(_make_chunk_config(fixed_chunk_overlap=fixed_chunk_overlap, max_chunk_size=100))
+    with pytest.raises(ValueError, match="fixed_chunk_overlap"):
+        validate_chunking_args(make_chunking_args(fixed_chunk_overlap=fixed_chunk_overlap, max_chunk_size=6))
 
 
-def test_validate_chunk_config_raises_for_semantic_without_a_threshold():
+def test_semantic_with_zero_threshold_raises(make_chunking_args):
     """
     Input: chunk_type "semantic" with semantic_threshold 0.0.
-    Output: none; ValueError is expected.
+    Output: ValueError mentioning the semantic threshold.
+    What it does: checks semantic chunking needs a non-zero threshold.
     """
-    with pytest.raises(ValueError):
-        validate.validate_chunk_config(_make_chunk_config(chunk_type="semantic", semantic_threshold=0.0))
+    with pytest.raises(ValueError, match="semantic threshold"):
+        validate_chunking_args(make_chunking_args(chunk_type="semantic", semantic_threshold=0.0))
+
+
+def test_fixed_with_zero_threshold_passes(make_chunking_args):
+    """
+    Input: chunk_type "fixed" with semantic_threshold 0.0.
+    Output: nothing raised.
+    What it does: checks the threshold is only required for semantic.
+    """
+    validate_chunking_args(make_chunking_args(chunk_type="fixed", semantic_threshold=0.0))

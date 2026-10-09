@@ -8,6 +8,14 @@ class SentenceChunking(Chunker):
 	chunk_type = SENTENCE_CHUNKING
 
 	def chunk(self, document) -> dict[str, Chunk]:
+		"""
+		Input: document, the Document to split.
+		Output: a dict of chunk_id to Chunk for this document.
+		What it does: splits the text into sentences and packs whole
+		sentences into a chunk until the next sentence would exceed
+		max_chunk_size tokens, then starts a new chunk. A single sentence
+		longer than max_chunk_size is split with the fixed-window fallback.
+		"""
 
 		chunks = {}
 
