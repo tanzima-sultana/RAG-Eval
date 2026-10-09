@@ -6,10 +6,8 @@ from common import constants
 from common.args import IngestArgs
 from common.args import ChunkingArgs
 from l1_ingestion.ingestion import ingestion
-
-
 from l2_chunking.chunking import Chunking
-
+from l3_embedding.embedding import Embedding
 
 def parse_args():
 	"""
@@ -199,7 +197,7 @@ if __name__ == "__main__":
 	print("\nIngestion time : ", e1)
 
 	output_path = get_output_path(ingest_args.input_path, ingest_args.output_path)
-	
+
 	# 2. Chunking
 	print("\n\nChunking")
 	chunking_args = make_chunking_args(args)
@@ -208,6 +206,14 @@ if __name__ == "__main__":
 	chunks = Chunking(chunking_args).compute_chunks(documents, output_path)
 	e2 = time.time() - s2
 	print("\nChunking time : ", e2)
+
+	# 3. Embedding
+	print("\n\nEmbedding")
+
+	s3 = time.time()
+	embeddings = Embedding(chunking_args).compute_embeddings(chunks, output_path)
+	e3 = time.time() - s3
+	print("\nEmbedding time : ", e3)
 
 	# ---------
 	end = time.time()
