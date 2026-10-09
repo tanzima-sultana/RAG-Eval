@@ -1,62 +1,45 @@
 """
 cache.py
 
-Saves and loads Embedded records as JSON files, one {doc_id}.json per
+Saves and loads Embedded records as numpy .npz files, one {doc_id}.npz per
 document holding the embeddings of all of that document's chunks, in the
 embedding folder of a chunking run (see common.paths.get_embedding_path).
 
+Each file holds three arrays, in the same chunk order:
+chunk_ids (strings), embeddings (one float32 row per chunk) and
+normalized (one bool per chunk).
+
 Each file is first written to a temporary file and then renamed into
-place, so a crash mid-write never leaves a half-written {doc_id}.json.
+place, so a crash mid-write never leaves a half-written {doc_id}.npz.
 """
 
-import dataclasses
-import json
 import os
 
 import numpy as np
 
 from l3_embedding.schema import Embedded
 
-def embedding_to_json_dict(embedding: Embedded) -> dict:
-	"""
-	Input: embedding, an Embedded record.
-	Output: a plain dict of JSON-serializable values.
-	What it does: converts the dataclass to a dict and turns the numpy
-	embeddings array into a list of floats.
-	"""
-	data = dataclasses.asdict(embedding)
-	data["embeddings"] = embedding.embeddings.tolist()
-	return data
-
-def json_dict_to_embedding(data: dict) -> Embedded:
-	"""
-	Input: data, a dict with chunk_id, embeddings (a list of floats) and
-	normalized, as saved in a document's cache file.
-	Output: the Embedded record.
-	What it does: turns the embeddings list back into a numpy array and
-	builds the Embedded from the dict's fields.
-	"""
-	embedding_vector = np.array(data["embeddings"])
-	return Embedded(data["chunk_id"], embedding_vector, data["normalized"])
-
 def _load_cached_embeddings(embedding_path: str, doc_id: str) -> dict[str, Embedded] | None:
 	"""
 	Input: embedding_path, the embedding folder; doc_id, the document to look up.
 	Output: a dict of chunk_id to Embedded for that document's chunks, in
 	the order they were saved, or None if the document has no cache file.
-	What it does: reads {doc_id}.json from embedding_path if it exists.
+	What it does: reads {doc_id}.npz from embedding_path if it exists and
+	builds one Embedded per row, keeping the saved float32 vectors.
 	"""
-	cache_file = os.path.join(embedding_path, f"{doc_id}.json")
+	cache_file = os.path.join(embedding_path, f"{doc_id}.npz")
 	if not os.path.exists(cache_file):
 		return None
 
-	with open(cache_file, encoding="utf-8") as f:
-		embedding_dicts = json.load(f)
+	with np.load(cache_file) as saved_arrays:
+		chunk_ids = saved_arrays["chunk_ids"]
+		embedding_vectors = saved_arrays["embeddings"]
+		normalized_flags = saved_arrays["normalized"]
 
 	embeddings = {}
-	for embedding_dict in embedding_dicts:
-		embedding = json_dict_to_embedding(embedding_dict)
-		embeddings[embedding.chunk_id] = embedding
+	for index in range(len(chunk_ids)):
+		chunk_id = str(chunk_ids[index])
+		embeddings[chunk_id] = Embedded(chunk_id, embedding_vectors[index], bool(normalized_flags[index]))
 
 	return embeddings
 
@@ -64,21 +47,34 @@ def _save_embeddings(embedding_path: str, doc_id: str, embeddings: dict[str, Emb
 	"""
 	Input: embedding_path, the embedding folder; doc_id, the document the
 	embeddings belong to; embeddings, a dict of chunk_id to Embedded for
-	all of that document's chunks.
+	that document's chunks.
 	Output: nothing.
-	What it does: writes the embeddings, in order, as one JSON list to
-	{doc_id}.json in embedding_path, creating the folder first if needed.
-	The list is written to a temporary file and then renamed into place
-	with os.replace, so {doc_id}.json is either complete or absent.
+	What it does: writes the chunk ids, the vectors (as one float32 array)
+	and the normalized flags, in order, to {doc_id}.npz in embedding_path,
+	creating the folder first if needed. The file is written to a
+	temporary file and then renamed into place with os.replace, so
+	{doc_id}.npz is either complete or absent.
 	"""
 	os.makedirs(embedding_path, exist_ok=True)
 
-	embedding_dicts = []
+	chunk_ids = []
+	embedding_vectors = []
+	normalized_flags = []
 	for chunk_id in embeddings:
-		embedding_dicts.append(embedding_to_json_dict(embeddings[chunk_id]))
+		embedding = embeddings[chunk_id]
+		chunk_ids.append(chunk_id)
+		embedding_vectors.append(embedding.embeddings)
+		normalized_flags.append(embedding.normalized)
 
-	cache_file = os.path.join(embedding_path, f"{doc_id}.json")
+	cache_file = os.path.join(embedding_path, f"{doc_id}.npz")
 	temporary_file = cache_file + ".tmp"
-	with open(temporary_file, "w", encoding="utf-8") as f:
-		json.dump(embedding_dicts, f)
+	# Written through an open file, because np.savez adds ".npz" to a
+	# path that does not already end with it
+	with open(temporary_file, "wb") as f:
+		np.savez(
+			f,
+			chunk_ids=np.array(chunk_ids),
+			embeddings=np.array(embedding_vectors, dtype=np.float32),
+			normalized=np.array(normalized_flags),
+		)
 	os.replace(temporary_file, cache_file)

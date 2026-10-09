@@ -69,3 +69,52 @@ For fixed and sentence, every chunk whose text differs contains `[UNK]`, and the
 **Earlier runs, before the built-in chunkers stopped at the last token** (from `log/l2_chunking/log_100_fixed.txt`, `log_5k_fixed.txt`, `log_5k_sentence.txt`, `log_5k_semantic.txt` and `chunk_stats_5k.txt`). The built-in window splitter used to start one more window after a window had already reached the last token; that window held only the last tokens of the document, which were already inside the previous window. On 100 documents fixed chunking produced 1555 chunks instead of 1543, and on 5000 documents fixed, sentence and semantic produced 92366, 94473 and 105050 chunks instead of 91670, 94053 and 104900; in sentence and semantic chunking the extra windows came from sentences longer than 256 tokens. These extra windows were also the 1-token chunks in fixed chunking: the smallest fixed chunk was 1 token then and is 17 tokens now.
 
 The log line `Token indices sequence length is longer than the specified maximum sequence length for this model` is printed by the tokenizer when a whole document is tokenized for counting; the model is not run on those tokens.
+
+## l3_embedding
+
+### Overview
+
+`l3_embedding` is the third pipeline layer. `src/rag.py` runs it right after `l2_chunking` and passes it the chunks in memory, as a dict of `chunk_id` to `Chunk`, together with the same output folder and `ChunkingArgs` as l2. `Embedding.compute_embeddings()` embeds each chunk's text with the SentenceTransformer model named by `--model_name` and returns a dict of `chunk_id` to `Embedded` (`chunk_id`, `embeddings` as a numpy vector, `normalized`). Vectors are normalized to length 1, so a dot product between two of them is their cosine similarity. Embeddings are cached in `{output folder}/embeddings/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/`, one file per document holding the embeddings of all its chunks, written to a temporary file first and then renamed into place. Each `{doc_id}.npz` holds three arrays in chunk order: the chunk ids, the vectors as one float32 array, and the `normalized` flags. A chunk whose document file already exists is loaded from it; all other chunks are embedded in one batched call to the model, and each document that got new embeddings is saved. `compute_embeddings()` prints the embedding folder and how many embeddings came from cache or were newly computed.
+
+### Architecture
+
+- **`embedding.py`** — `Embedding`, the orchestrator: loads the SentenceTransformer model, loads cached embeddings, embeds the remaining chunks in one batch, saves them per document and prints the run summary.
+- **`cache.py`** — Saves and loads one file per document in the embedding folder.
+- **`schema.py`** — Defines `Embedded`, the layer's output record.
+- **`langchain.py`** — Empty placeholder for LangChain embedding.
+
+### Run results
+
+**5000 documents, JSON cache** (from `log/l3_embedding/log_5k_{fixed,sentence,semantic}.txt`, `log/l3_embedding/log_5k_json_cached_{fixed,sentence,semantic}.txt` and `log/l3_embedding/cache_json_stats.txt`). These runs save each document's embeddings as a JSON list of `{chunk_id, embeddings, normalized}`, with the vector written as a list of numbers. All runs use the 5000 `pixparse/pdfa-eng-wds` documents, `--model_name all-MiniLM-L6-v2 --min_chunk_size 128 --max_chunk_size 256 --fixed_chunk_overlap 32 --semantic_threshold 0.2` and the built-in chunkers; l1 and l2 load everything from their caches (about 8 to 9s and 4s). The first run embeds every chunk; the second run loads every embedding from the JSON cache. The times are the `Embedding time` printed by `src/rag.py`, which includes loading the model:
+
+| | fixed | sentence | semantic |
+|---|---|---|---|
+| Chunks embedded | 91670 | 94053 | 104900 |
+| Embedding time, first run (all new) | 152.94002962112427s | 154.61784386634827s | 170.7557156085968s |
+| Embedding time, second run (all from JSON cache) | 10.379403352737427s | 9.395085573196411s | 10.475048780441284s |
+| Cache files | 5000 | 5000 | 5000 |
+| Cache size on disk | 779851088 bytes | 800119736 bytes | 892390228 bytes |
+
+Embedding time grows with the number of chunks, at about 600 chunks per second for all three chunk types, because every chunk is at most 256 tokens and the model runs over every chunk's text once. Semantic chunking has the most chunks, so it takes longest.
+
+**Why the cache moved from JSON to `.npz`.** The JSON cache works, but it has three costs that matter for 384-number vectors:
+
+- **Size.** Each number is stored as text of up to about 17 digits, so the cache takes about 8.5 KB per chunk and 779851088 to 892390228 bytes per chunk type, for vectors that hold 1536 bytes of float32 data each.
+- **Data type.** The model returns float32 vectors (`vector returned by the model: dtype float32 ... bytes 1536` in `cache_json_stats.txt`), but a vector loaded from the JSON cache comes back as float64 (`vector loaded from JSON cache: dtype float64 ... bytes 3072`), because the numbers are read back as Python floats. Cached and new embeddings therefore have different types, and cached ones take twice the memory. The FAISS indexes in l4 take float32 vectors.
+- **Load time.** Loading the embeddings back means parsing every number from text: about 10s per chunk type for the second runs above.
+
+numpy's `.npz` format stores several arrays in one binary file, so one `{doc_id}.npz` per document can hold the chunk ids, all the document's vectors as one float32 array, and the `normalized` flag, while keeping one file per document and the temporary-file-and-rename write.
+
+**5000 documents, `.npz` cache** (from `log/l3_embedding/log_5k_npz_{fixed,sentence,semantic}.txt`, `log/l3_embedding/log_5k_npz_cached_{fixed,sentence,semantic}.txt` and `log/l3_embedding/cache_npz_stats.txt`). Same documents, settings and two runs per chunk type as the JSON runs above, after deleting the JSON cache:
+
+| | fixed | sentence | semantic |
+|---|---|---|---|
+| Embedding time, first run (all new), JSON → `.npz` | 152.94002962112427s → 131.20864152908325s | 154.61784386634827s → 134.51999473571777s | 170.7557156085968s → 148.0821304321289s |
+| Embedding time, second run (all from cache), JSON → `.npz` | 10.379403352737427s → 4.5234534740448s | 9.395085573196411s → 4.807491779327393s | 10.475048780441284s → 4.921001672744751s |
+| Cache size on disk, JSON → `.npz` | 779851088 → 152010282 bytes | 800119736 → 155861957 bytes | 892390228 → 173538276 bytes |
+| Cache files | 5000 | 5000 | 5000 |
+
+- **Size.** The `.npz` cache is about 5.1 times smaller (152010282 bytes for 91670 fixed chunks, about 1.66 KB per chunk), close to the 1536 bytes of float32 data in each vector; the rest is the chunk ids, the flags and the file headers.
+- **Data type.** A vector loaded from the `.npz` cache is float32 (`vector loaded from npz cache: dtype float32 ... bytes 1536` in `cache_npz_stats.txt`), the same type the model returns, so cached and new embeddings now match.
+- **Load time.** Loading all embeddings from the cache takes about 4.5 to 4.9s instead of about 9.4 to 10.5s, because each document's vectors are read as one binary array instead of being parsed number by number from text. These times include loading the model.
+- **First run.** The first run is about 20s faster for every chunk type. Embedding the chunks is the same work in both formats, so the difference is writing the cache: converting every number to text for JSON takes longer than writing the binary arrays.
