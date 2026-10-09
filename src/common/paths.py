@@ -111,24 +111,30 @@ def get_bm25_index_path(output_path:str, chunking_args: ChunkingArgs, index_args
 		f"{index_args.bm25_k1}_{index_args.bm25_b}_{index_args.bm25_tokenizer}/"
 	)
 
-def get_qdrant_index_path(output_path:str, chunking_args: ChunkingArgs) -> str:
+def get_qdrant_collection_name(output_path:str, chunking_args: ChunkingArgs) -> str:
 	"""
 	Input: output_path, the dataset's output folder; chunking_args, the
 	chunking parameters.
-	Output: the Qdrant index folder path as a string, ending with "/".
-	What it does: builds the folder that holds one Qdrant index build:
-	{output_path}/indexes/qdrant/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/
-	A {framework}/ folder is added after qdrant/ when a framework such as
-	langchain is used.
+	Output: the Qdrant collection name as a string.
+	What it does: builds the name of the collection on the Qdrant server
+	that holds one Qdrant index build:
+	{dataset_name}_{chunk_type}_{model_name}_{min}_{max}_{overlap}_{threshold}
+	where dataset_name is the last folder of output_path. A {framework}_
+	part is added after the dataset name when a framework such as
+	langchain is used. Any "/" in model_name is replaced with "-", because
+	Qdrant does not allow "/" in collection names.
 	"""
 
 	if chunking_args.framework == NO_FRAMEWORK:
-		framework_folder = ""
+		framework_part = ""
 	else:
-		framework_folder = f"{chunking_args.framework}/"
+		framework_part = f"{chunking_args.framework}_"
+
+	dataset_name = os.path.basename(output_path.rstrip("/"))
+	model_name = chunking_args.model_name.replace("/", "-")
 
 	return (
-		f"{output_path}/indexes/qdrant/{framework_folder}{chunking_args.chunk_type}/{chunking_args.model_name}/"
+		f"{dataset_name}_{framework_part}{chunking_args.chunk_type}_{model_name}_"
 		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
-		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}/"
+		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
 	)

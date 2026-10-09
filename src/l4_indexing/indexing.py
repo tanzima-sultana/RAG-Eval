@@ -29,17 +29,19 @@ class Indexing:
 		Output: a tuple of (FaissIndex, Bm25Index, QdrantIndex).
 		What it does: builds all three indexes from the same chunks: a FAISS
 		index of the type in faiss_index_type, a BM25 index over the chunk
-		texts, and a Qdrant collection of the embeddings. Not implemented yet.
+		texts, and a Qdrant collection of the embeddings.
 		"""
 
 		# 1. validate index args
 		validate.validate_index_args(self.index_args)
 
-		# 2. Get the folder of each index
+		# 2. Get the folder of the FAISS and BM25 indexes and the Qdrant collection name
 		faiss_index_path = paths.get_faiss_index_path(output_path, self.chunking_args, self.index_args)
 		bm25_index_path = paths.get_bm25_index_path(output_path, self.chunking_args, self.index_args)
-		qdrant_index_path = paths.get_qdrant_index_path(output_path, self.chunking_args)
+		qdrant_collection_name = paths.get_qdrant_collection_name(output_path, self.chunking_args)
 
 		faiss_index = faiss.get_faiss_index(faiss_index_path, self.index_args, embeddings)
 		bm25_index = bm25.get_bm25_index(bm25_index_path, self.index_args, chunks)
-		#qdrant_index = get_qdrant_index(qdrant_index_path, embeddings)
+		qdrant_index = qdrant.get_qdrant_index(qdrant_collection_name, self.index_args, embeddings)
+
+		return faiss_index, bm25_index, qdrant_index

@@ -41,3 +41,6 @@ BM25_K1=1.5
 BM25_B=0.75
 BM25_TOKENIZER="whitespace"
 QDRANT_BATCH_SIZE=256
+
+# Qdrant server started with the qdrant-docker skill
+QDRANT_URL="http://localhost:6333"

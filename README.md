@@ -118,3 +118,56 @@ numpy's `.npz` format stores several arrays in one binary file, so one `{doc_id}
 - **Data type.** A vector loaded from the `.npz` cache is float32 (`vector loaded from npz cache: dtype float32 ... bytes 1536` in `cache_npz_stats.txt`), the same type the model returns, so cached and new embeddings now match.
 - **Load time.** Loading all embeddings from the cache takes about 4.5 to 4.9s instead of about 9.4 to 10.5s, because each document's vectors are read as one binary array instead of being parsed number by number from text. These times include loading the model.
 - **First run.** The first run is about 20s faster for every chunk type. Embedding the chunks is the same work in both formats, so the difference is writing the cache: converting every number to text for JSON takes longer than writing the binary arrays.
+
+## l4_indexing
+
+### Overview
+
+`l4_indexing` is the fourth pipeline layer. `src/rag.py` runs it right after `l3_embedding` and passes it the chunks (`chunk_id` to `Chunk`) and the embeddings (`chunk_id` to `Embedded`) in memory, together with the dataset's output folder, `ChunkingArgs` and `IndexArgs`. `Indexing.compute_index()` validates `IndexArgs` and always builds three indexes from the same chunks, returning them as a tuple `(FaissIndex, Bm25Index, QdrantIndex)`:
+
+- **FAISS** over the embedding vectors, of the type given by `--faiss_index_type`: `faiss_flatip` (exact inner product), `faiss_ivf` (`--ivf_nlist` clusters) or `faiss_hnsw` (`--hnsw_m` neighbours per node, `--hnsw_ef_construction`). The vectors are normalized by l3, so inner product is cosine similarity. Saved as `index.faiss` and `chunk_ids.json` in `{output folder}/indexes/faiss/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/{flatip | ivf_{nlist} | hnsw_{m}_{ef_construction}}/`.
+- **BM25** (`rank_bm25.BM25Okapi` with `--bm25_k1` and `--bm25_b`) over the chunk texts, lowercased and split on whitespace. Saved as `bm25.pkl` and `chunk_ids.json` in `{output folder}/indexes/bm25/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/{k1}_{b}_{tokenizer}/`.
+- **Qdrant**, a collection on the Qdrant server at `QDRANT_URL` (`http://localhost:6333`, started with the `qdrant-docker` skill) with cosine distance, uploaded in batches of `--qdrant_batch_size`. Each point stores its `chunk_id` in its payload. The collection is named `{dataset_name}_{chunk_type}_{model_name}_{min}_{max}_{overlap}_{threshold}`.
+
+Each index is used as its cache: if the saved FAISS or BM25 files, or the existing Qdrant collection, hold exactly the same chunk ids as the current chunks, it is loaded; otherwise it is rebuilt and replaces the old one. FAISS and BM25 files are written to a temporary file first and then renamed into place. `chunk_ids` in `FaissIndex` and `Bm25Index` maps an index position back to its chunk id. Each index prints whether it was built or loaded from cache.
+
+### Architecture
+
+- **`indexing.py`** — `Indexing`, the orchestrator: validates the index args, gets each index's folder or collection name, and builds or loads the FAISS, BM25 and Qdrant indexes.
+- **`validate.py`** — Checks the indexing parameters and raises an error for the first invalid one.
+- **`schema.py`** — Defines `FaissIndex`, `Bm25Index` and `QdrantIndex`, the layer's output records.
+- **`indexers/faiss.py`** — Builds a flat, IVF or HNSW FAISS index, saves it, and loads it from cache.
+- **`indexers/bm25.py`** — Tokenizes the chunk texts, builds the BM25 model, saves it, and loads it from cache.
+- **`indexers/qdrant.py`** — Connects to the Qdrant server, reuses a matching collection or creates one and uploads the points.
+- **`indexer.py`** — Empty placeholder for a shared base class.
+- **`cache.py`** — Empty placeholder; each indexer currently saves and loads its own cache.
+- **`langchain.py`** — Empty placeholder for LangChain indexing.
+
+The index paths and the Qdrant collection name are built in `src/common/paths.py`.
+
+### Run results
+
+**5000 documents, flatip / ivf / hnsw** (from `log/l4_indexing/log_5k_{flatip,ivf,hnsw}_{fixed,sentence,semantic}.txt` and `log/l4_indexing/index_stats.txt`). All runs use the 5000 `pixparse/pdfa-eng-wds` documents, `--model_name all-MiniLM-L6-v2 --min_chunk_size 128 --max_chunk_size 256 --fixed_chunk_overlap 32 --semantic_threshold 0.2`, the built-in chunkers, and `--ivf_nlist 256 --hnsw_m 32 --hnsw_ef_construction 200 --bm25_k1 1.5 --bm25_b 0.75 --bm25_tokenizer whitespace --qdrant_batch_size 256`. l1, l2 and l3 load everything from their caches (about 11 to 14s, 5 to 6s and 6 to 8s). For each chunk type the flatip run went first with no index cache, so it built FAISS, BM25 and Qdrant; the ivf and hnsw runs then built only their FAISS index and loaded BM25 and Qdrant from cache. The times are the `Indexing time` printed by `src/rag.py`, which covers the whole `compute_index()` call:
+
+| | fixed | sentence | semantic |
+|---|---|---|---|
+| Chunks indexed | 91670 | 94053 | 104900 |
+| flatip run (FAISS flatip + BM25 + Qdrant built) | 28.998353481292725s | 27.878997802734375s | 34.35384702682495s |
+| ivf run (FAISS ivf built, BM25 and Qdrant from cache) | 2.5223073959350586s | 2.45229434967041s | 2.518348455429077s |
+| hnsw run (FAISS hnsw built, BM25 and Qdrant from cache) | 10.658159971237183s | 11.403585195541382s | 13.719996452331543s |
+| Total elapsed, flatip / ivf / hnsw run | 54.40952920913696s / 24.56925320625305s / 33.112295150756836s | 52.15672993659973s / 25.17382049560547s / 34.09154915809631s | 60.032033920288086s / 27.975639820098877s / 36.53645873069763s |
+
+Index size on disk (bytes):
+
+| | fixed | sentence | semantic |
+|---|---|---|---|
+| FAISS flatip | 142904842 | 146621223 | 163558055 |
+| FAISS ivf_256 | 144033560 | 147769005 | 164792613 |
+| FAISS hnsw_32_200 | 167856327 | 172221336 | 192114700 |
+| BM25 | 113634193 | 107784587 | 109171690 |
+
+- **flatip run.** This is the only run per chunk type that builds BM25 and Qdrant, so it is the slowest. Building the flat FAISS index itself only copies the vectors into memory. The rest is tokenizing every chunk text and building and pickling the BM25 model, and uploading every vector to Qdrant over HTTP in batches of 256, which Qdrant also writes to disk and indexes. The log prints one time for all three, so the split between BM25 and Qdrant is not in the logs.
+- **ivf run.** Building IVF runs k-means to find 256 cluster centres and then assigns each vector to its nearest centre. The 2.45 to 2.52s also includes loading the BM25 pickle and reading every chunk id back from the Qdrant collection to check the cache, so the IVF build alone is shorter than that.
+- **hnsw run.** HNSW inserts the vectors one by one into a graph, and each insert searches the graph for its 32 neighbours with a candidate list of 200. That search per vector makes it the slowest FAISS index to build, and the time grows with the chunk count: 10.66s for 91670 chunks, 13.72s for 104900.
+- **FAISS sizes.** A flat index stores each 384-number float32 vector, 1536 bytes per chunk (140805120 bytes for 91670 chunks), plus `chunk_ids.json`. IVF adds the 256 cluster centres and a list id for each vector, about 1.1 MB. HNSW adds the graph links, about 25 MB for fixed (a little over 256 bytes per chunk: 64 neighbour ids of 4 bytes on the bottom layer), so it is the largest.
+- **Chunk count.** Semantic chunking has the most chunks, so its FAISS indexes are the largest and its flatip and hnsw runs take longest.
