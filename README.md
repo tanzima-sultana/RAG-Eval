@@ -148,17 +148,25 @@ numpy's `.npz` format stores several arrays in one binary file, so one `{doc_id}
 
 Each index is used as its cache: if the saved FAISS or BM25 files, or the existing Qdrant collection, hold exactly the same chunk ids as the current chunks, it is loaded; otherwise it is rebuilt and replaces the old one. FAISS and BM25 files are written to a temporary file first and then renamed into place. `chunk_ids` in `FaissIndex` and `Bm25Index` maps an index position back to its chunk id. Each index prints whether it was built or loaded from cache.
 
+With `--framework ""` the built-in indexes above are used. With `--framework langchain`, `compute_index()` hands the chunks and embeddings to the `Langchain` class instead, which builds the same three indexes with LangChain's classes and returns `(LangchainFaissIndex, LangchainBm25Index, LangchainQdrantIndex)`. Every LangChain index holds one LangChain `Document` per chunk, with the chunk text as `page_content` and `{"chunk_id": chunk_id}` as metadata, so it stores the chunk texts as well as the vectors or terms. No chunk is embedded again: all indexes use the l3 vectors, and the `HuggingFaceEmbeddings` model is loaded only because the FAISS and Qdrant vector stores need it to embed queries.
+
+- **FAISS** (`FAISS` from `langchain-community`): the FAISS index is built by the same `build_flatip_index`, `build_ivf_index` or `build_hnsw_index` functions as the built-in one and wrapped in a LangChain `FAISS` vector store with inner product distance. Saved with `save_local` as `index.faiss` and `index.pkl` (the documents and the position-to-chunk-id map).
+- **BM25** (`BM25Retriever` from `langchain-community`) with the same `k1`, `b` and lowercase whitespace tokenizer. Saved with pickle as `bm25_retriever.pkl`.
+- **Qdrant** (`QdrantVectorStore` from `langchain-qdrant`): the l3 vectors are uploaded directly in the payload layout `QdrantVectorStore` reads (`page_content` and `metadata`), because `add_texts` would embed every chunk again.
+
+The LangChain indexes are saved under `{output folder}/indexes/{faiss,bm25}/langchain/...`, and the Qdrant collection name has `langchain_` after the dataset name, so the two never share a cache. The cache rule is the same as for the built-in indexes.
+
 ### Architecture
 
-- **`indexing.py`** — `Indexing`, the orchestrator: validates the index args, gets each index's folder or collection name, and builds or loads the FAISS, BM25 and Qdrant indexes.
+- **`indexing.py`** — `Indexing`, the orchestrator: validates the index args and, for `--framework langchain`, hands the work to `Langchain`. Otherwise gets each index's folder or collection name, and builds or loads the FAISS, BM25 and Qdrant indexes.
 - **`validate.py`** — Checks the indexing parameters and raises an error for the first invalid one.
-- **`schema.py`** — Defines `FaissIndex`, `Bm25Index` and `QdrantIndex`, the layer's output records.
+- **`schema.py`** — Defines `FaissIndex`, `Bm25Index` and `QdrantIndex`, and `LangchainFaissIndex`, `LangchainBm25Index` and `LangchainQdrantIndex`, the layer's output records.
 - **`indexers/faiss.py`** — Builds a flat, IVF or HNSW FAISS index, saves it, and loads it from cache.
 - **`indexers/bm25.py`** — Tokenizes the chunk texts, builds the BM25 model, saves it, and loads it from cache.
 - **`indexers/qdrant.py`** — Connects to the Qdrant server, reuses a matching collection or creates one and uploads the points.
 - **`indexer.py`** — Empty placeholder for a shared base class.
 - **`cache.py`** — Empty placeholder; each indexer currently saves and loads its own cache.
-- **`langchain.py`** — Empty placeholder for LangChain indexing.
+- **`langchain.py`** — `Langchain`: loads the query embedding model and builds or loads the LangChain FAISS vector store, BM25 retriever and Qdrant vector store, one method each.
 
 The index paths and the Qdrant collection name are built in `src/common/paths.py`.
 
@@ -188,3 +196,26 @@ Index size on disk (bytes):
 - **hnsw run.** HNSW inserts the vectors one by one into a graph, and each insert searches the graph for its 32 neighbours with a candidate list of 200. That search per vector makes it the slowest FAISS index to build, and the time grows with the chunk count: 10.66s for 91670 chunks, 13.72s for 104900.
 - **FAISS sizes.** A flat index stores each 384-number float32 vector, 1536 bytes per chunk (140805120 bytes for 91670 chunks), plus `chunk_ids.json`. IVF adds the 256 cluster centres and a list id for each vector, about 1.1 MB. HNSW adds the graph links, about 25 MB for fixed (a little over 256 bytes per chunk: 64 neighbour ids of 4 bytes on the bottom layer), so it is the largest.
 - **Chunk count.** Semantic chunking has the most chunks, so its FAISS indexes are the largest and its flatip and hnsw runs take longest.
+
+**5000 documents, built-in vs LangChain** (from `log/l4_indexing/log_5k_{flatip,ivf,hnsw}_{fixed,sentence,semantic}.txt`, `log/l4_indexing/log_5k_langchain_{flatip,ivf,hnsw}_{fixed,sentence,semantic}.txt`, `log/l4_indexing/index_stats.txt` and `log/l4_indexing/index_langchain_stats.txt`). The LangChain runs use the same documents and settings as the built-in runs above with `--framework langchain`, so l1, l2 and l3 load the LangChain chunks and embeddings from their caches. As before, for each chunk type the flatip run went first and built FAISS, BM25 and Qdrant, and the ivf and hnsw runs built only their FAISS index and loaded BM25 and Qdrant from cache. The times are the `Indexing time` printed by `src/rag.py`:
+
+| | fixed | sentence | semantic |
+|---|---|---|---|
+| Chunks indexed, built-in / LangChain | 91670 / 91670 | 94053 / 94053 | 104900 / 112218 |
+| flatip run, built-in → LangChain | 28.998353481292725s → 36.737186431884766s | 27.878997802734375s → 39.81909370422363s | 34.35384702682495s → 44.598501205444336s |
+| ivf run, built-in → LangChain | 2.5223073959350586s → 7.879034519195557s | 2.45229434967041s → 9.069776058197021s | 2.518348455429077s → 9.874390602111816s |
+| hnsw run, built-in → LangChain | 10.658159971237183s → 16.54848623275757s | 11.403585195541382s → 18.42800498008728s | 13.719996452331543s → 22.074488401412964s |
+
+Index size on disk, built-in → LangChain (bytes):
+
+| | fixed | sentence | semantic |
+|---|---|---|---|
+| FAISS flatip | 142904842 → 247032753 | 146621223 → 238728506 | 163558055 → 277941285 |
+| FAISS ivf_256 | 144033560 → 248161471 | 147769005 → 239876288 | 164792613 → 279234387 |
+| FAISS hnsw_32_200 | 167856327 → 271984238 | 172221336 → 264328619 | 192114700 → 308491922 |
+| BM25 | 113634193 → 220136801 | 107784587 → 202291446 | 109171690 → 219744399 |
+
+- **Every LangChain run is slower, by 5.4 to 11.9s.** The FAISS index itself is built by the same functions, so the difference is the LangChain work around it: loading the `HuggingFaceEmbeddings` model, creating one `Document` per chunk, and pickling or unpickling those documents with their chunk texts. The ivf and hnsw runs also load `bm25_retriever.pkl`, which holds every chunk text, instead of the smaller built-in `bm25.pkl`. The log prints one time for the whole call, so the split between these steps is not in the logs.
+- **FAISS size.** `index.faiss` is the same FAISS index as the built-in one (140805165 bytes for fixed flatip, the 91670 float32 vectors). The extra size is `index.pkl`, 106223492 bytes for fixed, which holds every chunk text and the position-to-chunk-id map. The built-in index stores only `chunk_ids.json` next to `index.faiss`, without the chunk texts.
+- **BM25 size.** `bm25_retriever.pkl` is about twice the built-in `bm25.pkl` because it holds the BM25 model plus every chunk as a LangChain `Document` with its text and metadata.
+- **Semantic.** LangChain semantic chunking has 7318 more chunks than the built-in one (see l2_chunking), so its indexes and times are larger for that reason as well.
