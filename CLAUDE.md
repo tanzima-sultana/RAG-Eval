@@ -39,8 +39,19 @@ All commands below assume current working directory is the repo root (`rag-eval/
 
 src/
    build.py                # CLI entry point for the RAG build pipeline
+   eval.py                 # CLI entry point for the RAG eval pipeline
 
-    l1_doc_processing/
+	api/
+	llm/
+	qna/
+
+	common/
+	  constants.py          # Hardcoded project-wide constants
+	  args.py               # Layer related command line args
+	  chunk_config.py       # Chunk-related config.
+	  timing.py				# Time 
+
+    l1_ingestion/
       schema.py            # Defines the Document dataclass — the normalized record format every parsed document is converted into
       ingestion.py         # Library for document ingestion
    
@@ -59,7 +70,8 @@ src/
 	l3_embedding/
       schema.py            # Defines the Embedded dataclass — the normalized record format every created embedding is converted into
 	  embedding.py         # Embedding orchestrator
-	  main.py              # CLI entry point for the embedding layer
+	  cache.py	           # Store and retrieve cached embeddings
+	  langchain.py		   # langchain embeddings
 	  
 	l4_indexing/
       schema.py            # Defines the Index dataclass — the normalized record format every created index is converted into
@@ -72,6 +84,13 @@ src/
 	  validate.py		   # Validate given parameters
 	  cache.py	           # Store and retrieve cached index
 	  langchain.py		   # langchain indexing
+	
+	l5_query/
+	l6_retrieval/
+	l7_context/
+	l8_prompt/
+	l9_generation/
+	l10_evaluation/
 
 tests/                  # Test suite
 
@@ -106,12 +125,6 @@ outputs/dataset_name/	# A folder for each dataset
 log/
   log_test.txt              # Run log for test runs
   log.txt                   # General run log
-
-common/
-  constants.py          # Hardcoded project-wide constants
-  args.py               # Layer related command line args
-  chunk_config.py       # Chunk-related config.
-  timing.py				# Time 
 
 scripts/
   run.sh                    # Runs the entire pipeline end-to-end
