@@ -86,3 +86,31 @@ def _save_chunks(chunk_path: str, doc_id: str, chunks: dict[str, Chunk]) -> None
 	with open(temporary_file, "w", encoding="utf-8") as f:
 		json.dump(chunk_dicts, f)
 	os.replace(temporary_file, cache_file)
+
+def load_chunks(chunk_path: str, doc_ids: list[str]) -> dict[str, Chunk]:
+	"""
+	Input: chunk_path, the chunk folder of a chunking run; doc_ids, the
+	documents whose chunks to load, for example the ids of the documents
+	returned by l1 ingestion.
+	Output: a dict of chunk_id to Chunk with every chunk of those
+	documents, document by document in the order of doc_ids.
+	What it does: load-only, never chunks anything. Reads the {doc_id}.json
+	file of each document. Raises FileNotFoundError if chunk_path or a
+	document's file does not exist.
+	"""
+	if not os.path.isdir(chunk_path):
+		raise FileNotFoundError(
+			f"No chunk folder at {chunk_path}. Run scripts/run.sh with the same chunking args first."
+		)
+
+	chunks = {}
+	for doc_id in doc_ids:
+		document_chunks = _load_cached_chunks(chunk_path, doc_id)
+		if document_chunks is None:
+			raise FileNotFoundError(
+				f"No chunk file for document {doc_id} in {chunk_path}. "
+				"Run scripts/run.sh with the same chunking args first."
+			)
+		chunks.update(document_chunks)
+
+	return chunks

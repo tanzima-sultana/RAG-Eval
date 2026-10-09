@@ -78,3 +78,42 @@ def _save_embeddings(embedding_path: str, doc_id: str, embeddings: dict[str, Emb
 			normalized=np.array(normalized_flags),
 		)
 	os.replace(temporary_file, cache_file)
+
+def load_embeddings(embedding_path: str, chunk_ids: list[str]) -> dict[str, Embedded]:
+	"""
+	Input: embedding_path, the embedding folder of a chunking run;
+	chunk_ids, the chunk ids to load, for example the chunk ids stored in
+	an index.
+	Output: a dict of chunk_id to Embedded, in the order of chunk_ids.
+	What it does: load-only, never embeds anything. Reads the
+	{doc_id}.npz file of each chunk's document once and picks the
+	requested embeddings. Raises FileNotFoundError if embedding_path or a
+	document's file does not exist, and ValueError if a document's file
+	does not hold a requested chunk_id.
+	"""
+	if not os.path.isdir(embedding_path):
+		raise FileNotFoundError(
+			f"No embedding folder at {embedding_path}. Run scripts/run.sh with the same chunking args first."
+		)
+
+	embeddings_by_document = {}
+	embeddings = {}
+	for chunk_id in chunk_ids:
+		doc_id = chunk_id.rsplit("_", 1)[0]
+		if doc_id not in embeddings_by_document:
+			document_embeddings = _load_cached_embeddings(embedding_path, doc_id)
+			if document_embeddings is None:
+				raise FileNotFoundError(
+					f"No embedding file for document {doc_id} in {embedding_path}. "
+					"Run scripts/run.sh with the same chunking args first."
+				)
+			embeddings_by_document[doc_id] = document_embeddings
+
+		if chunk_id not in embeddings_by_document[doc_id]:
+			raise ValueError(
+				f"Chunk {chunk_id} is not in the embedding file of document {doc_id} in {embedding_path}. "
+				"The embeddings and the index were made with different settings."
+			)
+		embeddings[chunk_id] = embeddings_by_document[doc_id][chunk_id]
+
+	return embeddings

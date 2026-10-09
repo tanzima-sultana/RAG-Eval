@@ -44,7 +44,7 @@ QDRANT_BATCH_SIZE=256
 
 # run
 
-python3 src/rag.py \
+python3 src/build.py \
   --dataset_size "$DATASET_SIZE" \
   --input_path "$INPUT_PATH" \
   --output_path "$OUTPUT_PATH" \

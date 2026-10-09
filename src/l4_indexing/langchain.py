@@ -1,9 +1,8 @@
 """
 langchain.py
 
-Builds, saves and loads the three indexes of one indexing run with
-LangChain's classes, used with --framework langchain:
-FAISS (langchain_community.vectorstores.FAISS), BM25
+Builds the three indexes of one indexing run with LangChain's classes,
+used with --framework langchain: FAISS (langchain_community.vectorstores.FAISS), BM25
 (langchain_community.retrievers.BM25Retriever) and Qdrant
 (langchain_qdrant.QdrantVectorStore).
 
@@ -11,12 +10,10 @@ Every index holds LangChain Documents with the chunk text as page_content
 and {"chunk_id": chunk_id} as metadata. The vectors come from l3_embedding,
 so no chunk is embedded again here. The HuggingFaceEmbeddings model is
 loaded only because the FAISS and Qdrant vector stores need it to embed
-queries at search time.
+queries at search time. Saving and loading are in l4_indexing/cache.py.
 """
 
 import os
-import pickle
-import shutil
 
 import numpy as np
 import torch
@@ -27,17 +24,16 @@ from langchain_community.vectorstores.utils import DistanceStrategy
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant import QdrantVectorStore
-from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from common import paths
 from common.args import ChunkingArgs
 from common.args import IndexArgs
 from common.constants import FAISS_FLATIP_INDEX, FAISS_IVF_INDEX, FAISS_HNSW_INDEX
-from common.constants import QDRANT_URL
 
 from l2_chunking.schema import Chunk
 from l3_embedding.schema import Embedded
+from l4_indexing import cache
 from l4_indexing.indexers.faiss import build_flatip_index, build_ivf_index, build_hnsw_index
 from l4_indexing.schema import LangchainFaissIndex
 from l4_indexing.schema import LangchainBm25Index
@@ -120,26 +116,12 @@ class Langchain:
 		dimension = vectors.shape[1]
 
 		# 2. Load the saved vector store if it holds exactly the same chunks
-		# load_local reads index.pkl with pickle; the file was written by
-		# this code, so allow_dangerous_deserialization is safe here
-		index_file_path = os.path.join(faiss_index_path, "index.faiss")
-		docstore_file_path = os.path.join(faiss_index_path, "index.pkl")
-		if os.path.exists(index_file_path) and os.path.exists(docstore_file_path):
-			saved_vector_store = FAISS.load_local(
-				faiss_index_path, self.embedding_model, allow_dangerous_deserialization=True
-			)
-			saved_chunk_ids = []
-			for position in saved_vector_store.index_to_docstore_id:
-				saved_chunk_ids.append(saved_vector_store.index_to_docstore_id[position])
-
-			if set(saved_chunk_ids) == set(chunk_ids):
-				print(f"LangChain FAISS index loaded from cache : {saved_vector_store.index.ntotal} vectors")
-				return LangchainFaissIndex(
-					faiss_index_type=self.index_args.faiss_index_type,
-					vector_store=saved_vector_store,
-					index_folder_path=faiss_index_path,
-					dimension=dimension
-				)
+		cached_faiss_index = cache._load_cached_langchain_faiss_index(
+			faiss_index_path, self.index_args.faiss_index_type, chunk_ids, self.embedding_model
+		)
+		if cached_faiss_index is not None:
+			print(f"LangChain FAISS index loaded from cache : {cached_faiss_index.vector_store.index.ntotal} vectors")
+			return cached_faiss_index
 
 		# 3. Build a new FAISS index of the requested type
 		if self.index_args.faiss_index_type == FAISS_FLATIP_INDEX:
@@ -174,17 +156,7 @@ class Langchain:
 		print(f"LangChain FAISS index built : {new_faiss_index.ntotal} vectors")
 
 		# 5. Save the vector store
-		# save_local writes index.faiss and index.pkl. They are written to a
-		# temporary folder first and each file is then renamed into place,
-		# so a crash mid-write never leaves a half-written file.
-		temporary_folder_path = faiss_index_path.rstrip("/") + ".tmp"
-		if os.path.exists(temporary_folder_path):
-			shutil.rmtree(temporary_folder_path)
-		new_vector_store.save_local(temporary_folder_path)
-		os.makedirs(faiss_index_path, exist_ok=True)
-		os.replace(os.path.join(temporary_folder_path, "index.faiss"), index_file_path)
-		os.replace(os.path.join(temporary_folder_path, "index.pkl"), docstore_file_path)
-		os.rmdir(temporary_folder_path)
+		cache._save_langchain_faiss_index(faiss_index_path, new_vector_store)
 
 		return LangchainFaissIndex(
 			faiss_index_type=self.index_args.faiss_index_type,
@@ -224,20 +196,10 @@ class Langchain:
 			chunk_metadatas.append({"chunk_id": chunk_id})
 
 		# 2. Load the saved retriever if it holds exactly the same chunks
-		if os.path.exists(retriever_file_path):
-			with open(retriever_file_path, "rb") as f:
-				saved_retriever = pickle.load(f)
-
-			saved_chunk_ids = []
-			for document in saved_retriever.docs:
-				saved_chunk_ids.append(document.metadata["chunk_id"])
-
-			if set(saved_chunk_ids) == set(chunk_ids):
-				print(f"LangChain BM25 index loaded from cache : {len(saved_chunk_ids)} chunks")
-				return LangchainBm25Index(
-					retriever=saved_retriever,
-					index_file_path=retriever_file_path
-				)
+		cached_bm25_index = cache._load_cached_langchain_bm25_index(bm25_index_path, chunk_ids)
+		if cached_bm25_index is not None:
+			print(f"LangChain BM25 index loaded from cache : {len(chunk_ids)} chunks")
+			return cached_bm25_index
 
 		# 3. Build the BM25 retriever
 		new_retriever = BM25Retriever.from_texts(
@@ -250,11 +212,7 @@ class Langchain:
 		print(f"LangChain BM25 index built : {len(chunk_ids)} chunks")
 
 		# 4. Save the retriever
-		os.makedirs(bm25_index_path, exist_ok=True)
-		temporary_retriever_file = retriever_file_path + ".tmp"
-		with open(temporary_retriever_file, "wb") as f:
-			pickle.dump(new_retriever, f)
-		os.replace(temporary_retriever_file, retriever_file_path)
+		cache._save_langchain_bm25_index(bm25_index_path, new_retriever)
 
 		return LangchainBm25Index(
 			retriever=new_retriever,
@@ -267,7 +225,7 @@ class Langchain:
 		server; chunks, a dict of chunk_id to Chunk; embeddings, a dict of
 		chunk_id to Embedded.
 		Output: a LangchainQdrantIndex holding a LangChain QdrantVectorStore.
-		What it does: connects to the Qdrant server at QDRANT_URL. If the
+		What it does: connects to the Qdrant server. If the
 		collection already exists and holds exactly the same chunk_ids as
 		embeddings, wraps it as is. Otherwise deletes the old collection if
 		there is one, creates a new one with cosine distance, and uploads the
@@ -290,50 +248,18 @@ class Langchain:
 		dimension = len(vectors[0])
 
 		# 2. Connect to the server
-		# QdrantClient does not connect until the first request, so the first
-		# request is made here to give a clear error when the server is down
-		qdrant_client = QdrantClient(url=QDRANT_URL)
-		try:
-			collection_exists = qdrant_client.collection_exists(qdrant_collection_name)
-		except Exception as error:
-			raise ConnectionError(
-				f"Qdrant server is not reachable at {QDRANT_URL}. "
-				"Start it with the qdrant-docker skill."
-			) from error
+		qdrant_client = cache._connect_qdrant_client()
 
 		# 3. Use the existing collection if it holds exactly the same chunks
-		# The saved chunk ids are read page by page from the point payloads
-		if collection_exists:
-			saved_chunk_ids = []
-			next_page_offset = None
-			while True:
-				points, next_page_offset = qdrant_client.scroll(
-					collection_name=qdrant_collection_name,
-					limit=10000,
-					offset=next_page_offset,
-					with_payload=["metadata"],
-					with_vectors=False
-				)
-				for point in points:
-					saved_chunk_ids.append(point.payload["metadata"]["chunk_id"])
-				if next_page_offset is None:
-					break
+		cached_qdrant_index = cache._load_cached_langchain_qdrant_index(
+			qdrant_client, qdrant_collection_name, chunk_ids, self.embedding_model
+		)
+		if cached_qdrant_index is not None:
+			print(f"LangChain Qdrant collection loaded from cache : {len(chunk_ids)} points")
+			return cached_qdrant_index
 
-			if len(saved_chunk_ids) == len(chunk_ids) and set(saved_chunk_ids) == set(chunk_ids):
-				print(f"LangChain Qdrant collection loaded from cache : {len(saved_chunk_ids)} points")
-				saved_vector_store = QdrantVectorStore(
-					client=qdrant_client,
-					collection_name=qdrant_collection_name,
-					embedding=self.embedding_model,
-					distance=Distance.COSINE
-				)
-				return LangchainQdrantIndex(
-					vector_store=saved_vector_store,
-					collection_name=qdrant_collection_name,
-					dimension=dimension
-				)
-
-			# The collection holds different chunks, so it is rebuilt
+		# The collection holds different chunks, so it is rebuilt
+		if qdrant_client.collection_exists(qdrant_collection_name):
 			qdrant_client.delete_collection(qdrant_collection_name)
 
 		# 4. Create the collection

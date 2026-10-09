@@ -38,7 +38,7 @@ All commands below assume current working directory is the repo root (`rag-eval/
 ## Project Structure
 
 src/
-   rag.py                  # CLI entry point for the entire pipeline
+   build.py                # CLI entry point for the RAG build pipeline
 
     l1_doc_processing/
       schema.py            # Defines the Document dataclass — the normalized record format every parsed document is converted into

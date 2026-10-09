@@ -1,43 +1,44 @@
 import argparse
-import os
 import time
 
 from common import constants
+from common import paths
 from common.args import IngestArgs
 from common.args import ChunkingArgs
 from common.args import IndexArgs
 from l1_ingestion.ingestion import ingestion
-from l2_chunking.chunking import Chunking
-from l3_embedding.embedding import Embedding
-from l4_indexing.indexing import Indexing
+from l2_chunking.cache import load_chunks
+from l4_indexing import cache as index_cache
 
 def parse_args():
 	"""
-	Input: none. Reads the command line arguments passed to rag.py.
-	Output: an argparse.Namespace with one attribute per IngestArgs field.
-	What it does: defines the ingestion command line parameters and parses
-	them. Defaults match the defaults in IngestArgs.
+	Input: none. Reads the command line arguments passed to eval.py.
+	Output: an argparse.Namespace with one attribute per argument.
+	What it does: defines the arguments that identify which build to
+	evaluate and parses them. They must have the same values the build was
+	run with, because the chunk, embedding and index folders and the
+	Qdrant collection name are built from them. Defaults match build.py.
 	"""
-	parser = argparse.ArgumentParser(description="RAG-Eval Parameters")
+	parser = argparse.ArgumentParser(description="RAG-Eval evaluation parameters")
 
 	parser.add_argument(
 		"--dataset_size",
 		type=int,
 		required=False,
 		default=0,
-		help="Number of documents to ingest")
+		help="Number of documents the build was made with")
 	parser.add_argument(
 		"--input_path",
 		type=str,
 		required=False,
 		default="",
-		help="Input dataset local path or Hugging Face dataset id")
+		help="Input dataset local path or Hugging Face dataset id used by the build")
 	parser.add_argument(
 		"--output_path",
 		type=str,
 		required=False,
 		default="",
-		help="Directory where ingested documents are written")
+		help="Base output folder the build wrote to")
 	parser.add_argument(
 		"--download_workers",
 		type=int,
@@ -85,91 +86,85 @@ def parse_args():
 		type=str,
 		required=False,
 		default="",
-		help="Chunking framework: langchain, or empty for the built-in chunkers")
+		help="Framework the build used: langchain, or empty for the built-in layers")
 	parser.add_argument(
 		"--model_name",
 		type=str,
 		required=False,
 		default="",
-		help="SentenceTransformer model used for token counts and semantic embeddings")
+		help="SentenceTransformer model the build used")
 	parser.add_argument(
 		"--chunk_type",
 		type=str,
 		required=False,
 		default=constants.FIXED_CHUNKING,
-		help="Chunking strategy: fixed, sentence or semantic")
+		help="Chunking strategy the build used: fixed, sentence or semantic")
 	parser.add_argument(
 		"--min_chunk_size",
 		type=int,
 		required=False,
 		default=constants.MIN_CHUNK_SIZE,
-		help="Minimum chunk size")
+		help="Minimum chunk size the build used")
 	parser.add_argument(
 		"--max_chunk_size",
 		type=int,
 		required=False,
 		default=constants.MAX_CHUNK_SIZE,
-		help="Maximum chunk size")
+		help="Maximum chunk size the build used")
 	parser.add_argument(
 		"--fixed_chunk_overlap",
 		type=int,
 		required=False,
 		default=constants.FIXED_CHUNK_OVERLAP,
-		help="Overlap between consecutive fixed-size chunks")
+		help="Fixed chunk overlap the build used")
 	parser.add_argument(
 		"--semantic_threshold",
 		type=float,
 		required=False,
 		default=constants.SEMANTIC_THRESHOLD,
-		help="Similarity threshold used by semantic chunking")
+		help="Semantic threshold the build used")
 	parser.add_argument(
 		"--faiss_index_type",
 		type=str,
 		required=False,
 		default=constants.FAISS_FLATIP_INDEX,
-		help="FAISS index type: faiss_flatip, faiss_ivf or faiss_hnsw")
+		help="FAISS index type the build used: faiss_flatip, faiss_ivf or faiss_hnsw")
 	parser.add_argument(
 		"--ivf_nlist",
 		type=int,
 		required=False,
 		default=constants.IVF_NLIST,
-		help="Number of IVF clusters for faiss_ivf")
+		help="Number of IVF clusters the build used")
 	parser.add_argument(
 		"--hnsw_m",
 		type=int,
 		required=False,
 		default=constants.HNSW_M,
-		help="Number of neighbours per node in the HNSW graph")
+		help="HNSW neighbours per node the build used")
 	parser.add_argument(
 		"--hnsw_ef_construction",
 		type=int,
 		required=False,
 		default=constants.HNSW_EF_CONSTRUCTION,
-		help="HNSW candidate list size used while building the graph")
+		help="HNSW build candidate list size the build used")
 	parser.add_argument(
 		"--bm25_k1",
 		type=float,
 		required=False,
 		default=constants.BM25_K1,
-		help="BM25 term frequency saturation")
+		help="BM25 k1 the build used")
 	parser.add_argument(
 		"--bm25_b",
 		type=float,
 		required=False,
 		default=constants.BM25_B,
-		help="BM25 document length normalization")
+		help="BM25 b the build used")
 	parser.add_argument(
 		"--bm25_tokenizer",
 		type=str,
 		required=False,
 		default=constants.BM25_TOKENIZER,
-		help="Tokenizer used to split text into BM25 terms")
-	parser.add_argument(
-		"--qdrant_batch_size",
-		type=int,
-		required=False,
-		default=constants.QDRANT_BATCH_SIZE,
-		help="Number of vectors sent to Qdrant per upsert")
+		help="BM25 tokenizer the build used")
 
 	return parser.parse_args()
 
@@ -199,9 +194,9 @@ def make_ingest_args(parsed_args):
 def make_chunking_args(parsed_args):
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args().
-	Output: a ChunkingArgs object holding the chunking values.
-	What it does: copies each parsed chunking command line value into the
-	matching ChunkingArgs field.
+	Output: a ChunkingArgs object holding the chunking values of the build.
+	What it does: copies each parsed chunking value into the matching
+	ChunkingArgs field.
 	"""
 	chunking_args = ChunkingArgs(
 		framework=parsed_args.framework,
@@ -218,9 +213,10 @@ def make_chunking_args(parsed_args):
 def make_index_args(parsed_args):
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args().
-	Output: an IndexArgs object holding the indexing values.
-	What it does: copies each parsed indexing command line value into the
-	matching IndexArgs field.
+	Output: an IndexArgs object holding the index values of the build.
+	What it does: copies each parsed index value into the matching
+	IndexArgs field. qdrant_batch_size only matters while building, so it
+	is set to its default.
 	"""
 	index_args = IndexArgs(
 		faiss_index_type=parsed_args.faiss_index_type,
@@ -230,69 +226,51 @@ def make_index_args(parsed_args):
 		bm25_k1=parsed_args.bm25_k1,
 		bm25_b=parsed_args.bm25_b,
 		bm25_tokenizer=parsed_args.bm25_tokenizer,
-		qdrant_batch_size=parsed_args.qdrant_batch_size
+		qdrant_batch_size=constants.QDRANT_BATCH_SIZE
 	)
 	return index_args
 
-def get_output_path(input_path:str, output_path:str) -> str:
-	"""
-	Input: input_path, a Hugging Face dataset id or a local file/folder path;
-	output_path, the base output folder.
-	Output: the folder "{output_path}/{dataset_name}" as a string.
-	What it does: takes the last part of input_path as the dataset name,
-	without trailing slashes or a file extension. For example
-	"pixparse/pdfa-eng-wds" gives "pdfa-eng-wds", "data/docs/" gives "docs"
-	and "data/report.pdf" gives "report".
-	"""
-	path_without_trailing_slash = input_path.rstrip("/")
-	last_path_part = os.path.basename(path_without_trailing_slash)
-	name_and_extension = os.path.splitext(last_path_part)
-	dataset_name = name_and_extension[0]
-	return f"{output_path}/{dataset_name}"
-
 if __name__ == "__main__":
-	print("\n ------------- RAG -------- \n")
+	print("\n ------------- RAG Eval -------- \n")
 	start = time.time()
 
 	args = parse_args()
 	print(args)
 
-	# 1. Ingestion
-	print("\n\nIngestion")
 	ingest_args = make_ingest_args(args)
+	chunking_args = make_chunking_args(args)
+	index_args = make_index_args(args)
+	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
 
+	# 1. Load the l1 documents
+	# The same ingestion call as build.py; it returns the documents from the l1 cache
+	print("\n\nLoading documents")
 	s1 = time.time()
 	documents = ingestion(ingest_args)
 	e1 = time.time() - s1
-	print("\nIngestion time : ", e1)
+	print("\nLoading documents time : ", e1)
 
-	output_path = get_output_path(ingest_args.input_path, ingest_args.output_path)
-
-	# 2. Chunking
-	print("\n\nChunking")
-	chunking_args = make_chunking_args(args)
-
+	# 2. Load the l2 chunks of those documents
+	# Load-only; raises an error if a document has no chunk file
+	print("\n\nLoading chunks")
 	s2 = time.time()
-	chunks = Chunking(chunking_args).compute_chunks(documents, output_path)
+	chunk_path = paths.get_chunk_path(output_path, chunking_args)
+	doc_ids = []
+	for doc_id in documents:
+		doc_ids.append(doc_id)
+	chunks = load_chunks(chunk_path, doc_ids)
 	e2 = time.time() - s2
-	print("\nChunking time : ", e2)
+	print(f"Chunk folder : {chunk_path}")
+	print(f"Chunks loaded : {len(chunks)} from {len(doc_ids)} documents")
+	print("\nLoading chunks time : ", e2)
 
-	# 3. Embedding
-	print("\n\nEmbedding")
-
+	# 3. Load the built indexes
+	# Raises an error if any index is missing or was built with a different dataset size
+	print("\n\nLoading indexes")
 	s3 = time.time()
-	embeddings = Embedding(chunking_args).compute_embeddings(chunks, output_path)
+	faiss_index, bm25_index, qdrant_index = index_cache.load_index(output_path, chunking_args, index_args, args.dataset_size)
 	e3 = time.time() - s3
-	print("\nEmbedding time : ", e3)
-
-	# 4. Indexing
-	print("\n\nIndexing")
-	index_args = make_index_args(args)
-
-	s4 = time.time()
-	faiss_index, bm25_index, qdrant_index = Indexing(index_args, chunking_args).compute_index(chunks, embeddings, output_path)
-	e4 = time.time() - s4
-	print("\nIndexing time : ", e4)
+	print("\nLoading indexes time : ", e3)
 
 	# ---------
 	end = time.time()

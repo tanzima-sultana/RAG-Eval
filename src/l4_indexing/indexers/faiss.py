@@ -1,17 +1,11 @@
 """
 faiss.py
 
-Builds, saves and loads the FAISS index of one indexing run. The index is
-saved in the FAISS index folder (see common.paths.get_faiss_index_path) as
-two files:
-index.faiss, the FAISS index itself, and
-chunk_ids.json, the chunk_id of each FAISS position, in order.
-
-Each file is first written to a temporary file and then renamed into
-place, so a crash mid-write never leaves a half-written file.
+Builds the FAISS index of one indexing run: a flat, IVF or HNSW index
+over the l3 embedding vectors, with inner product distance. Saving and
+loading are in l4_indexing/cache.py.
 """
 
-import json
 import os
 
 import faiss
@@ -20,12 +14,13 @@ import numpy as np
 from common.args import IndexArgs
 from common.constants import FAISS_FLATIP_INDEX, FAISS_IVF_INDEX, FAISS_HNSW_INDEX
 from l3_embedding.schema import Embedded
+from l4_indexing import cache
 from l4_indexing.schema import FaissIndex
 
 def get_faiss_index(faiss_index_path: str, index_args: IndexArgs, embeddings: dict[str, Embedded]) -> FaissIndex:
 	"""
-	Input: faiss_index_path, the FAISS index folder; index_args, the indexing
-	parameters; embeddings, a dict of chunk_id to Embedded from l3_embedding.
+	Input: faiss_index_path, the FAISS index folder; index_args, the
+	indexing parameters; embeddings, a dict of chunk_id to Embedded from l3_embedding.
 	Output: a FaissIndex holding the FAISS index of type faiss_index_type.
 	What it does: loads the saved index from faiss_index_path if it holds
 	exactly the same chunk_ids as embeddings. Otherwise builds a new index
@@ -35,9 +30,6 @@ def get_faiss_index(faiss_index_path: str, index_args: IndexArgs, embeddings: di
 	"""
 	if len(embeddings) == 0:
 		raise ValueError("embeddings is empty. There is nothing to index.")
-
-	index_file_path = os.path.join(faiss_index_path, "index.faiss")
-	chunk_ids_file_path = os.path.join(faiss_index_path, "chunk_ids.json")
 
 	# 1. Collect the chunk ids and vectors in the same order
 	# FAISS position i will hold vectors[i], which belongs to chunk_ids[i]
@@ -50,22 +42,10 @@ def get_faiss_index(faiss_index_path: str, index_args: IndexArgs, embeddings: di
 	dimension = vectors.shape[1]
 
 	# 2. Load the saved index if it holds exactly the same chunks
-	# The saved chunk_ids are used, not the new ones, because they match
-	# the positions in the saved index
-	if os.path.exists(index_file_path) and os.path.exists(chunk_ids_file_path):
-		with open(chunk_ids_file_path, "r", encoding="utf-8") as f:
-			saved_chunk_ids = json.load(f)
-
-		if set(saved_chunk_ids) == set(chunk_ids):
-			saved_index = faiss.read_index(index_file_path)
-			print(f"FAISS index loaded from cache : {saved_index.ntotal} vectors")
-			return FaissIndex(
-				faiss_index_type=index_args.faiss_index_type,
-				faiss_index=saved_index,
-				chunk_ids=saved_chunk_ids,
-				index_file_path=index_file_path,
-				dimension=dimension
-			)
+	cached_faiss_index = cache._load_cached_faiss_index(faiss_index_path, index_args.faiss_index_type, chunk_ids)
+	if cached_faiss_index is not None:
+		print(f"FAISS index loaded from cache : {cached_faiss_index.faiss_index.ntotal} vectors")
+		return cached_faiss_index
 
 	# 3. Build a new index of the requested type
 	if index_args.faiss_index_type == FAISS_FLATIP_INDEX:
@@ -79,22 +59,13 @@ def get_faiss_index(faiss_index_path: str, index_args: IndexArgs, embeddings: di
 	print(f"FAISS index built : {new_index.ntotal} vectors")
 
 	# 4. Save the index and its chunk ids
-	os.makedirs(faiss_index_path, exist_ok=True)
-
-	temporary_index_file = index_file_path + ".tmp"
-	faiss.write_index(new_index, temporary_index_file)
-	os.replace(temporary_index_file, index_file_path)
-
-	temporary_chunk_ids_file = chunk_ids_file_path + ".tmp"
-	with open(temporary_chunk_ids_file, "w", encoding="utf-8") as f:
-		json.dump(chunk_ids, f)
-	os.replace(temporary_chunk_ids_file, chunk_ids_file_path)
+	cache._save_faiss_index(faiss_index_path, new_index, chunk_ids)
 
 	return FaissIndex(
 		faiss_index_type=index_args.faiss_index_type,
 		faiss_index=new_index,
 		chunk_ids=chunk_ids,
-		index_file_path=index_file_path,
+		index_file_path=os.path.join(faiss_index_path, "index.faiss"),
 		dimension=dimension
 	)
 
