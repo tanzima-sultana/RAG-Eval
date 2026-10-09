@@ -285,14 +285,14 @@ if __name__ == "__main__":
 	e3 = time.time() - s3
 	print("\nEmbedding time : ", e3)
 
-	# 4. Indexing
-	print("\n\nIndexing")
-	index_args = make_index_args(args)
+	## 4. Indexing
+	#print("\n\nIndexing")
+	#index_args = make_index_args(args)
 
-	s4 = time.time()
-	faiss_index, bm25_index, qdrant_index = Indexing(index_args, chunking_args).compute_index(chunks, embeddings, output_path)
-	e4 = time.time() - s4
-	print("\nIndexing time : ", e4)
+	#s4 = time.time()
+	#faiss_index, bm25_index, qdrant_index = Indexing(index_args, chunking_args).compute_index(chunks, embeddings, output_path)
+	#e4 = time.time() - s4
+	#print("\nIndexing time : ", e4)
 
 	# ---------
 	end = time.time()

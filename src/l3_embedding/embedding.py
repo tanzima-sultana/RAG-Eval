@@ -2,19 +2,33 @@ import torch
 
 from sentence_transformers import SentenceTransformer
 
+from common import constants
 from common.args import ChunkingArgs
 from common import paths
 
 from l2_chunking.schema import Chunk
 from l3_embedding.schema import Embedded
+from l3_embedding.langchain import Langchain
 from l3_embedding import cache
 
 class Embedding:
 	def __init__(self, chunking_args: ChunkingArgs):
+		"""
+		Input: chunking_args, a ChunkingArgs holding the framework and the
+		SentenceTransformer model name.
+		Output: nothing.
+		What it does: stores chunking_args. For the built-in embedding
+		(framework ""), loads the SentenceTransformer model (on GPU if
+		available). For the langchain framework, the model is not loaded
+		here, because the Langchain class loads its own copy; model stays None.
+		"""
 		self.chunking_args = chunking_args
 
-		device = "cuda" if torch.cuda.is_available() else "cpu"
-		self.model = SentenceTransformer(self.chunking_args.model_name, device=device)
+		if self.chunking_args.framework == constants.NO_FRAMEWORK:
+			device = "cuda" if torch.cuda.is_available() else "cpu"
+			self.model = SentenceTransformer(self.chunking_args.model_name, device=device)
+		else:
+			self.model = None
 
 	def compute_embeddings(self, chunks: dict[str, Chunk], output_path:str) -> dict[str, Embedded]:
 		"""
@@ -29,8 +43,8 @@ class Embedding:
 		"""
 
 		# 1. Use langchain if set
-		#if self.chunking_args.framework == constants.LANGCHAIN_FRAMEWORK:
-		#	return Langchain(self.chunking_args).compute_embeddings(chunks, output_path)
+		if self.chunking_args.framework == constants.LANGCHAIN_FRAMEWORK:
+			return Langchain(self.chunking_args).compute_embeddings(chunks, output_path)
 		
 		embeddings = {}
 		embedding_path = paths.get_embedding_path(output_path, self.chunking_args)

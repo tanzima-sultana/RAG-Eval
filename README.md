@@ -76,12 +76,14 @@ The log line `Token indices sequence length is longer than the specified maximum
 
 `l3_embedding` is the third pipeline layer. `src/rag.py` runs it right after `l2_chunking` and passes it the chunks in memory, as a dict of `chunk_id` to `Chunk`, together with the same output folder and `ChunkingArgs` as l2. `Embedding.compute_embeddings()` embeds each chunk's text with the SentenceTransformer model named by `--model_name` and returns a dict of `chunk_id` to `Embedded` (`chunk_id`, `embeddings` as a numpy vector, `normalized`). Vectors are normalized to length 1, so a dot product between two of them is their cosine similarity. Embeddings are cached in `{output folder}/embeddings/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/`, one file per document holding the embeddings of all its chunks, written to a temporary file first and then renamed into place. Each `{doc_id}.npz` holds three arrays in chunk order: the chunk ids, the vectors as one float32 array, and the `normalized` flags. A chunk whose document file already exists is loaded from it; all other chunks are embedded in one batched call to the model, and each document that got new embeddings is saved. `compute_embeddings()` prints the embedding folder and how many embeddings came from cache or were newly computed.
 
+With `--framework ""` the built-in `Embedding` path is used. With `--framework langchain`, `compute_embeddings()` hands the chunks to the `Langchain` class instead, which embeds with LangChain's `HuggingFaceEmbeddings` (from `langchain-huggingface`) using the same SentenceTransformer model, batch size 256 and normalization, and the same per-document `.npz` cache, saved under `{output folder}/embeddings/langchain/...` so the two never share a cache. `HuggingFaceEmbeddings` returns each vector as a list of Python floats, so each one is turned back into a float32 numpy array before it is cached. The SentenceTransformer model is loaded by `Embedding` only for the built-in path, because the `Langchain` class loads its own copy.
+
 ### Architecture
 
-- **`embedding.py`** — `Embedding`, the orchestrator: loads the SentenceTransformer model, loads cached embeddings, embeds the remaining chunks in one batch, saves them per document and prints the run summary.
+- **`embedding.py`** — `Embedding`, the orchestrator: for `--framework langchain`, hands the work to `Langchain`. For the built-in path it loads the SentenceTransformer model, loads cached embeddings, embeds the remaining chunks in one batch, saves them per document and prints the run summary.
 - **`cache.py`** — Saves and loads one file per document in the embedding folder.
 - **`schema.py`** — Defines `Embedded`, the layer's output record.
-- **`langchain.py`** — Empty placeholder for LangChain embedding.
+- **`langchain.py`** — `Langchain`: loads cached embeddings, embeds the remaining chunks in one call with LangChain's `HuggingFaceEmbeddings`, converts the vectors to float32, saves them per document and prints the run summary.
 
 ### Run results
 
@@ -118,6 +120,21 @@ numpy's `.npz` format stores several arrays in one binary file, so one `{doc_id}
 - **Data type.** A vector loaded from the `.npz` cache is float32 (`vector loaded from npz cache: dtype float32 ... bytes 1536` in `cache_npz_stats.txt`), the same type the model returns, so cached and new embeddings now match.
 - **Load time.** Loading all embeddings from the cache takes about 4.5 to 4.9s instead of about 9.4 to 10.5s, because each document's vectors are read as one binary array instead of being parsed number by number from text. These times include loading the model.
 - **First run.** The first run is about 20s faster for every chunk type. Embedding the chunks is the same work in both formats, so the difference is writing the cache: converting every number to text for JSON takes longer than writing the binary arrays.
+
+**5000 documents, built-in vs LangChain** (from `log/l3_embedding/log_5k_npz_{fixed,sentence,semantic}.txt`, `log/l3_embedding/log_5k_npz_cached_{fixed,sentence,semantic}.txt`, `log/l3_embedding/log_5k_langchain_{fixed,sentence,semantic}.txt`, `log/l3_embedding/log_5k_langchain_cached_{fixed,sentence,semantic}.txt`, `log/l3_embedding/cache_npz_stats.txt` and `log/l3_embedding/cache_npz_langchain_stats.txt`). The LangChain runs use the same 5000 documents and settings as the `.npz` runs above with `--framework langchain`, so l2 loads the LangChain chunks from the LangChain chunk cache and l3 embeds them with `HuggingFaceEmbeddings`. As before, the first run embeds every chunk and the second run loads every embedding from the cache. The times are the `Embedding time` printed by `src/rag.py`, which includes loading the model:
+
+| | fixed | sentence | semantic |
+|---|---|---|---|
+| Chunks embedded, built-in / LangChain | 91670 / 91670 | 94053 / 94053 | 104900 / 112218 |
+| Embedding time, first run, built-in → LangChain | 131.20864152908325s → 136.1494882106781s | 134.51999473571777s → 137.66652965545654s | 148.0821304321289s → 151.84057593345642s |
+| Embedding time, second run (all from cache), built-in → LangChain | 4.5234534740448s → 4.88601016998291s | 4.807491779327393s → 4.618432521820068s | 4.921001672744751s → 4.904831886291504s |
+| Cache size on disk, built-in → LangChain | 152010282 → 152010282 bytes | 155861957 → 155861957 bytes | 173538276 → 185212182 bytes |
+| Cache files | 5000 / 5000 | 5000 / 5000 | 5000 / 5000 |
+
+- **First run.** LangChain takes 3.1 to 4.9s longer for fixed and sentence, about 3% more. `HuggingFaceEmbeddings` runs the same SentenceTransformer `encode` call on the same chunks, so the model work is the same. The extra time comes from the format conversion: `HuggingFaceEmbeddings` turns the float32 output into Python lists of floats (384 per chunk, about 35 million for fixed), and `Langchain` turns each list back into a float32 array for the cache.
+- **Semantic.** LangChain's `SemanticChunker` produces 112218 chunks instead of 104900 (see l2_chunking), so LangChain embeds 7318 more chunks. It still takes only 3.76s longer, because the time per chunk is about the same: 104900 chunks in 148.08s and 112218 in 151.84s.
+- **Second run.** Loading from cache takes 4.6 to 4.9s for both, because both read the same `.npz` files with the same `cache.py` code; LangChain is not involved once the embeddings are cached.
+- **Cache size.** Fixed and sentence caches are exactly the same size in bytes, because both hold the same number of chunks with the same chunk ids and float32 vectors of 1536 bytes. The semantic LangChain cache is larger only because it holds more chunks.
 
 ## l4_indexing
 
