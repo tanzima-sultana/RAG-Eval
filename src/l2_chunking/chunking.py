@@ -13,6 +13,7 @@ from common.args import ChunkingArgs
 
 from l1_ingestion.schema import Document
 from l2_chunking.schema import Chunk
+from l2_chunking.langchain import Langchain
 from l2_chunking import validate, cache
 
 class Chunking:
@@ -21,17 +22,24 @@ class Chunking:
 		Input: chunking_args, a ChunkingArgs holding the chunking parameters
 		and the SentenceTransformer model name.
 		Output: nothing.
-		What it does: stores chunking_args, loads the SentenceTransformer
-		model (on GPU if available) and keeps its tokenizer for counting
-		tokens. The semantic embedding fields start empty and are filled by
-		compute_chunks only for semantic chunking.
+		What it does: stores chunking_args. For the built-in chunkers
+		(framework ""), loads the SentenceTransformer model (on GPU if
+		available) and keeps its tokenizer for counting tokens. For the
+		langchain framework, the model is not loaded here, because LangChain
+		loads its own copy; model and tokenizer stay None. The semantic
+		embedding fields start empty and are filled by compute_chunks only
+		for semantic chunking.
 		"""
 
 		self.chunking_args = chunking_args
 
-		device = "cuda" if torch.cuda.is_available() else "cpu"
-		self.model = SentenceTransformer(self.chunking_args.model_name, device=device)
-		self.tokenizer = self.model.tokenizer
+		if self.chunking_args.framework == constants.NO_FRAMEWORK:
+			device = "cuda" if torch.cuda.is_available() else "cpu"
+			self.model = SentenceTransformer(self.chunking_args.model_name, device=device)
+			self.tokenizer = self.model.tokenizer
+		else:
+			self.model = None
+			self.tokenizer = None
 
 		# Only for semantic
 		self.all_embeddings = None
@@ -52,6 +60,9 @@ class Chunking:
 
 		# 1. validate chunking args
 		validate.validate_chunking_args(self.chunking_args)
+
+		if self.chunking_args.framework == constants.LANGCHAIN_FRAMEWORK:
+			return Langchain(self.chunking_args).compute_chunks(documents, output_path)
 
 
 		# imported here, not at module level, to avoid a circular

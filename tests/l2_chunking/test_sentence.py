@@ -51,8 +51,8 @@ def test_sentence_splits_a_too_long_sentence_with_fixed_windows(make_chunker, ma
 
     chunks = chunker.chunk(document)
 
-    assert get_chunk_texts(chunks) == ["Short one.", "a b c d", "d e f g", "g h i j.", "j."]
-    assert list(chunks.keys()) == ["doc_0", "doc_1", "doc_2", "doc_3", "doc_4"]
+    assert get_chunk_texts(chunks) == ["Short one.", "a b c d", "d e f g", "g h i j."]
+    assert list(chunks.keys()) == ["doc_0", "doc_1", "doc_2", "doc_3"]
 
 
 def test_sentence_empty_document_gives_no_chunks(make_chunker, make_chunking_args, make_document):

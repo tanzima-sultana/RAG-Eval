@@ -28,6 +28,20 @@ def test_get_chunk_path_builds_folder_from_every_chunking_setting(make_chunking_
     assert chunk_path == "out/chunks/sentence/fake-model/2_6_1_0.5/"
 
 
+def test_get_chunk_path_adds_framework_folder_for_langchain(make_chunking_args):
+    """
+    Input: ChunkingArgs with framework "langchain".
+    Output: the chunk folder path.
+    What it does: checks LangChain chunks go under chunks/langchain/, apart
+    from the built-in chunkers' folder.
+    """
+    chunking_args = make_chunking_args(framework="langchain", chunk_type="fixed", min_chunk_size=2, max_chunk_size=6, fixed_chunk_overlap=1, semantic_threshold=0.5)
+
+    chunk_path = get_chunk_path("out", chunking_args)
+
+    assert chunk_path == "out/chunks/langchain/fixed/fake-model/2_6_1_0.5/"
+
+
 def test_get_chunk_path_differs_by_model_name(make_chunking_args):
     """
     Input: the same ChunkingArgs except for model_name.

@@ -109,8 +109,9 @@ def test_split_tokens_slides_window_with_overlap(make_chunker, make_chunking_arg
     """
     Input: 10 tokens with max_chunk_size 4 and overlap 1 (step 3).
     Output: the chunks and the next chunk index.
-    What it does: checks windows start at 0, 3, 6 and 9, share one token
-    with the window before, and the next index is 4.
+    What it does: checks windows start at 0, 3 and 6, share one token
+    with the window before, stop once a window reaches the last token (no
+    extra "j" window), and the next index is 3.
     """
     chunker = make_chunker(MinimalChunker, make_chunking_args(min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=1))
     tokens = "a b c d e f g h i j".split()
@@ -120,9 +121,28 @@ def test_split_tokens_slides_window_with_overlap(make_chunker, make_chunking_arg
     chunk_texts = []
     for chunk_id in chunks:
         chunk_texts.append(chunks[chunk_id].text)
-    assert chunk_texts == ["a b c d", "d e f g", "g h i j", "j"]
-    assert list(chunks.keys()) == ["doc_0", "doc_1", "doc_2", "doc_3"]
-    assert next_chunk_idx == 4
+    assert chunk_texts == ["a b c d", "d e f g", "g h i j"]
+    assert list(chunks.keys()) == ["doc_0", "doc_1", "doc_2"]
+    assert next_chunk_idx == 3
+
+
+def test_split_tokens_keeps_last_window_that_has_new_tokens(make_chunker, make_chunking_args):
+    """
+    Input: 5 tokens with max_chunk_size 4 and overlap 1.
+    Output: the chunk texts.
+    What it does: checks the last window "d e" is kept, because it holds
+    "e", a token the first window does not cover.
+    """
+    chunker = make_chunker(MinimalChunker, make_chunking_args(min_chunk_size=1, max_chunk_size=4, fixed_chunk_overlap=1))
+    tokens = "a b c d e".split()
+
+    chunks, next_chunk_idx = chunker._split_tokens_into_chunks("doc", tokens)
+
+    chunk_texts = []
+    for chunk_id in chunks:
+        chunk_texts.append(chunks[chunk_id].text)
+    assert chunk_texts == ["a b c d", "d e"]
+    assert next_chunk_idx == 2
 
 
 def test_split_tokens_continues_numbering_from_given_index(make_chunker, make_chunking_args):

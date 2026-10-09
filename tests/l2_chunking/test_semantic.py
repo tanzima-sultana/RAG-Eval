@@ -166,4 +166,4 @@ def test_semantic_splits_a_too_long_sentence_with_fixed_windows(make_chunker, ma
 
     chunks = chunker.chunk(document)
 
-    assert get_chunk_texts(chunks) == ["a b c d", "d e f g", "g h i j.", "j."]
+    assert get_chunk_texts(chunks) == ["a b c d", "d e f g", "g h i j."]

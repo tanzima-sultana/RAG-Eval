@@ -30,9 +30,9 @@ def test_fixed_splits_document_into_overlapping_windows(make_chunker, make_chunk
 
     chunks = chunker.chunk(document)
 
-    assert get_chunk_texts(chunks) == ["a b c d", "d e f g", "g h i j", "j"]
+    assert get_chunk_texts(chunks) == ["a b c d", "d e f g", "g h i j"]
     assert chunks["doc_0"].size == 4
-    assert chunks["doc_3"].size == 1
+    assert chunks["doc_2"].size == 4
     assert chunks["doc_0"].type == "fixed"
 
 

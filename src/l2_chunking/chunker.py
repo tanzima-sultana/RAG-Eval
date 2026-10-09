@@ -67,7 +67,9 @@ class Chunker(abc.ABC):
 
 		Slides a max_chunk_size window across tokens, advancing by
 		(max_chunk_size - fixed_chunk_overlap) tokens each step, and
-		turns each window into a Chunk via _finalize_chunk. Shared by
+		turns each window into a Chunk via _finalize_chunk. Stops as
+		soon as a window reaches the last token, so no extra window
+		holding only already-covered overlap tokens is made. Shared by
 		every concrete Chunker subclass that needs this fixed-window
 		splitting behavior, whether as its whole strategy (fixed
 		chunking) or as a fallback for a unit too large to keep whole
@@ -87,9 +89,14 @@ class Chunker(abc.ABC):
 
 			chunk = self._finalize_chunk(doc_id, chunk_idx, window_text, window_tokens)
 			chunks[chunk.id] = chunk
+			chunk_idx += 1
+
+			# This window already reaches the last token, so a next window
+			# would only repeat the overlap tokens already in this one.
+			if end >= len(tokens):
+				break
 
 			start += self.max_chunk_size - self.fixed_chunk_overlap
-			chunk_idx += 1
 
 		return chunks, chunk_idx
 
