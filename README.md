@@ -144,7 +144,7 @@ numpy's `.npz` format stores several arrays in one binary file, so one `{doc_id}
 
 - **FAISS** over the embedding vectors, of the type given by `--faiss_index_type`: `faiss_flatip` (exact inner product), `faiss_ivf` (`--ivf_nlist` clusters) or `faiss_hnsw` (`--hnsw_m` neighbours per node, `--hnsw_ef_construction`). The vectors are normalized by l3, so inner product is cosine similarity. Saved as `index.faiss` and `chunk_ids.json` in `{output folder}/indexes/faiss/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/{flatip | ivf_{nlist} | hnsw_{m}_{ef_construction}}/`.
 - **BM25** (`rank_bm25.BM25Okapi` with `--bm25_k1` and `--bm25_b`) over the chunk texts, lowercased and split on whitespace. Saved as `bm25.pkl` and `chunk_ids.json` in `{output folder}/indexes/bm25/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/{k1}_{b}_{tokenizer}/`.
-- **Qdrant**, a collection on the Qdrant server at `QDRANT_URL` (`http://localhost:6333`, started with the `qdrant-docker` skill) with cosine distance, uploaded in batches of `--qdrant_batch_size`. Each point stores its `chunk_id` in its payload. The collection is named `{dataset_name}_{chunk_type}_{model_name}_{min}_{max}_{overlap}_{threshold}`.
+- **Qdrant**, a collection on the Qdrant server at `QDRANT_URL` (`http://localhost:6333`, started with the `qdrant-docker` skill) with cosine distance, uploaded in batches of `--qdrant_batch_size`. Each point stores its `chunk_id` and chunk text in its payload, so a search returns both. A collection without text in its payload (built before the text was added) is rebuilt. The collection is named `{dataset_name}_{chunk_type}_{model_name}_{min}_{max}_{overlap}_{threshold}`.
 
 Each index is used as its cache: if the saved FAISS or BM25 files, or the existing Qdrant collection, hold exactly the same chunk ids as the current chunks, it is loaded; otherwise it is rebuilt and replaces the old one. FAISS and BM25 files are written to a temporary file first and then renamed into place. `chunk_ids` in `FaissIndex` and `Bm25Index` maps an index position back to its chunk id. Each index prints whether it was built or loaded from cache.
 
@@ -196,6 +196,15 @@ Index size on disk (bytes):
 - **hnsw run.** HNSW inserts the vectors one by one into a graph, and each insert searches the graph for its 32 neighbours with a candidate list of 200. That search per vector makes it the slowest FAISS index to build, and the time grows with the chunk count: 10.66s for 91670 chunks, 13.72s for 104900.
 - **FAISS sizes.** A flat index stores each 384-number float32 vector, 1536 bytes per chunk (140805120 bytes for 91670 chunks), plus `chunk_ids.json`. IVF adds the 256 cluster centres and a list id for each vector, about 1.1 MB. HNSW adds the graph links, about 25 MB for fixed (a little over 256 bytes per chunk: 64 neighbour ids of 4 bytes on the bottom layer), so it is the largest.
 - **Chunk count.** Semantic chunking has the most chunks, so its FAISS indexes are the largest and its flatip and hnsw runs take longest.
+
+**5000 documents, Qdrant rebuilt with chunk text in the payload** (from `log/l4_indexing/log_5k_qdrant_text_{fixed,sentence,semantic}.txt`). The runs above stored only the `chunk_id` in each Qdrant point. After the chunk text was added to the payload, one built-in run per chunk type (`--faiss_index_type faiss_flatip`, same settings as above) rebuilt the three Qdrant collections; FAISS and BM25 were loaded from cache, so the `Indexing time` is almost all the Qdrant upload:
+
+| | fixed | sentence | semantic |
+|---|---|---|---|
+| Points uploaded | 91670 | 94053 | 104900 |
+| Indexing time (FAISS and BM25 from cache, Qdrant built) | 26.42556595802307s | 26.590499877929688s | 31.36462950706482s |
+
+These times, the Qdrant upload plus loading FAISS and BM25 from cache, are close to the full built-in flatip run times above (27.878997802734375s to 34.35384702682495s), so the Qdrant upload is the largest part of building all three indexes. The time grows with the number of points, because every point is sent over HTTP in batches of 256 and written and indexed by the Qdrant server.
 
 **5000 documents, built-in vs LangChain** (from `log/l4_indexing/log_5k_{flatip,ivf,hnsw}_{fixed,sentence,semantic}.txt`, `log/l4_indexing/log_5k_langchain_{flatip,ivf,hnsw}_{fixed,sentence,semantic}.txt`, `log/l4_indexing/index_stats.txt` and `log/l4_indexing/index_langchain_stats.txt`). The LangChain runs use the same documents and settings as the built-in runs above with `--framework langchain`, so l1, l2 and l3 load the LangChain chunks and embeddings from their caches. As before, for each chunk type the flatip run went first and built FAISS, BM25 and Qdrant, and the ivf and hnsw runs built only their FAISS index and loaded BM25 and Qdrant from cache. The times are the `Indexing time` printed by `src/rag.py`:
 

@@ -54,6 +54,6 @@ class Indexing:
 
 		faiss_index = faiss.get_faiss_index(faiss_index_path, self.index_args, embeddings)
 		bm25_index = bm25.get_bm25_index(bm25_index_path, self.index_args, chunks)
-		qdrant_index = qdrant.get_qdrant_index(qdrant_collection_name, self.index_args, embeddings)
+		qdrant_index = qdrant.get_qdrant_index(qdrant_collection_name, self.index_args, chunks, embeddings)
 
 		return faiss_index, bm25_index, qdrant_index
