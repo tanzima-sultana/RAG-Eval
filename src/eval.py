@@ -6,9 +6,11 @@ from common import paths
 from common.args import IngestArgs
 from common.args import ChunkingArgs
 from common.args import IndexArgs
+from common.args import EvalQnAArgs
 from l1_ingestion.ingestion import ingestion
 from l2_chunking.cache import load_chunks
 from l4_indexing import cache as index_cache
+from qna.qna import get_eval_qna
 
 def parse_args():
 	"""
@@ -165,6 +167,30 @@ def parse_args():
 		required=False,
 		default=constants.BM25_TOKENIZER,
 		help="BM25 tokenizer the build used")
+	parser.add_argument(
+		"--n_sample_evals",
+		type=int,
+		required=False,
+		default=constants.N_EVAL_SAMPLES,
+		help="Number of eval QnA items to load or generate")
+	parser.add_argument(
+		"--eval_llm",
+		type=str,
+		required=False,
+		default=constants.EVAL_LLM,
+		help="Claude model RAGAS uses to generate the eval QnA")
+	parser.add_argument(
+		"--eval_model",
+		type=str,
+		required=False,
+		default=constants.EVAL_MODEL,
+		help="Local HuggingFace embedding model RAGAS uses to build its knowledge graph")
+	parser.add_argument(
+		"--n_sample_documents",
+		type=int,
+		required=False,
+		default=constants.SAMPLE_DOCUMENTS,
+		help="Number of documents randomly picked for RAGAS to generate the eval QnA from")
 
 	return parser.parse_args()
 
@@ -230,6 +256,23 @@ def make_index_args(parsed_args):
 	)
 	return index_args
 
+
+def make_eval_qna_args(parsed_args):
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args().
+	Output: an EvalQnAArgs object holding the QnA generator settings.
+	What it does: copies the parsed eval LLM name, eval embedding
+	model name, number of sample documents and number of eval QnA items into
+	the matching EvalQnAArgs fields.
+	"""
+	eval_qna_args = EvalQnAArgs(
+		eval_llm=parsed_args.eval_llm,
+		eval_model=parsed_args.eval_model,
+		n_sample_documents=parsed_args.n_sample_documents,
+		n_sample_evals=parsed_args.n_sample_evals
+	)
+	return eval_qna_args
+
 if __name__ == "__main__":
 	print("\n ------------- RAG Eval -------- \n")
 	start = time.time()
@@ -240,6 +283,7 @@ if __name__ == "__main__":
 	ingest_args = make_ingest_args(args)
 	chunking_args = make_chunking_args(args)
 	index_args = make_index_args(args)
+	eval_qna_args = make_eval_qna_args(args)
 	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
 
 	# 1. Load the l1 documents
@@ -271,6 +315,15 @@ if __name__ == "__main__":
 	faiss_index, bm25_index, qdrant_index = index_cache.load_index(output_path, chunking_args, index_args, args.dataset_size)
 	e3 = time.time() - s3
 	print("\nLoading indexes time : ", e3)
+
+	# 4. Load eval QnA
+	# Reuses {output_path}/eval_qna_{dataset_size}_{n_sample_documents}_{n_sample_evals}_{eval_llm}_{eval_model}.json if it exists
+	print("\n\nLoading eval QnA")
+	s4 = time.time()
+	eval_qna = get_eval_qna(output_path, documents, eval_qna_args)
+	e4 = time.time() - s4
+	print(f"Eval QnA loaded : {len(eval_qna)}")
+	print("\nLoading eval QnA time : ", e4)
 
 	# ---------
 	end = time.time()

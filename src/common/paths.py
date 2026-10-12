@@ -3,6 +3,7 @@ import os
 
 from common.args import ChunkingArgs
 from common.args import IndexArgs
+from common.args import EvalQnAArgs
 from common.constants import NO_FRAMEWORK
 from common.constants import FAISS_FLATIP_INDEX, FAISS_IVF_INDEX, FAISS_HNSW_INDEX
 
@@ -154,4 +155,20 @@ def get_qdrant_collection_name(output_path:str, chunking_args: ChunkingArgs) -> 
 		f"{dataset_name}_{framework_part}{chunking_args.chunk_type}_{model_name}_"
 		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
 		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
+	)
+
+# ------ Eval QnA
+def get_eval_qna_path(output_path:str, dataset_size: int, eval_qna_args: EvalQnAArgs) -> str:
+	"""
+	Input: output_path, the dataset's output folder; dataset_size, the number of documents sampled from; eval_qna_args, the eval QnA settings.
+	Output: the eval QnA cache file path as a string.
+	What it does: builds {output_path}/eval_qna_{dataset_size}_{n_sample_documents}_{n_sample_evals}_{eval_llm}_{eval_model}.json,
+	with any "/" in the model names replaced by "-".
+	"""
+	eval_llm = eval_qna_args.eval_llm.replace("/", "-")
+	eval_model = eval_qna_args.eval_model.replace("/", "-")
+
+	return (
+		f"{output_path}/eval_qna_{dataset_size}_{eval_qna_args.n_sample_documents}_"
+		f"{eval_qna_args.n_sample_evals}_{eval_llm}_{eval_model}.json"
 	)

@@ -43,7 +43,14 @@ src/
 
 	api/
 	llm/
+	  llm.py		        # LLM orchatrator, decides which llm to return
+	  claude.py		        # Anthropic models
+	  gemini.py		        # Gemini models
+	  chatgpt.py		    # OpenAI/Chatgpt models
 	qna/
+	  schema.py             # Defines the EvalQnA dataclass
+	  validate.py		    # Validate given parameters
+	  qna.py		        # Generates QnA sets 
 
 	common/
 	  constants.py          # Hardcoded project-wide constants

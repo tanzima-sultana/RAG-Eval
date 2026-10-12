@@ -1,3 +1,20 @@
+## Claude Code project setup
+
+This project is developed with Claude Code. `CLAUDE.md` holds the code style, environment and project structure rules. The project's own skills are in `.claude/skills/` and its hook is in `.claude/settings.json`; both are loaded by every Claude Code session started in this repository.
+
+### Skills
+
+A skill is a set of instructions Claude follows for one kind of task. Claude uses it when a request matches the skill's description, or when it is called by name (`/<skill-name>`).
+
+- **`git-commit`** — Writes a commit message, commits and pushes to the remote. Used whenever a commit is asked for.
+- **`layer-readme-section`** — Writes or updates one pipeline layer's section of this README: an overview, one line per module from the structure in `CLAUDE.md`, and run results taken only from the logs.
+- **`qdrant-docker`** — Checks that the Qdrant server is up on `localhost:6333` and, if not, starts Docker Desktop and the Qdrant container. Used before `scripts/run.sh` or anything that builds or queries the l4 Qdrant index. It never removes a container, image, volume or collection.
+- **`paid-api-run-approval`** — Requires the user's explicit approval before every run that can call a paid LLM API (`src/eval.py`, `scripts/eval.sh`, `qna` generation, anything that uses `src/llm/`, RAGAS with an LLM, or a direct API request). Before the run Claude shows the command, the model, the settings that drive the cost, whether a cache file already exists and a cost estimate if one is known. One approval covers one run: a retry or a changed setting needs a new approval. After the run Claude reports the cost it printed.
+
+### Hooks
+
+- **Paid API guard** (`.claude/settings.json`, `.claude/hooks/paid-api-guard.sh`) — A `PreToolUse` hook on every Bash command Claude runs. If the command both runs something (`python`, `bash`, `sh`, `curl`, `wget`, `source` or `./...`) and names a paid entry point (`eval.py`, `eval.sh`, `get_eval_qna`, `generate_eval_qna`, the `qna` or `llm` modules, `ragas`, `ChatAnthropic`, or the Anthropic, OpenAI or Google API hosts), the hook returns `ask`, so Claude Code shows a permission prompt and the command runs only if the user approves it. The hook is set to `onFailure: block`, so if the hook itself fails the command is blocked. It matches the command text only: a script whose command line names none of these entry points (for example `python some_script.py` that imports `qna` inside) is not caught, and the `paid-api-run-approval` skill covers that case.
+
 ## l2_chunking
 
 ### Overview
@@ -228,3 +245,71 @@ Index size on disk, built-in → LangChain (bytes):
 - **FAISS size.** `index.faiss` is the same FAISS index as the built-in one (140805165 bytes for fixed flatip, the 91670 float32 vectors). The extra size is `index.pkl`, 106223492 bytes for fixed, which holds every chunk text and the position-to-chunk-id map. The built-in index stores only `chunk_ids.json` next to `index.faiss`, without the chunk texts.
 - **BM25 size.** `bm25_retriever.pkl` is about twice the built-in `bm25.pkl` because it holds the BM25 model plus every chunk as a LangChain `Document` with its text and metadata.
 - **Semantic.** LangChain semantic chunking has 7318 more chunks than the built-in one (see l2_chunking), so its indexes and times are larger for that reason as well.
+
+## qna
+
+### Overview
+
+`qna` builds the eval question-answer set the RAG pipeline is scored against. `src/eval.py` calls `get_eval_qna(output_path, documents, eval_qna_args)` after loading the l1 documents (`doc_id` to `Document`), the l2 chunks and the l4 indexes. `EvalQnAArgs` holds `--eval_llm` (the Claude model that writes the questions, default `claude-sonnet-5-5`), `--eval_model` (the local SentenceTransformer RAGAS uses to link related documents, default `all-MiniLM-L6-v2`), `--n_sample_documents` and `--n_sample_evals`. It returns a list of `EvalQnA`, each with the question, the reference answer, the source passages, the RAGAS question type, and the `doc_ids` and source paths of the documents the passages came from.
+
+`get_eval_qna()` first validates `EvalQnAArgs`, before any Claude call. The cache file is `{output folder}/eval_qna_{dataset_size}_{n_sample_documents}_{n_sample_evals}_{eval_llm}_{eval_model}.json`, where `dataset_size` is the number of documents passed in. If that file exists it is loaded and returned, even if it holds fewer items than asked for. Otherwise `generate_eval_qna()`:
+
+1. Keeps only documents with more than `EVAL_MIN_DOCUMENT_TOKENS` (500) tokens, counted with RAGAS's own counter (tiktoken `cl100k_base`), because RAGAS only extracts headlines and summaries from documents over 500 tokens. It raises an error if fewer documents than `n_sample_documents` are left.
+2. Sorts those doc_ids and picks `n_sample_documents` of them with a fixed seed (`SAMPLE_DOCUMENTS_SEED` = 42), so the same documents are picked every run.
+3. Turns each picked document into a LangChain `Document` and runs the RAGAS `TestsetGenerator` on them. RAGAS calls Claude through `ChatAnthropic`, built in `src/llm/claude.py` with at most 16000 output tokens and a 180s timeout per call. A token counter is attached to that model, so every Claude call RAGAS makes is counted, including the knowledge-graph steps. After generation, the Claude call count, input and output tokens, and cost in US dollars are printed.
+4. Raises an error if RAGAS generated nothing, so no empty file is saved. If it generated fewer than `n_sample_evals`, it prints a warning and keeps the ones generated.
+5. Converts each RAGAS sample into an `EvalQnA`. A sample's `doc_ids` are the picked documents whose text contains one of its passages. The `<N-hop>` marker RAGAS puts in front of each multi-hop passage is removed, and whitespace in both texts is collapsed, before matching.
+
+The list is then saved to the cache file, written to a temporary file first and renamed into place.
+
+### Architecture
+
+- **`qna.py`** — Loads the cached eval QnA, or generates it with RAGAS and Claude from a sample of documents and saves it.
+- **`schema.py`** — Defines `EvalQnA`, the layer's output record.
+- **`validate.py`** — Checks the eval QnA parameters and raises an error for the first invalid one, before any Claude call.
+
+The Claude model comes from `src/llm/claude.py`, which builds the RAGAS Claude LLM, counts the tokens of every call and computes the cost from the per-model prices in `CLAUDE_PRICES_PER_MILLION_TOKENS` in `src/common/constants.py`. `src/llm/llm.py`, `gemini.py` and `chatgpt.py` are empty placeholders. The cache file path is built in `src/common/paths.py`.
+
+### Run results
+
+**100 documents, 10 sample documents, 2 eval QnA** (from `log/qna_test_log.txt`). This run called `get_eval_qna()` from a one-off script, not through `src/eval.py`, with the `scripts/eval.sh` dataset settings (`--dataset_size 100`, `pixparse/pdfa-eng-wds`) and `--eval_llm claude-sonnet-5-5 --eval_model all-MiniLM-L6-v2 --n_sample_documents 10 --n_sample_evals 2`. l1 loaded all 100 documents from its cache in 10.647662741000204s. There was no eval QnA cache file, so the QnA was generated:
+
+| | |
+|---|---|
+| Documents with more than 500 tokens | 81 of 100 |
+| Documents sampled for RAGAS | 10 of 81 |
+| Claude calls | 101 |
+| Claude input tokens, cost | 219268, $0.4385 |
+| Claude output tokens, cost | 14055, $0.1406 |
+| Claude total cost | $0.5791 |
+| Eval QnA generated | 2 of 2 |
+
+RAGAS stage times, as printed by its progress bars:
+
+| Stage | Items | Time |
+|---|---|---|
+| HeadlinesExtractor | 10 | 00:15 |
+| HeadlineSplitter | 10 | 00:00 |
+| SummaryExtractor | 14 | 00:17 |
+| CustomNodeFilter | 24 | 00:24 |
+| EmbeddingExtractor | 14 | 00:07 |
+| ThemesExtractor | 23 | 01:06 |
+| NERExtractor | 23 | 00:23 |
+| CosineSimilarityBuilder | 1 | 00:00 |
+| OverlapScoreBuilder | 1 | 00:00 |
+| Generating personas | 3 | 00:05 |
+| Generating Scenarios | 2 | 00:04 |
+| Generating Samples | 2 | 00:07 |
+
+The two generated items are one `single_hop_specific_query_synthesizer` question (a share option scheme field in a GEM monthly return) and one `multi_hop_specific_query_synthesizer` question (an LED and fluorescent fixture warranty and return policy). Each was matched to one source document. Both passages of the multi-hop question come from the same document. They were saved to `outputs/pdfa-eng-wds/eval_qna_100_10_2_claude-sonnet-5-5_all-MiniLM-L6-v2.json`. The log does not print a total elapsed time for the run.
+
+- **Building the knowledge graph takes most of the time and calls.** Before writing any question, RAGAS sends each document or chunk to Claude several times: to extract headlines, then (after `HeadlineSplitter` splits the 10 documents into chunks) to summarize, to filter out chunks that are not useful for questions, and to extract themes and named entities. ThemesExtractor is the longest stage at 01:06 over 23 chunks. Writing the questions themselves (personas, scenarios and samples) took 00:05, 00:04 and 00:07. The log prints only the total of 101 Claude calls, not the calls per stage.
+- **SummaryExtractor skipped 4 of its 14 nodes.** RAGAS printed `Property 'summary' already exists in node ...` for 4 nodes, which already had a summary from an earlier step.
+- **Input tokens are most of the cost.** Each call sends a full document or chunk text (219268 input tokens in total) and gets back a short JSON answer (14055 output tokens). So input is $0.4385 of the $0.5791 even though input tokens cost a fifth as much as output tokens for `claude-sonnet-5-5` ($2 and $10 per million).
+- **Stages that make no Claude call are fast.** HeadlineSplitter, CosineSimilarityBuilder and OverlapScoreBuilder do only local text splitting and score calculations, so they show 00:00. EmbeddingExtractor runs `all-MiniLM-L6-v2` locally on the 14 summaries and took 00:07.
+
+## Dependency notes
+
+- **`langchain-community` is pinned to 0.4.1, not 0.4.2.** `ragas` 0.4.3 (the latest release, used for eval QnA generation in `src/qna/qna.py`) imports `langchain_community.chat_models.vertexai`, which was removed in `langchain-community` 0.4.2, so `import ragas` fails on 0.4.2. Older `ragas` releases (0.3.x) have the same import.
+- **`langchain-experimental` is pinned to 0.4.1, not 0.4.2.** 0.4.2 requires `langchain-community>=0.4.2`. 0.4.1 accepts 0.4.1, and its `SemanticChunker` (used by LangChain semantic chunking in l2) differs from 0.4.2 only by a type cast, so chunking results are unchanged.
+- **`langchain-core` moved from 1.6.7 to 1.6.9.** Installing `ragas` and `langchain-anthropic` upgraded it.

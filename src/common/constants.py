@@ -44,3 +44,30 @@ QDRANT_BATCH_SIZE=256
 
 # Qdrant server started with the qdrant-docker skill
 QDRANT_URL="http://localhost:6333"
+
+# Eval
+
+# Number of eval QnA items, saved as {output_path}/eval_qna_{dataset_size}_{SAMPLE_DOCUMENTS}_{N_EVAL_SAMPLES}_{EVAL_LLM}_{EVAL_MODEL}.json
+N_EVAL_SAMPLES=50
+
+# Claude model RAGAS uses to write the eval questions and answers
+EVAL_LLM="claude-sonnet-5-5"
+# Maximum output tokens per eval LLM call. RAGAS prompts return short JSON, so 16000 leaves room for thinking
+EVAL_LLM_MAX_TOKENS=16000
+# Seconds before one eval LLM call times out, the same as RAGAS's own per-job timeout (RunConfig.timeout)
+EVAL_LLM_TIMEOUT_SECONDS=180
+# Claude API price in US dollars per million tokens (Anthropic API rates, 2026-10-06)
+CLAUDE_PRICES_PER_MILLION_TOKENS={
+	"claude-opus-5-5": {"input": 4.00, "output": 20.00},
+	"claude-sonnet-5-5": {"input": 2.00, "output": 10.00},
+	"claude-haiku-5-5": {"input": 0.10, "output": 0.50},
+}
+# Local HuggingFace SentenceTransformer model RAGAS uses to build its knowledge graph
+EVAL_MODEL="all-MiniLM-L6-v2"
+# Number of documents randomly picked from the dataset for RAGAS to generate the eval QnA from
+SAMPLE_DOCUMENTS=200
+# Seed for that pick, so the same documents are picked every run
+SAMPLE_DOCUMENTS_SEED=42
+# Only documents with more than this many tokens (tiktoken cl100k_base, as RAGAS counts) are sampled,
+# because RAGAS only extracts headlines and summaries from documents over 500 tokens
+EVAL_MIN_DOCUMENT_TOKENS=500

@@ -37,3 +37,10 @@ class IndexArgs:
 	bm25_b: float
 	bm25_tokenizer: str
 	qdrant_batch_size: int
+
+@dataclasses.dataclass
+class EvalQnAArgs:
+	eval_llm: str
+	eval_model: str
+	n_sample_documents: int
+	n_sample_evals: int
