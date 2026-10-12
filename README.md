@@ -256,9 +256,11 @@ Index size on disk, built-in → LangChain (bytes):
 
 1. Keeps only documents with more than `EVAL_MIN_DOCUMENT_TOKENS` (500) tokens, counted with RAGAS's own counter (tiktoken `cl100k_base`), because RAGAS only extracts headlines and summaries from documents over 500 tokens. It raises an error if fewer documents than `n_sample_documents` are left.
 2. Sorts those doc_ids and picks `n_sample_documents` of them with a fixed seed (`SAMPLE_DOCUMENTS_SEED` = 42), so the same documents are picked every run.
-3. Gets the LLM generator from `llm.get_llm_generator()`, turns each picked document into a LangChain `Document` and runs the RAGAS `TestsetGenerator` on them, with `transforms_llm` (Claude Haiku 5.5) for the knowledge graph steps and `question_llm` (Claude Sonnet 5.5) for writing the questions. After generation it prints the calls, tokens and cost of each model and the total (see `llm`).
-4. Raises an error if RAGAS generated nothing, so no empty file is saved. If it generated fewer than `n_sample_evals`, it prints a warning and keeps the ones generated.
-5. Converts each RAGAS sample into an `EvalQnA`. A sample's `doc_ids` are the picked documents whose text contains one of its passages. The `<N-hop>` marker RAGAS puts in front of each multi-hop passage is removed, and whitespace in both texts is collapsed, before matching.
+3. Gets the LLM generator from `llm.get_llm_generator()` and turns each picked document into a LangChain `Document`.
+4. Builds the RAGAS knowledge graph with `transforms_llm` (Claude Haiku 5.5): headlines, splitting into chunks, summaries, a filter that drops chunks not useful for questions, themes, named entities, and the links between related chunks. The graph is saved to `{output folder}/eval_kg_{n_sample_documents}_{llm_generator}_{eval_model}.json` and loaded from there on later runs, so a failed or repeated run does not pay to build it again. Its name has no `n_sample_evals`, so more questions can later be generated from the same documents and only the question writing is paid.
+5. Runs the RAGAS `TestsetGenerator` on the graph with `question_llm` (Claude Sonnet 5.5) to write the personas, scenarios, questions and answers. After generation it prints the calls, tokens and cost of each model and the total (see `llm`).
+6. Raises an error if RAGAS generated nothing, so no empty file is saved. If it generated fewer than `n_sample_evals`, it prints a warning and keeps the ones generated.
+7. Converts each RAGAS sample into an `EvalQnA`. A sample's `doc_ids` are the picked documents that contain the start of one of its passages: the first `EVAL_PASSAGE_MATCH_CHARS` (80) characters, after removing the `<N-hop>` marker RAGAS puts in front of each multi-hop passage and collapsing whitespace in both texts. Only the start is matched because RAGAS can change the rest of a passage (see the 5000-document run below).
 
 The list is then saved to the cache file, written to a temporary file first and renamed into place.
 
@@ -272,7 +274,60 @@ The LLMs come from the `llm` module (see below). The cache file path is built in
 
 ### Run results
 
-**100 documents, 10 sample documents, 2 eval QnA** (from `log/qna_test_log.txt`). This run was made before the Haiku / Sonnet split and before the dataset size was dropped from the cache file name: every Claude call, including the knowledge graph steps, used `claude-sonnet-5-5`, and its cache file has since been deleted. It called `get_eval_qna()` from a one-off script, not through `src/eval.py`, with the `scripts/eval.sh` dataset settings (`--dataset_size 100`, `pixparse/pdfa-eng-wds`) and `--eval_llm claude-sonnet-5-5 --eval_model all-MiniLM-L6-v2 --n_sample_documents 10 --n_sample_evals 2`. l1 loaded all 100 documents from its cache in 10.647662741000204s. There was no eval QnA cache file, so the QnA was generated:
+**5000 documents, 100 sample documents, 200 eval QnA: the eval set used for the project** (from `log/qna/qna_5k_100_200_log.txt`). This is the eval set the retrieval and generation layers are scored against. It was made from the same 5000 `pixparse/pdfa-eng-wds` documents the build phase used, through a one-off script that calls `get_eval_qna()` with `--llm_generator claude --eval_model all-MiniLM-L6-v2 --n_sample_documents 100 --n_sample_evals 200`. l1 loaded all 5000 documents from its cache in 8.529310777000319s.
+
+| | |
+|---|---|
+| Documents with more than 500 tokens | 4028 of 5000 |
+| Documents sampled for RAGAS | 100 of 4028 |
+| Eval QnA generated | 200 of 200 (100 `single_hop_specific_query_synthesizer`, 100 `multi_hop_specific_query_synthesizer`) |
+| Duplicate questions | 0 |
+| Source documents the questions come from | 54 of the 100 sampled |
+| Questions linked to 1 document / 2 documents | 190 / 10 (all 10 are multi-hop) |
+| Question length in words, min / median / max | 6 / 28 / 144 |
+| Saved to | `outputs/pdfa-eng-wds/eval_qna_100_200_claude_all-MiniLM-L6-v2.json` |
+
+Cost, as printed by `compute_cost()`:
+
+| Model | Role | Calls | Input tokens | Output tokens | Cost |
+|---|---|---|---|---|---|
+| `claude-haiku-5-5` | Knowledge graph | 1976 | 4677367 | 851692 | $0.8936 |
+| `claude-sonnet-5-5` | Personas, scenarios, questions and answers | 645 | 866331 | 225362 | $3.9863 |
+| **Total** | | 2621 | 5543698 | 1077054 | **$4.8799** |
+
+RAGAS stage times, as printed by its progress bars:
+
+| Stage | Model | Items | Time |
+|---|---|---|---|
+| HeadlinesExtractor | Haiku | 100 documents | 02:01 |
+| HeadlineSplitter | none | 100 documents | 00:00 |
+| SummaryExtractor | Haiku | 108 nodes | 02:01 |
+| CustomNodeFilter | Haiku | 621 chunks | 09:51 |
+| EmbeddingExtractor | local `all-MiniLM-L6-v2` | 108 summaries | 00:54 |
+| ThemesExtractor | Haiku | 572 chunks | 09:39 |
+| NERExtractor | Haiku | 572 chunks | 09:54 |
+| CosineSimilarityBuilder | none | 1 | 00:00 |
+| OverlapScoreBuilder | none | 1 | 00:08 |
+| Generating personas | Sonnet | 3 | 00:04 |
+| Generating Scenarios | Sonnet | 2 question types | 17:16 |
+| Generating Samples | Sonnet | 200 questions | 03:15 |
+
+The stage times add up to about 55 minutes; the log does not print a total.
+
+- **Why two models.** In the earlier 10-document run (below), where every call used Sonnet, building the knowledge graph made almost all of the 101 calls and most of the cost: each call sends a whole document or chunk and gets back a short JSON answer, so the work is large inputs and simple extraction. That work does not need the strongest model, so it was moved to Claude Haiku 5.5, which costs $0.10 / $0.50 per million input / output tokens against $2.00 / $10.00 for Sonnet. The questions and answers, which set the quality of the benchmark, stay on Sonnet. In this run Haiku made 1976 of the 2621 calls (75%) and read 4677367 of the 5543698 input tokens (84%), for $0.8936 of the $4.8799. At Sonnet prices the same Haiku token counts would have cost $17.8717 ($9.3547 input and $8.5169 output), so the whole run would have been about $21.86 on Sonnet alone instead of $4.88.
+- **Where the time goes.** The 100 documents were split into 621 chunks, and the filter kept 572 of them. The filter, themes and entity steps each send every chunk to Haiku, so together they take about 29 minutes. Generating Scenarios is the longest single stage at 17:16: Sonnet plans 100 single-hop and 100 multi-hop questions, choosing chunks, themes and personas for each, and its progress bar only counts the 2 question types. Writing the 200 questions and answers then took 03:15.
+- **Where the money goes.** Sonnet is $3.9863 of the $4.8799 even with only 645 calls, and $2.2536 of that is output: Sonnet 5.5 thinks before answering, and thinking is billed as output tokens.
+- **Skipped nodes.** RAGAS printed `Property 'summary' already exists in node ...` (and the same for `summary_embedding`) 17 times; those nodes already had the property from an earlier step, so it was not computed again.
+- **Questions come from 54 of the 100 documents.** RAGAS builds questions from chunks that are well linked by shared themes and entities, so some documents get several questions and others none.
+- **Questions imitate the personas.** RAGAS writes each question in the voice of one of 3 generated personas, so some are casual and include spelling mistakes (for example *"Is Tampa Bay Intergroup takeing 7th Tradition donashuns thru PayPal, and why do online groops use it?"*) and some are keyword lists (for example *"SPC-4 buildings inpatient beds by service and unit type Section 130061(e) BLD-01212 BLD-01214 bed counts"*).
+
+**11 items repaired locally after the run.** As generated, 11 of the 200 items (`eval_qna_1`, `6`, `12`, `61`, `68`, `84`, `115`, `176`, `178`, `184`, `197`) had empty `doc_ids`. Their passages matched a sampled document exactly for the first 89 to 2380 characters and then continued with text from another part of the same document. RAGAS's `HeadlineSplitter` builds chunks by cutting the text at headline positions and then merging chunks that are too short, which can join sections that are not next to each other, so the whole passage is not a substring of the document even with whitespace collapsed. The matching was changed to use only the first 80 characters of each passage (`EVAL_PASSAGE_MATCH_CHARS`), and the saved file was repaired without any API call: the same 100-document sample was rebuilt from the l1 cache (same token filter, sort and seed) and the new matching was run on the saved passages. Exactly those 11 items changed, each now linked to one document, and the other 189 kept the same `doc_ids`, so the shorter match added no wrong documents. All 200 items now have `doc_ids`. The file as generated is kept as `eval_qna_100_200_claude_all-MiniLM-L6-v2.json.bak`.
+
+This run was made before the knowledge graph was saved to disk, so its graph was not kept.
+
+**Planned use.** The 200 questions will be split once, with a fixed seed, into 150 for tuning and 50 kept back for one final check per phase: the retrieval phase (query, retrieval, retrieval quality) with no API calls, then the generation phase (context, prompt, generation, answer quality) with paid calls. Because the cache file name has no dataset size, the same 200 questions will be reused for the 50k and 100k document runs, as long as their source documents are in those corpora.
+
+**Earlier test run: 100 documents, 10 sample documents, 2 eval QnA, every call on Sonnet** (from `log/qna_test_log.txt`). This run was made before the Haiku / Sonnet split and before the dataset size was dropped from the cache file name: every Claude call, including the knowledge graph steps, used `claude-sonnet-5-5`, and its cache file has since been deleted. It called `get_eval_qna()` from a one-off script, not through `src/eval.py`, with the `scripts/eval.sh` dataset settings (`--dataset_size 100`, `pixparse/pdfa-eng-wds`) and `--eval_llm claude-sonnet-5-5 --eval_model all-MiniLM-L6-v2 --n_sample_documents 10 --n_sample_evals 2`. l1 loaded all 100 documents from its cache in 10.647662741000204s. There was no eval QnA cache file, so the QnA was generated:
 
 | | |
 |---|---|

@@ -76,3 +76,6 @@ SAMPLE_DOCUMENTS_SEED=42
 # Only documents with more than this many tokens (tiktoken cl100k_base, as RAGAS counts) are sampled,
 # because RAGAS only extracts headlines and summaries from documents over 500 tokens
 EVAL_MIN_DOCUMENT_TOKENS=500
+# An eval passage is linked to the document that contains its first this many characters (whitespace collapsed),
+# because RAGAS sometimes stitches non-adjacent sections of a document into one passage
+EVAL_PASSAGE_MATCH_CHARS=80

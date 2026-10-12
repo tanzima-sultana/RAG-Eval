@@ -10,12 +10,18 @@ from langchain_core.documents import Document as LangchainDocument
 from langchain_huggingface import HuggingFaceEmbeddings
 from ragas.embeddings import LangchainEmbeddingsWrapper
 from ragas.testset import TestsetGenerator
+from ragas.testset.graph import KnowledgeGraph
+from ragas.testset.graph import Node
+from ragas.testset.graph import NodeType
+from ragas.testset.transforms import apply_transforms
+from ragas.testset.transforms import default_transforms
 from ragas.utils import num_tokens_from_string
 
 from common import paths
 from common.args import EvalQnAArgs
 from common.constants import SAMPLE_DOCUMENTS_SEED
 from common.constants import EVAL_MIN_DOCUMENT_TOKENS
+from common.constants import EVAL_PASSAGE_MATCH_CHARS
 from l1_ingestion.schema import Document
 from llm.llm import get_llm_generator
 from qna.schema import EvalQnA
@@ -58,12 +64,12 @@ def save_eval_qna(output_path: str, eval_qna_args: EvalQnAArgs, eval_qna: list[E
 		json.dump(eval_qna_dicts, f, indent=2)
 	os.replace(temporary_file, cache_file)
 
-def generate_eval_qna(documents: dict[str, Document], eval_qna_args: EvalQnAArgs) -> list[EvalQnA]:
+def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna_args: EvalQnAArgs) -> list[EvalQnA]:
 	"""
-	Input: documents, a dict of doc_id to l1 Document; eval_qna_args, the eval QnA settings.
+	Input: output_path, the dataset's output folder; documents, a dict of doc_id to l1 Document; eval_qna_args, the eval QnA settings.
 	Output: a list of EvalQnA. Raises ValueError if RAGAS generates none.
-	What it does: samples documents long enough for RAGAS, generates QnA from them
-	with RAGAS and the LLM generator, prints the LLM cost, and links each QnA to its source documents.
+	What it does: samples documents long enough for RAGAS, builds or loads the RAGAS knowledge graph,
+	generates QnA from it with the LLM generator, prints the LLM cost, and links each QnA to its source documents.
 	"""
 	# 1. Keep documents long enough for RAGAS
 	eligible_doc_ids = []
@@ -110,13 +116,38 @@ def generate_eval_qna(documents: dict[str, Document], eval_qna_args: EvalQnAArgs
 	)
 	eval_embeddings = LangchainEmbeddingsWrapper(huggingface_embeddings)
 
-	# 5. Generate test sets
-	testset_generator = TestsetGenerator(llm=llm_generator.question_llm, embedding_model=eval_embeddings)
-	testset = testset_generator.generate_with_langchain_docs(
-		langchain_documents,
-		testset_size=eval_qna_args.n_sample_evals,
-		transforms_llm=llm_generator.transforms_llm
+	# 5. Build or load the knowledge graph
+	# Saved after building, so a failed or repeated run does not pay to build it again
+	kg_path = paths.get_eval_kg_path(output_path, eval_qna_args)
+	if os.path.exists(kg_path):
+		knowledge_graph = KnowledgeGraph.load(kg_path)
+		print(f"Knowledge graph loaded from cache : {kg_path}")
+	else:
+		knowledge_graph = KnowledgeGraph()
+		for langchain_document in langchain_documents:
+			document_node = Node(
+				type=NodeType.DOCUMENT,
+				properties={"page_content": langchain_document.page_content, "document_metadata": langchain_document.metadata}
+			)
+			knowledge_graph.nodes.append(document_node)
+		transforms = default_transforms(
+			documents=langchain_documents,
+			llm=llm_generator.transforms_llm,
+			embedding_model=eval_embeddings
+		)
+		apply_transforms(knowledge_graph, transforms)
+		os.makedirs(output_path, exist_ok=True)
+		knowledge_graph.save(kg_path + ".tmp")
+		os.replace(kg_path + ".tmp", kg_path)
+		print(f"Knowledge graph saved : {kg_path}")
+
+	# 6. Generate test sets
+	testset_generator = TestsetGenerator(
+		llm=llm_generator.question_llm,
+		embedding_model=eval_embeddings,
+		knowledge_graph=knowledge_graph
 	)
+	testset = testset_generator.generate(testset_size=eval_qna_args.n_sample_evals)
 	llm_generator.compute_cost()
 
 	if len(testset.samples) == 0:
@@ -125,7 +156,7 @@ def generate_eval_qna(documents: dict[str, Document], eval_qna_args: EvalQnAArgs
 			"The sampled documents may be too short for RAGAS; try a larger n_sample_documents."
 		)
 
-	# 6. Convert test set to schema EvalQnA
+	# 7. Convert test set to schema EvalQnA
 	# RAGAS may rejoin a long chunk's words with single spaces, so whitespace is collapsed on both sides before matching
 	collapsed_document_texts = {}
 	for doc_id in sampled_documents:
@@ -149,11 +180,13 @@ def generate_eval_qna(documents: dict[str, Document], eval_qna_args: EvalQnAArgs
 				if hop_marker_match is not None:
 					passage_text = reference_context[hop_marker_match.end():]
 				collapsed_passage_text = " ".join(passage_text.split())
+				# RAGAS may stitch non-adjacent sections together, so only the start of the passage is matched
+				passage_start = collapsed_passage_text[:EVAL_PASSAGE_MATCH_CHARS]
 
 				for doc_id in sampled_documents:
 					if doc_id in doc_ids:
 						continue
-					if collapsed_passage_text in collapsed_document_texts[doc_id]:
+					if passage_start in collapsed_document_texts[doc_id]:
 						doc_ids.append(doc_id)
 						doc_paths.append(sampled_documents[doc_id].metadata.source)
 
@@ -191,6 +224,6 @@ def get_eval_qna(output_path: str, documents: dict[str, Document], eval_qna_args
 		return eval_qna
 
 	print(f"No eval QnA cache, generating {eval_qna_args.n_sample_evals} items with RAGAS")
-	eval_qna = generate_eval_qna(documents, eval_qna_args)
+	eval_qna = generate_eval_qna(output_path, documents, eval_qna_args)
 	save_eval_qna(output_path, eval_qna_args, eval_qna)
 	return eval_qna
