@@ -158,17 +158,16 @@ def get_qdrant_collection_name(output_path:str, chunking_args: ChunkingArgs) -> 
 	)
 
 # ------ Eval QnA
-def get_eval_qna_path(output_path:str, dataset_size: int, eval_qna_args: EvalQnAArgs) -> str:
+def get_eval_qna_path(output_path:str, eval_qna_args: EvalQnAArgs) -> str:
 	"""
-	Input: output_path, the dataset's output folder; dataset_size, the number of documents sampled from; eval_qna_args, the eval QnA settings.
+	Input: output_path, the dataset's output folder; eval_qna_args, the eval QnA settings.
 	Output: the eval QnA cache file path as a string.
-	What it does: builds {output_path}/eval_qna_{dataset_size}_{n_sample_documents}_{n_sample_evals}_{eval_llm}_{eval_model}.json,
-	with any "/" in the model names replaced by "-".
+	What it does: builds {output_path}/eval_qna_{n_sample_documents}_{n_sample_evals}_{llm_generator}_{eval_model}.json,
+	with any "/" in the model name replaced by "-".
 	"""
-	eval_llm = eval_qna_args.eval_llm.replace("/", "-")
 	eval_model = eval_qna_args.eval_model.replace("/", "-")
 
 	return (
-		f"{output_path}/eval_qna_{dataset_size}_{eval_qna_args.n_sample_documents}_"
-		f"{eval_qna_args.n_sample_evals}_{eval_llm}_{eval_model}.json"
+		f"{output_path}/eval_qna_{eval_qna_args.n_sample_documents}_"
+		f"{eval_qna_args.n_sample_evals}_{eval_qna_args.llm_generator}_{eval_model}.json"
 	)

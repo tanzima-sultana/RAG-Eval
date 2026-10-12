@@ -174,11 +174,11 @@ def parse_args():
 		default=constants.N_EVAL_SAMPLES,
 		help="Number of eval QnA items to load or generate")
 	parser.add_argument(
-		"--eval_llm",
+		"--llm_generator",
 		type=str,
 		required=False,
-		default=constants.EVAL_LLM,
-		help="Claude model RAGAS uses to generate the eval QnA")
+		default=constants.LLM_GENERATOR,
+		help="LLM provider RAGAS uses to generate the eval QnA: claude")
 	parser.add_argument(
 		"--eval_model",
 		type=str,
@@ -261,12 +261,12 @@ def make_eval_qna_args(parsed_args):
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args().
 	Output: an EvalQnAArgs object holding the QnA generator settings.
-	What it does: copies the parsed eval LLM name, eval embedding
+	What it does: copies the parsed LLM generator, eval embedding
 	model name, number of sample documents and number of eval QnA items into
 	the matching EvalQnAArgs fields.
 	"""
 	eval_qna_args = EvalQnAArgs(
-		eval_llm=parsed_args.eval_llm,
+		llm_generator=parsed_args.llm_generator,
 		eval_model=parsed_args.eval_model,
 		n_sample_documents=parsed_args.n_sample_documents,
 		n_sample_evals=parsed_args.n_sample_evals
@@ -317,7 +317,7 @@ if __name__ == "__main__":
 	print("\nLoading indexes time : ", e3)
 
 	# 4. Load eval QnA
-	# Reuses {output_path}/eval_qna_{dataset_size}_{n_sample_documents}_{n_sample_evals}_{eval_llm}_{eval_model}.json if it exists
+	# Reuses {output_path}/eval_qna_{n_sample_documents}_{n_sample_evals}_{llm_generator}_{eval_model}.json if it exists
 	print("\n\nLoading eval QnA")
 	s4 = time.time()
 	eval_qna = get_eval_qna(output_path, documents, eval_qna_args)

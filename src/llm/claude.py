@@ -6,6 +6,8 @@ from ragas.llms import LangchainLLMWrapper
 from common.constants import CLAUDE_PRICES_PER_MILLION_TOKENS
 from common.constants import EVAL_LLM_MAX_TOKENS
 from common.constants import EVAL_LLM_TIMEOUT_SECONDS
+from common.constants import CLAUDE_TRANSFORMS_MODEL
+from common.constants import CLAUDE_QUESTION_MODEL
 
 class ClaudeTokenCounter(BaseCallbackHandler):
 	"""
@@ -59,7 +61,7 @@ def get_ragas_claude_llm(model_name: str, token_counter: ClaudeTokenCounter) -> 
 		timeout=EVAL_LLM_TIMEOUT_SECONDS,
 		callbacks=[token_counter]
 	)
-	# RAGAS sets temperature 0.01 by default, which Claude Sonnet 5.5 rejects
+	# RAGAS sets temperature 0.01 by default, which the Claude 5.5 models reject
 	ragas_claude_llm = LangchainLLMWrapper(claude_llm, bypass_temperature=True)
 	return ragas_claude_llm
 
@@ -77,8 +79,39 @@ def compute_claude_cost(model_name: str, token_counter: ClaudeTokenCounter) -> f
 	output_cost = token_counter.output_tokens * model_prices["output"] / 1000000
 	total_cost = input_cost + output_cost
 
-	print(f"Claude calls : {token_counter.number_of_calls}")
-	print(f"Claude input tokens : {token_counter.input_tokens}, cost : ${input_cost:.4f}")
-	print(f"Claude output tokens : {token_counter.output_tokens}, cost : ${output_cost:.4f}")
-	print(f"Claude total cost : ${total_cost:.4f}")
+	print(f"{model_name} calls : {token_counter.number_of_calls}")
+	print(f"{model_name} input tokens : {token_counter.input_tokens}, cost : ${input_cost:.4f}")
+	print(f"{model_name} output tokens : {token_counter.output_tokens}, cost : ${output_cost:.4f}")
+	print(f"{model_name} cost : ${total_cost:.4f}")
 	return total_cost
+
+class ClaudeLLMGenerator:
+	"""
+	Input: nothing when created.
+	Output: an object holding the two RAGAS Claude LLMs and their token counters.
+	What it does: builds the knowledge graph LLM and the question LLM, and computes their cost.
+	"""
+
+	def __init__(self):
+		"""
+		Input: nothing.
+		Output: nothing.
+		What it does: builds transforms_llm and question_llm, each with its own token counter.
+		"""
+		# A cheaper model builds the knowledge graph, a stronger one writes the questions
+		self.transforms_token_counter = ClaudeTokenCounter()
+		self.transforms_llm = get_ragas_claude_llm(CLAUDE_TRANSFORMS_MODEL, self.transforms_token_counter)
+		self.question_token_counter = ClaudeTokenCounter()
+		self.question_llm = get_ragas_claude_llm(CLAUDE_QUESTION_MODEL, self.question_token_counter)
+
+	def compute_cost(self) -> float:
+		"""
+		Input: nothing.
+		Output: the total cost of both models' calls in US dollars.
+		What it does: prints the tokens and cost of each model and the total cost.
+		"""
+		transforms_cost = compute_claude_cost(CLAUDE_TRANSFORMS_MODEL, self.transforms_token_counter)
+		question_cost = compute_claude_cost(CLAUDE_QUESTION_MODEL, self.question_token_counter)
+		total_cost = transforms_cost + question_cost
+		print(f"Claude total cost : ${total_cost:.4f}")
+		return total_cost

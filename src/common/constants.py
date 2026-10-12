@@ -47,11 +47,16 @@ QDRANT_URL="http://localhost:6333"
 
 # Eval
 
-# Number of eval QnA items, saved as {output_path}/eval_qna_{dataset_size}_{SAMPLE_DOCUMENTS}_{N_EVAL_SAMPLES}_{EVAL_LLM}_{EVAL_MODEL}.json
+# Number of eval QnA items, saved as {output_path}/eval_qna_{SAMPLE_DOCUMENTS}_{N_EVAL_SAMPLES}_{LLM_GENERATOR}_{EVAL_MODEL}.json
 N_EVAL_SAMPLES=50
 
-# Claude model RAGAS uses to write the eval questions and answers
-EVAL_LLM="claude-sonnet-5-5"
+# LLM provider RAGAS uses to generate the eval QnA. The models are picked in the code
+CLAUDE_LLM_GENERATOR="claude"
+LLM_GENERATOR=CLAUDE_LLM_GENERATOR
+# Claude model for the RAGAS knowledge graph steps (headlines, summaries, filter, themes, entities)
+CLAUDE_TRANSFORMS_MODEL="claude-haiku-5-5"
+# Claude model for writing the personas, scenarios, questions and answers
+CLAUDE_QUESTION_MODEL="claude-sonnet-5-5"
 # Maximum output tokens per eval LLM call. RAGAS prompts return short JSON, so 16000 leaves room for thinking
 EVAL_LLM_MAX_TOKENS=16000
 # Seconds before one eval LLM call times out, the same as RAGAS's own per-job timeout (RunConfig.timeout)

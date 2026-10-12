@@ -250,13 +250,13 @@ Index size on disk, built-in → LangChain (bytes):
 
 ### Overview
 
-`qna` builds the eval question-answer set the RAG pipeline is scored against. `src/eval.py` calls `get_eval_qna(output_path, documents, eval_qna_args)` after loading the l1 documents (`doc_id` to `Document`), the l2 chunks and the l4 indexes. `EvalQnAArgs` holds `--eval_llm` (the Claude model that writes the questions, default `claude-sonnet-5-5`), `--eval_model` (the local SentenceTransformer RAGAS uses to link related documents, default `all-MiniLM-L6-v2`), `--n_sample_documents` and `--n_sample_evals`. It returns a list of `EvalQnA`, each with the question, the reference answer, the source passages, the RAGAS question type, and the `doc_ids` and source paths of the documents the passages came from.
+`qna` builds the eval question-answer set the RAG pipeline is scored against. `src/eval.py` calls `get_eval_qna(output_path, documents, eval_qna_args)` after loading the l1 documents (`doc_id` to `Document`), the l2 chunks and the l4 indexes. `EvalQnAArgs` holds `--llm_generator` (the LLM provider, default `claude`; the models are picked in `llm`), `--eval_model` (the local SentenceTransformer RAGAS uses to link related documents, default `all-MiniLM-L6-v2`), `--n_sample_documents` and `--n_sample_evals`. It returns a list of `EvalQnA`, each with the question, the reference answer, the source passages, the RAGAS question type, and the `doc_ids` and source paths of the documents the passages came from.
 
-`get_eval_qna()` first validates `EvalQnAArgs`, before any Claude call. The cache file is `{output folder}/eval_qna_{dataset_size}_{n_sample_documents}_{n_sample_evals}_{eval_llm}_{eval_model}.json`, where `dataset_size` is the number of documents passed in. If that file exists it is loaded and returned, even if it holds fewer items than asked for. Otherwise `generate_eval_qna()`:
+`get_eval_qna()` first validates `EvalQnAArgs`, before any LLM call. The cache file is `{output folder}/eval_qna_{n_sample_documents}_{n_sample_evals}_{llm_generator}_{eval_model}.json`. It does not include the dataset size, so one eval set made once is reused at every corpus size (5k, 50k, 100k) as long as its source documents are in the corpus. If that file exists it is loaded and returned, even if it holds fewer items than asked for. Otherwise `generate_eval_qna()`:
 
 1. Keeps only documents with more than `EVAL_MIN_DOCUMENT_TOKENS` (500) tokens, counted with RAGAS's own counter (tiktoken `cl100k_base`), because RAGAS only extracts headlines and summaries from documents over 500 tokens. It raises an error if fewer documents than `n_sample_documents` are left.
 2. Sorts those doc_ids and picks `n_sample_documents` of them with a fixed seed (`SAMPLE_DOCUMENTS_SEED` = 42), so the same documents are picked every run.
-3. Turns each picked document into a LangChain `Document` and runs the RAGAS `TestsetGenerator` on them. RAGAS calls Claude through `ChatAnthropic`, built in `src/llm/claude.py` with at most 16000 output tokens and a 180s timeout per call. A token counter is attached to that model, so every Claude call RAGAS makes is counted, including the knowledge-graph steps. After generation, the Claude call count, input and output tokens, and cost in US dollars are printed.
+3. Gets the LLM generator from `llm.get_llm_generator()`, turns each picked document into a LangChain `Document` and runs the RAGAS `TestsetGenerator` on them, with `transforms_llm` (Claude Haiku 5.5) for the knowledge graph steps and `question_llm` (Claude Sonnet 5.5) for writing the questions. After generation it prints the calls, tokens and cost of each model and the total (see `llm`).
 4. Raises an error if RAGAS generated nothing, so no empty file is saved. If it generated fewer than `n_sample_evals`, it prints a warning and keeps the ones generated.
 5. Converts each RAGAS sample into an `EvalQnA`. A sample's `doc_ids` are the picked documents whose text contains one of its passages. The `<N-hop>` marker RAGAS puts in front of each multi-hop passage is removed, and whitespace in both texts is collapsed, before matching.
 
@@ -264,15 +264,15 @@ The list is then saved to the cache file, written to a temporary file first and 
 
 ### Architecture
 
-- **`qna.py`** — Loads the cached eval QnA, or generates it with RAGAS and Claude from a sample of documents and saves it.
+- **`qna.py`** — Loads the cached eval QnA, or generates it with RAGAS and the LLM generator from a sample of documents and saves it.
 - **`schema.py`** — Defines `EvalQnA`, the layer's output record.
-- **`validate.py`** — Checks the eval QnA parameters and raises an error for the first invalid one, before any Claude call.
+- **`validate.py`** — Checks the eval QnA parameters and raises an error for the first invalid one, before any LLM call.
 
-The Claude model comes from `src/llm/claude.py`, which builds the RAGAS Claude LLM, counts the tokens of every call and computes the cost from the per-model prices in `CLAUDE_PRICES_PER_MILLION_TOKENS` in `src/common/constants.py`. `src/llm/llm.py`, `gemini.py` and `chatgpt.py` are empty placeholders. The cache file path is built in `src/common/paths.py`.
+The LLMs come from the `llm` module (see below). The cache file path is built in `src/common/paths.py`.
 
 ### Run results
 
-**100 documents, 10 sample documents, 2 eval QnA** (from `log/qna_test_log.txt`). This run called `get_eval_qna()` from a one-off script, not through `src/eval.py`, with the `scripts/eval.sh` dataset settings (`--dataset_size 100`, `pixparse/pdfa-eng-wds`) and `--eval_llm claude-sonnet-5-5 --eval_model all-MiniLM-L6-v2 --n_sample_documents 10 --n_sample_evals 2`. l1 loaded all 100 documents from its cache in 10.647662741000204s. There was no eval QnA cache file, so the QnA was generated:
+**100 documents, 10 sample documents, 2 eval QnA** (from `log/qna_test_log.txt`). This run was made before the Haiku / Sonnet split and before the dataset size was dropped from the cache file name: every Claude call, including the knowledge graph steps, used `claude-sonnet-5-5`, and its cache file has since been deleted. It called `get_eval_qna()` from a one-off script, not through `src/eval.py`, with the `scripts/eval.sh` dataset settings (`--dataset_size 100`, `pixparse/pdfa-eng-wds`) and `--eval_llm claude-sonnet-5-5 --eval_model all-MiniLM-L6-v2 --n_sample_documents 10 --n_sample_evals 2`. l1 loaded all 100 documents from its cache in 10.647662741000204s. There was no eval QnA cache file, so the QnA was generated:
 
 | | |
 |---|---|
@@ -307,6 +307,28 @@ The two generated items are one `single_hop_specific_query_synthesizer` question
 - **SummaryExtractor skipped 4 of its 14 nodes.** RAGAS printed `Property 'summary' already exists in node ...` for 4 nodes, which already had a summary from an earlier step.
 - **Input tokens are most of the cost.** Each call sends a full document or chunk text (219268 input tokens in total) and gets back a short JSON answer (14055 output tokens). So input is $0.4385 of the $0.5791 even though input tokens cost a fifth as much as output tokens for `claude-sonnet-5-5` ($2 and $10 per million).
 - **Stages that make no Claude call are fast.** HeadlineSplitter, CosineSimilarityBuilder and OverlapScoreBuilder do only local text splitting and score calculations, so they show 00:00. EmbeddingExtractor runs `all-MiniLM-L6-v2` locally on the 14 summaries and took 00:07.
+
+## llm
+
+### Overview
+
+`llm` gives the rest of the project the LLMs it needs without exposing which models are used. `qna` passes `--llm_generator` (a provider name, default `claude`) to `get_llm_generator()` and gets back an LLM generator with three things: `transforms_llm` for the RAGAS knowledge graph steps, `question_llm` for writing the questions and answers, and `compute_cost()` to print and return the API cost of the run.
+
+For `claude` the models are chosen in `src/common/constants.py`:
+
+| Role | Model | Price per million tokens (input / output) |
+|---|---|---|
+| Knowledge graph steps (headlines, summaries, filter, themes, entities) | `claude-haiku-5-5` (`CLAUDE_TRANSFORMS_MODEL`) | $0.10 / $0.50 |
+| Personas, scenarios, questions and answers | `claude-sonnet-5-5` (`CLAUDE_QUESTION_MODEL`) | $2.00 / $10.00 |
+
+The knowledge graph steps make most of the calls and send whole documents and chunks, so they run on the cheaper model. Each model is a LangChain `ChatAnthropic` with at most 16000 output tokens and a 180s timeout per call, wrapped for RAGAS. Each has its own token counter, so `compute_cost()` prints the calls, tokens and cost per model and the total. The API key is read from `ANTHROPIC_API_KEY`.
+
+### Architecture
+
+- **`llm.py`** — `get_llm_generator()`: picks the LLM generator for the given provider. Raises an error for an unsupported provider.
+- **`claude.py`** — `ClaudeLLMGenerator` with the Haiku and Sonnet RAGAS LLMs, the token counter attached to each Claude call, and the cost calculation from `CLAUDE_PRICES_PER_MILLION_TOKENS`.
+- **`gemini.py`** — Empty placeholder for Gemini models.
+- **`chatgpt.py`** — Empty placeholder for OpenAI models.
 
 ## Dependency notes
 
