@@ -103,4 +103,4 @@ I_DONT_KNOW="I don't know"
 # Number of chunks each retriever returns for a query
 TOP_K=20
 # Number of chunks kept after the cross-encoder reranks the TOP_K chunks
-RERANK_TOP_K=10
+RERANK_TOP_K=5

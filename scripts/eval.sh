@@ -56,7 +56,7 @@ N_MULTI_QUS=3 # Phrasings the query LLM writes for each eval question
 
 # 7. Retrieval
 TOP_K=20 # Chunks each retriever returns for a query
-RERANK_TOP_K=10 # Chunks kept after the cross-encoder reranks the TOP_K chunks
+RERANK_TOP_K=5 # Chunks kept after the cross-encoder reranks the TOP_K chunks
 
 # run
 
