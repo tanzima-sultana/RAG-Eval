@@ -54,6 +54,10 @@ QUERY_LLM="ollama" # Local LLM provider that transforms the eval questions
 QUERY_LLM_MODEL="llama3.1:8b" # Local model the query LLM provider runs
 N_MULTI_QUS=3 # Phrasings the query LLM writes for each eval question
 
+# 7. Retrieval
+TOP_K=20 # Chunks each retriever returns for a query
+RERANK_TOP_K=10 # Chunks kept after the cross-encoder reranks the TOP_K chunks
+
 # run
 
 python3 src/eval.py \
@@ -88,4 +92,6 @@ python3 src/eval.py \
   --query_llm "$QUERY_LLM" \
   --query_llm_model "$QUERY_LLM_MODEL" \
   --n_multi_qus "$N_MULTI_QUS" \
+  --top_k "$TOP_K" \
+  --rerank_top_k "$RERANK_TOP_K" \
   2>&1 | tee "$LOG"

@@ -8,11 +8,13 @@ from common.args import ChunkingArgs
 from common.args import IndexArgs
 from common.args import EvalQnAArgs
 from common.args import QueryArgs
+from common.args import RetrievalArgs
 from l1_ingestion.ingestion import ingestion
 from l2_chunking.cache import load_chunks
 from l4_indexing import cache as index_cache
 from qna.qna import get_eval_qna
 from l5_query.query import get_queries
+from l6_retrieval.retrieval import get_retrieved_outputs
 
 def parse_args():
 	"""
@@ -211,6 +213,18 @@ def parse_args():
 		required=False,
 		default=constants.N_MULTI_QUS,
 		help="Number of phrasings the query LLM writes for each eval question")
+	parser.add_argument(
+		"--top_k",
+		type=int,
+		required=False,
+		default=constants.TOP_K,
+		help="Number of chunks each retriever returns for a query")
+	parser.add_argument(
+		"--rerank_top_k",
+		type=int,
+		required=False,
+		default=constants.RERANK_TOP_K,
+		help="Number of chunks kept after the cross-encoder reranks the top_k chunks")
 
 	return parser.parse_args()
 
@@ -310,6 +324,19 @@ def make_query_args(parsed_args):
 	)
 	return query_args
 
+
+def make_retrieval_args(parsed_args):
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args().
+	Output: a RetrievalArgs object holding the retrieval settings.
+	What it does: copies the parsed top_k and rerank_top_k into the matching RetrievalArgs fields.
+	"""
+	retrieval_args = RetrievalArgs(
+		top_k=parsed_args.top_k,
+		rerank_top_k=parsed_args.rerank_top_k
+	)
+	return retrieval_args
+
 if __name__ == "__main__":
 	print("\n ------------- RAG Eval -------- \n")
 	start = time.time()
@@ -322,6 +349,7 @@ if __name__ == "__main__":
 	index_args = make_index_args(args)
 	eval_qna_args = make_eval_qna_args(args)
 	query_args = make_query_args(args)
+	retrieval_args = make_retrieval_args(args)
 	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
 
 	# 1. Load the l1 documents
@@ -368,8 +396,18 @@ if __name__ == "__main__":
 	s5 = time.time()
 	queries = get_queries(output_path, eval_qna, eval_qna_args, query_args)
 	e5 = time.time() - s5
-	print(f"Query loaded : {len(eval_qna)}")
-	print("\nLoading eQuery time : ", e5)
+	print(f"Query loaded : {len(queries)}")
+	print("\nLoading Query time : ", e5)
+
+	# 6. Retrieval
+	print("\n\nLoading Retrieval")
+	s6 = time.time()
+	retrieved_outputs = get_retrieved_outputs(
+		queries, chunks, faiss_index, bm25_index, qdrant_index, retrieval_args
+	)
+	e6 = time.time() - s6
+	print(f"Retrieval loaded : {len(eval_qna)}")
+	print("\nLoading Retrieval time : ", e6)
 
 	# ---------
 	end = time.time()

@@ -97,3 +97,10 @@ QUERY_LLM_MODEL="llama3.1:8b"
 N_MULTI_QUS=3
 # Stored as the HyDE answer when the query LLM still refuses to write one, so l6 skips it
 I_DONT_KNOW="I don't know"
+
+# 6. Retrieval
+
+# Number of chunks each retriever returns for a query
+TOP_K=20
+# Number of chunks kept after the cross-encoder reranks the TOP_K chunks
+RERANK_TOP_K=10

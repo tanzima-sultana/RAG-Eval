@@ -51,3 +51,8 @@ class QueryArgs:
 	query_llm: str
 	query_llm_model: str
 	n_multi_qus: int
+
+@dataclasses.dataclass
+class RetrievalArgs:
+	top_k: int
+	rerank_top_k: int
