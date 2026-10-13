@@ -3,6 +3,7 @@ import urllib.request
 
 from common.constants import OLLAMA_URL
 from common.constants import OLLAMA_TIMEOUT_SECONDS
+from common.constants import OLLAMA_MAX_TOKENS
 
 class OllamaLLM:
 	"""
@@ -25,12 +26,13 @@ class OllamaLLM:
 		Output: the model's reply text.
 		What it does: sends the prompt to the Ollama /api/generate endpoint and returns the reply.
 		"""
-		# Temperature 0 so the same prompt gives the same reply on every run
+		# Temperature 0 so the same prompt gives the same reply on every run.
+		# num_predict cuts the reply at OLLAMA_MAX_TOKENS, so a model stuck repeating a phrase still returns
 		request_body = {
 			"model": self.llm_model,
 			"prompt": prompt,
 			"stream": False,
-			"options": {"temperature": 0}
+			"options": {"temperature": 0, "num_predict": OLLAMA_MAX_TOKENS}
 		}
 		request = urllib.request.Request(
 			OLLAMA_URL + "/api/generate",

@@ -4,6 +4,7 @@ from sentence_transformers import SentenceTransformer
 from common import paths
 from common.args import EvalQnAArgs
 from common.args import QueryArgs
+from common.constants import I_DONT_KNOW
 from l5_query.schema import Ans
 from l5_query.schema import Qus
 from l5_query.schema import Query
@@ -21,7 +22,8 @@ def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs) -> list[Que
 	Output: one Query per eval question, in the same order.
 	What it does: asks the query LLM for a rewrite, n_multi_qus phrasings and a HyDE answer of each question,
 	splits every question into BM25 tokens, embeds every qus and ans with the build's embedding model and prints the LLM cost.
-	Raises ValueError if the LLM does not return exactly n_multi_qus phrasings for a question.
+	When the LLM does not return exactly n_multi_qus phrasings, multi_qus is empty; when it does not know the HyDE answer,
+	hyde_ans is I_DONT_KNOW. Both are counted and printed, and the run goes on.
 	"""
 	# 1. Get the query LLM. Checks the provider is usable, e.g. the Ollama server is running and the model is pulled
 	query_llm = get_llm(query_args.query_llm, query_args.query_llm_model)
@@ -31,6 +33,8 @@ def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs) -> list[Que
 	rewritten_qus_list = []
 	multi_qus_list = []
 	hyde_ans_list = []
+	multi_dont_know_count = 0
+	hyde_dont_know_count = 0
 	for qna_index in range(len(eval_qna)):
 		qna_item = eval_qna[qna_index]
 
@@ -45,14 +49,24 @@ def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs) -> list[Que
 			stripped_line = reply_line.strip()
 			if stripped_line != "":
 				multi_qus_str_list.append(stripped_line)
+		# Any other number of lines means the reply is not just the phrasings, e.g. it says it found nothing.
+		# Treated as I don't know: no phrasings are kept for this question
 		if len(multi_qus_str_list) != query_args.n_multi_qus:
-			raise ValueError(
-				f"The query LLM returned {len(multi_qus_str_list)} phrasings instead of {query_args.n_multi_qus} "
-				f"for {qna_item.id}. Its reply was:\n{multi_reply}"
+			print(
+				f"Multi-query I don't know for {qna_item.id}: {len(multi_qus_str_list)} lines instead of "
+				f"{query_args.n_multi_qus}. Reply: {multi_reply!r}"
 			)
+			multi_qus_str_list = []
+			multi_dont_know_count = multi_dont_know_count + 1
 
 		# 3. Hypithetical ans
 		hyde_ans_str = query_llm.generate(HYDE_PROMPT.format(qus=qna_item.qus)).strip()
+		# The prompt asks for a passage even when unsure, but if the LLM still refuses, the reply is stored as exactly
+		# I_DONT_KNOW, so l6 can skip it. The reply may add a full stop or a reason after it
+		hyde_ans_lower = hyde_ans_str.lower().replace("\u2019", "'")
+		if hyde_ans_lower.startswith("i don't know") or hyde_ans_lower.startswith("i do not know"):
+			hyde_ans_str = I_DONT_KNOW
+			hyde_dont_know_count = hyde_dont_know_count + 1
 
 		original_qus_list.append(qna_item.qus)
 		rewritten_qus_list.append(rewritten_qus_str)
@@ -62,10 +76,12 @@ def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs) -> list[Que
 		if (qna_index + 1) % 20 == 0 or qna_index + 1 == len(eval_qna):
 			print(f"Questions transformed : {qna_index + 1} of {len(eval_qna)}")
 
+	print(f"Multi-query I don't know : {multi_dont_know_count} of {len(eval_qna)}")
+	print(f"HyDE I don't know : {hyde_dont_know_count} of {len(eval_qna)}")
 	query_llm.compute_cost()
 
 	# 3. Embed every qus and ans with the build's embedding model, normalized to length 1 like the l3 chunk embeddings
-	# Multi-query phrasings are embedded as one flat list, n_multi_qus rows per question
+	# Multi-query phrasings are embedded as one flat list: n_multi_qus rows per question, none for an I don't know
 	flat_multi_qus_list = []
 	for multi_qus_str_list in multi_qus_list:
 		for multi_qus_str in multi_qus_str_list:
@@ -80,6 +96,8 @@ def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs) -> list[Que
 
 	# 4. Build one Query per question. Tokens are split the same way as the l4 BM25 chunks
 	queries = []
+	# Position of the question's first phrasing in flat_multi_qus_vectors
+	flat_multi_position = 0
 	for qna_index in range(len(eval_qna)):
 		original_qus = Qus(
 			qus=original_qus_list[qna_index],
@@ -92,13 +110,13 @@ def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs) -> list[Que
 			embeddings=rewritten_qus_vectors[qna_index]
 		)
 		multi_qus = []
-		for multi_index in range(query_args.n_multi_qus):
-			multi_qus_str = multi_qus_list[qna_index][multi_index]
+		for multi_qus_str in multi_qus_list[qna_index]:
 			multi_qus.append(Qus(
 				qus=multi_qus_str,
 				tokens=multi_qus_str.lower().split(),
-				embeddings=flat_multi_qus_vectors[qna_index * query_args.n_multi_qus + multi_index]
+				embeddings=flat_multi_qus_vectors[flat_multi_position]
 			))
+			flat_multi_position = flat_multi_position + 1
 		hyde_ans = Ans(
 			ans=hyde_ans_list[qna_index],
 			embeddings=hyde_ans_vectors[qna_index]

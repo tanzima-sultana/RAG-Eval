@@ -44,6 +44,7 @@ src/
 	api/
 	llm/
 	  llm.py		        # LLM orchatrator, decides which llm to return
+	  ollama.py 			# Local llama
 	  claude.py		        # Anthropic models
 	  gemini.py		        # Gemini models
 	  chatgpt.py		    # OpenAI/Chatgpt models
@@ -82,7 +83,7 @@ src/
 	  
 	l4_indexing/
       schema.py            # Defines the Index dataclass — the normalized record format every created index is converted into
-	  indexer.py            # Abstract base class and common shared methods for index types classes
+	  indexer.py           # Abstract base class and common shared methods for index types classes
 	  indexers/
 		faiss.py           # FAISS(flatip, ivf, hnsw) strategy
 		bm25.py            # BM25 strategy
@@ -93,6 +94,12 @@ src/
 	  langchain.py		   # langchain indexing
 	
 	l5_query/
+	  schema.py            # Defines the Query dataclass
+	  validate.py		   # Validate given parameters
+	  cache.py	           # Store and retrieve cached index
+	  prompt.py            # Prompt template for query transform
+	  query.py             # Query orchestrator
+	  
 	l6_retrieval/
 	l7_context/
 	l8_prompt/

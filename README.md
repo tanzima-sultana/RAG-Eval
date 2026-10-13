@@ -386,6 +386,16 @@ The knowledge graph steps make most of the calls and send whole documents and ch
 - **`gemini.py`** — Empty placeholder for Gemini models.
 - **`chatgpt.py`** — Empty placeholder for OpenAI models.
 
+## l5_query
+
+### Overview
+
+`l5_query` turns each eval question into a `Query` holding the original question, an LLM rewrite, `n_multi_qus` multi-query phrasings and a HyDE (hypothetical document) answer, each with BM25 tokens and an embedding from the build's model. The transformations run on a local Ollama model (`llama3.1:8b`), so they cost nothing. If the LLM does not return exactly `n_multi_qus` phrasings, that question gets no phrasings; if it still refuses to write a HyDE answer, the answer is stored as `I don't know`. Both are counted, and the run goes on.
+
+### HyDE and hallucination
+
+The HyDE answer is written by the LLM without seeing the documents, and the prompt asks for a plausible passage even when the LLM does not know the answer, so it can hold invented facts. It is only used as a search probe: it is embedded and searched with, and is never shown or used as an answer. The risk is in retrieval, not in the answer: invented names, numbers or claims can pull in wrong chunks, which the retrieval evaluation measures. If the HyDE text is ever passed to a later layer (for example into the l8 prompt or l9 generation), it can bring those invented facts into the generated answer and cause hallucination, so later layers must use only the retrieved chunks, never `hyde_ans`.
+
 ## Dependency notes
 
 - **`langchain-community` is pinned to 0.4.1, not 0.4.2.** `ragas` 0.4.3 (the latest release, used for eval QnA generation in `src/qna/qna.py`) imports `langchain_community.chat_models.vertexai`, which was removed in `langchain-community` 0.4.2, so `import ragas` fails on 0.4.2. Older `ragas` releases (0.3.x) have the same import.

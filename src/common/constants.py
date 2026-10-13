@@ -88,8 +88,12 @@ OLLAMA_LLM="ollama"
 OLLAMA_URL="http://localhost:11434"
 # Seconds before one Ollama call times out. The first call after 5 idle minutes also reloads the model onto the GPU
 OLLAMA_TIMEOUT_SECONDS=120
+# Maximum output tokens per Ollama call. At temperature 0 a model can repeat a phrase forever, so the reply is cut here
+OLLAMA_MAX_TOKENS=400
 QUERY_LLM=OLLAMA_LLM
 # Local model the query LLM provider runs
 QUERY_LLM_MODEL="llama3.1:8b"
 # Number of phrasings the query LLM writes for each eval question
 N_MULTI_QUS=3
+# Stored as the HyDE answer when the query LLM still refuses to write one, so l6 skips it
+I_DONT_KNOW="I don't know"

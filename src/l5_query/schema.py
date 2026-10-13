@@ -36,8 +36,8 @@ class Query:
 		id:              Same as the EvalQnA id, linking the query to its eval question.
 		original_qus:    The eval question as it is.
 		rewritten_qus:   The question rewritten by the LLM.
-		multi_qus:       Several phrasings of the question written by the LLM.
-		hyde_ans:        A hypothetical answer passage written by the LLM (HyDE).
+		multi_qus:       n_multi_qus phrasings of the question written by the LLM. Empty if the LLM did not return them (I don't know).
+		hyde_ans:        A hypothetical answer passage written by the LLM (HyDE). Its ans is I_DONT_KNOW if the LLM does not know.
 		normalized:      True if every embedding is normalized to length 1.
 		embedding_model: The embedding model that made the embeddings, the same as l3.
 		llm_model:       The LLM that wrote rewritten_qus, multi_qus and hyde_ans.

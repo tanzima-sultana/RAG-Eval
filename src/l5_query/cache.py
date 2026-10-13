@@ -5,7 +5,8 @@ Saves and loads the Query list of one query run in its own folder (see common.pa
 
 queries.json:    one entry per query with its texts and BM25 tokens, readable to check what the LLM wrote.
 embeddings.npz:  the float32 vectors, in the same query order: query_ids, original (one row per query),
-                 rewritten (one row per query), multi (n_multi_qus rows per query) and hyde (one row per query).
+                 rewritten (one row per query), multi (one row per multi_qus phrasing, all queries one after another; a query with
+                 no phrasings has none) and hyde (one row per query).
 
 Each file is first written to a temporary file and then renamed into place, so a crash mid-write never
 leaves a half-written file.
@@ -43,6 +44,8 @@ def load_cached_queries(query_path: str) -> list[Query] | None:
 		hyde_vectors = saved_arrays["hyde"]
 
 	queries = []
+	# Position of the query's first phrasing in multi_vectors
+	multi_position = 0
 	for index in range(len(query_dicts)):
 		query_dict = query_dicts[index]
 		if str(query_ids[index]) != query_dict["id"]:
@@ -62,13 +65,13 @@ def load_cached_queries(query_path: str) -> list[Query] | None:
 			embeddings=rewritten_vectors[index]
 		)
 		multi_qus = []
-		for multi_index in range(len(query_dict["multi_qus"])):
-			multi_qus_dict = query_dict["multi_qus"][multi_index]
+		for multi_qus_dict in query_dict["multi_qus"]:
 			multi_qus.append(Qus(
 				qus=multi_qus_dict["qus"],
 				tokens=multi_qus_dict["tokens"],
-				embeddings=multi_vectors[index][multi_index]
+				embeddings=multi_vectors[multi_position]
 			))
+			multi_position = multi_position + 1
 		hyde_ans = Ans(
 			ans=query_dict["hyde_ans"]["ans"],
 			embeddings=hyde_vectors[index]
@@ -92,7 +95,7 @@ def save_queries(query_path: str, queries: list[Query]) -> None:
 	Input: query_path, the query cache folder; queries, the Query list.
 	Output: nothing.
 	What it does: writes the texts and tokens to queries.json and the vectors to embeddings.npz in query_path,
-	creating the folder first if needed. Every query must have the same number of multi_qus.
+	creating the folder first if needed.
 	"""
 	os.makedirs(query_path, exist_ok=True)
 
@@ -104,10 +107,9 @@ def save_queries(query_path: str, queries: list[Query]) -> None:
 	hyde_vectors = []
 	for query in queries:
 		multi_qus_dicts = []
-		query_multi_vectors = []
 		for multi_qus in query.multi_qus:
 			multi_qus_dicts.append({"qus": multi_qus.qus, "tokens": multi_qus.tokens})
-			query_multi_vectors.append(multi_qus.embeddings)
+			multi_vectors.append(multi_qus.embeddings)
 
 		query_dicts.append({
 			"id": query.id,
@@ -122,7 +124,6 @@ def save_queries(query_path: str, queries: list[Query]) -> None:
 		query_ids.append(query.id)
 		original_vectors.append(query.original_qus.embeddings)
 		rewritten_vectors.append(query.rewritten_qus.embeddings)
-		multi_vectors.append(query_multi_vectors)
 		hyde_vectors.append(query.hyde_ans.embeddings)
 
 	queries_file = os.path.join(query_path, "queries.json")
