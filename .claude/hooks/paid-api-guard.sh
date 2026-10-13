@@ -3,27 +3,25 @@
 # Input: the hook JSON on stdin, holding the Bash command Claude wants to run.
 # Output: if the command can call a paid LLM API, a JSON permission decision of "ask",
 # so the user must approve this exact run in the permission prompt. Otherwise nothing.
-# What it does: a command is treated as paid when it runs something (python, bash, sh,
-# curl, wget, source or a ./ path) AND mentions a paid entry point
-# (eval.py, eval.sh, the qna or llm modules, RAGAS, ChatAnthropic, or an LLM API host).
+# What it does: src/llm/llm.py get_llm() refuses to build a Claude LLM unless ALLOW_PAID_API=1 is set,
+# so a run through the project code can only be paid if its command sets ALLOW_PAID_API=1.
+# The hook asks for those commands, and for commands that reach a paid API without get_llm()
+# (an API host, the anthropic SDK or ChatAnthropic). Local Ollama and cached runs pass without a prompt.
 # See .claude/skills/paid-api-run-approval/SKILL.md.
 
 hook_input="$(cat)"
 
-runner_pattern='(python3?|bash|[^a-z]sh |curl|wget|source |\./)'
-paid_pattern='(eval\.py|eval\.sh|get_eval_qna|generate_eval_qna|qna\.qna|from qna|import qna|llm\.claude|llm\.chatgpt|llm\.gemini|llm\.llm|from llm|import llm|ragas|ChatAnthropic|anthropic\.com|openai\.com|googleapis\.com)'
+paid_pattern='(ALLOW_PAID_API=1|anthropic\.com|openai\.com|googleapis\.com|import anthropic|from anthropic|langchain_anthropic|ChatAnthropic)'
 
-if echo "$hook_input" | grep -Eq "$runner_pattern"; then
-	if echo "$hook_input" | grep -Eq "$paid_pattern"; then
-		cat <<'EOF'
+if echo "$hook_input" | grep -Eq "$paid_pattern"; then
+	cat <<'JSON'
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
     "permissionDecision": "ask",
-    "permissionDecisionReason": "PAID API GUARD: this command may call a paid LLM API (Claude via RAGAS / src/llm). Approve only if you authorized this exact run."
+    "permissionDecisionReason": "PAID API GUARD: this command may call a paid LLM API (it sets ALLOW_PAID_API=1 or reaches a paid API directly). Approve only if you authorized this exact run."
   }
 }
-EOF
-	fi
+JSON
 fi
 exit 0

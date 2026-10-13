@@ -1,4 +1,5 @@
 import json
+import os
 import urllib.error
 import urllib.request
 
@@ -14,9 +15,17 @@ def get_llm(llm: str, llm_model: str) -> ClaudeLLM | OllamaLLM:
 	Input: llm, the LLM provider name ("claude" or "ollama"); llm_model, the model to run on that provider.
 	Output: a ClaudeLLM or OllamaLLM for that model, with a generate(prompt) method.
 	What it does: checks the provider is supported and the model can be used on it, then builds that provider's LLM.
+	A Claude LLM is only built when the environment variable ALLOW_PAID_API is 1.
 	Raises ValueError otherwise.
 	"""
 	if llm == CLAUDE_LLM_GENERATOR:
+		# Claude calls cost money, so a run must opt in with ALLOW_PAID_API=1. The Claude Code paid API guard hook
+		# asks the user before any command that sets it
+		if os.environ.get("ALLOW_PAID_API") != "1":
+			raise ValueError(
+				f"Claude model ({llm_model}) calls a paid API. Run again with ALLOW_PAID_API=1 set, "
+				"e.g. ALLOW_PAID_API=1 bash scripts/eval.sh"
+			)
 		# Only models with a price can be used, so the cost of every run can be computed
 		if llm_model not in CLAUDE_PRICES_PER_MILLION_TOKENS:
 			raise ValueError(f"Claude model ({llm_model}) has no price in CLAUDE_PRICES_PER_MILLION_TOKENS.")
