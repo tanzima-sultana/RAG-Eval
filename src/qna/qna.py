@@ -106,11 +106,11 @@ def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna
 		langchain_documents.append(langchain_document)
 
 	# 4. Get LLM generator
-	llm_generator = get_llm_generator(eval_qna_args.llm_generator)
+	llm_generator = get_llm_generator(eval_qna_args.eval_qna_llm)
 
 	device = "cuda" if torch.cuda.is_available() else "cpu"
 	huggingface_embeddings = HuggingFaceEmbeddings(
-		model_name=eval_qna_args.eval_model,
+		model_name=eval_qna_args.eval_qna_model,
 		model_kwargs={"device": device},
 		encode_kwargs={"normalize_embeddings": True}
 	)

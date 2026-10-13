@@ -162,26 +162,26 @@ def get_eval_qna_path(output_path:str, eval_qna_args: EvalQnAArgs) -> str:
 	"""
 	Input: output_path, the dataset's output folder; eval_qna_args, the eval QnA settings.
 	Output: the eval QnA cache file path as a string.
-	What it does: builds {output_path}/eval_qna_{n_sample_documents}_{n_sample_evals}_{llm_generator}_{eval_model}.json,
+	What it does: builds {output_path}/eval_qna_{n_sample_documents}_{n_sample_evals}_{eval_qna_llm}_{eval_qna_model}.json,
 	with any "/" in the model name replaced by "-".
 	"""
-	eval_model = eval_qna_args.eval_model.replace("/", "-")
+	eval_qna_model = eval_qna_args.eval_qna_model.replace("/", "-")
 
 	return (
 		f"{output_path}/eval_qna_{eval_qna_args.n_sample_documents}_"
-		f"{eval_qna_args.n_sample_evals}_{eval_qna_args.llm_generator}_{eval_model}.json"
+		f"{eval_qna_args.n_sample_evals}_{eval_qna_args.eval_qna_llm}_{eval_qna_model}.json"
 	)
 
 def get_eval_kg_path(output_path:str, eval_qna_args: EvalQnAArgs) -> str:
 	"""
 	Input: output_path, the dataset's output folder; eval_qna_args, the eval QnA settings.
 	Output: the RAGAS knowledge graph cache file path as a string.
-	What it does: builds {output_path}/eval_kg_{n_sample_documents}_{llm_generator}_{eval_model}.json,
+	What it does: builds {output_path}/eval_kg_{n_sample_documents}_{eval_qna_llm}_{eval_qna_model}.json,
 	with any "/" in the model name replaced by "-".
 	"""
-	eval_model = eval_qna_args.eval_model.replace("/", "-")
+	eval_qna_model = eval_qna_args.eval_qna_model.replace("/", "-")
 
 	return (
 		f"{output_path}/eval_kg_{eval_qna_args.n_sample_documents}_"
-		f"{eval_qna_args.llm_generator}_{eval_model}.json"
+		f"{eval_qna_args.eval_qna_llm}_{eval_qna_model}.json"
 	)

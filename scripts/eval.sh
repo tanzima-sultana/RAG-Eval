@@ -44,8 +44,8 @@ BM25_B=0.75
 BM25_TOKENIZER="whitespace"
 
 # 5. Eval QnA
-LLM_GENERATOR="claude" # LLM provider RAGAS uses to generate the eval QnA
-EVAL_MODEL="all-MiniLM-L6-v2" # Local embedding model RAGAS uses to build its knowledge graph
+EVAL_QNA_LLM="claude" # LLM provider RAGAS uses to generate the eval QnA
+EVAL_QNA_MODEL="all-MiniLM-L6-v2" # Local embedding model RAGAS uses to build its knowledge graph
 N_SAMPLE_DOCUMENTS=200 # Documents randomly picked for RAGAS to generate the eval QnA from
 N_SAMPLE_EVALS=50 # Eval QnA items to generate
 
@@ -76,8 +76,8 @@ python3 src/eval.py \
   --bm25_k1 "$BM25_K1" \
   --bm25_b "$BM25_B" \
   --bm25_tokenizer "$BM25_TOKENIZER" \
-  --llm_generator "$LLM_GENERATOR" \
-  --eval_model "$EVAL_MODEL" \
+  --eval_qna_llm "$EVAL_QNA_LLM" \
+  --eval_qna_model "$EVAL_QNA_MODEL" \
   --n_sample_documents "$N_SAMPLE_DOCUMENTS" \
   --n_sample_evals "$N_SAMPLE_EVALS" \
   2>&1 | tee "$LOG"

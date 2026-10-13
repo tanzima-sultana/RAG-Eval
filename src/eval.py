@@ -174,16 +174,16 @@ def parse_args():
 		default=constants.N_EVAL_SAMPLES,
 		help="Number of eval QnA items to load or generate")
 	parser.add_argument(
-		"--llm_generator",
+		"--eval_qna_llm",
 		type=str,
 		required=False,
-		default=constants.LLM_GENERATOR,
+		default=constants.EVAL_QNA_LLM,
 		help="LLM provider RAGAS uses to generate the eval QnA: claude")
 	parser.add_argument(
-		"--eval_model",
+		"--eval_qna_model",
 		type=str,
 		required=False,
-		default=constants.EVAL_MODEL,
+		default=constants.EVAL_QNA_MODEL,
 		help="Local HuggingFace embedding model RAGAS uses to build its knowledge graph")
 	parser.add_argument(
 		"--n_sample_documents",
@@ -266,8 +266,8 @@ def make_eval_qna_args(parsed_args):
 	the matching EvalQnAArgs fields.
 	"""
 	eval_qna_args = EvalQnAArgs(
-		llm_generator=parsed_args.llm_generator,
-		eval_model=parsed_args.eval_model,
+		eval_qna_llm=parsed_args.eval_qna_llm,
+		eval_qna_model=parsed_args.eval_qna_model,
 		n_sample_documents=parsed_args.n_sample_documents,
 		n_sample_evals=parsed_args.n_sample_evals
 	)
@@ -317,7 +317,7 @@ if __name__ == "__main__":
 	print("\nLoading indexes time : ", e3)
 
 	# 4. Load eval QnA
-	# Reuses {output_path}/eval_qna_{n_sample_documents}_{n_sample_evals}_{llm_generator}_{eval_model}.json if it exists
+	# Reuses {output_path}/eval_qna_{n_sample_documents}_{n_sample_evals}_{eval_qna_llm}_{eval_qna_model}.json if it exists
 	print("\n\nLoading eval QnA")
 	s4 = time.time()
 	eval_qna = get_eval_qna(output_path, documents, eval_qna_args)

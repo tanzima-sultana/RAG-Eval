@@ -47,12 +47,12 @@ QDRANT_URL="http://localhost:6333"
 
 # Eval
 
-# Number of eval QnA items, saved as {output_path}/eval_qna_{SAMPLE_DOCUMENTS}_{N_EVAL_SAMPLES}_{LLM_GENERATOR}_{EVAL_MODEL}.json
+# Number of eval QnA items, saved as {output_path}/eval_qna_{SAMPLE_DOCUMENTS}_{N_EVAL_SAMPLES}_{EVAL_QNA_LLM}_{EVAL_QNA_MODEL}.json
 N_EVAL_SAMPLES=50
 
 # LLM provider RAGAS uses to generate the eval QnA. The models are picked in the code
 CLAUDE_LLM_GENERATOR="claude"
-LLM_GENERATOR=CLAUDE_LLM_GENERATOR
+EVAL_QNA_LLM=CLAUDE_LLM_GENERATOR
 # Claude model for the RAGAS knowledge graph steps (headlines, summaries, filter, themes, entities)
 CLAUDE_TRANSFORMS_MODEL="claude-haiku-5-5"
 # Claude model for writing the personas, scenarios, questions and answers
@@ -68,7 +68,7 @@ CLAUDE_PRICES_PER_MILLION_TOKENS={
 	"claude-haiku-5-5": {"input": 0.10, "output": 0.50},
 }
 # Local HuggingFace SentenceTransformer model RAGAS uses to build its knowledge graph
-EVAL_MODEL="all-MiniLM-L6-v2"
+EVAL_QNA_MODEL="all-MiniLM-L6-v2"
 # Number of documents randomly picked from the dataset for RAGAS to generate the eval QnA from
 SAMPLE_DOCUMENTS=200
 # Seed for that pick, so the same documents are picked every run

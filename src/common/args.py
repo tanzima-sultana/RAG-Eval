@@ -40,7 +40,7 @@ class IndexArgs:
 
 @dataclasses.dataclass
 class EvalQnAArgs:
-	llm_generator: str
-	eval_model: str
+	eval_qna_llm: str
+	eval_qna_model: str
 	n_sample_documents: int
 	n_sample_evals: int
