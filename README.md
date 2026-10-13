@@ -390,11 +390,44 @@ The knowledge graph steps make most of the calls and send whole documents and ch
 
 ### Overview
 
-`l5_query` turns each eval question into a `Query` holding the original question, an LLM rewrite, `n_multi_qus` multi-query phrasings and a HyDE (hypothetical document) answer, each with BM25 tokens and an embedding from the build's model. The transformations run on a local Ollama model (`llama3.1:8b`), so they cost nothing. If the LLM does not return exactly `n_multi_qus` phrasings, that question gets no phrasings; if it still refuses to write a HyDE answer, the answer is stored as `I don't know`. Both are counted, and the run goes on.
+`l5_query` turns each eval question into the queries the retrieval layer searches with. `src/eval.py` calls `get_queries(output_path, eval_qna, eval_qna_args, query_args)` after loading the eval QnA. `QueryArgs` holds the build's embedding model (`embedding_model`, taken from `--model_name` so it always matches the chunk embeddings), `--query_llm` (the LLM provider, default `ollama`), `--query_llm_model` (default `llama3.1:8b`) and `--n_multi_qus` (default 3). It returns one `Query` per eval question, with the same `id` as its `EvalQnA`, holding four ways of searching for it: the original question (`original_qus`), an LLM rewrite (`rewritten_qus`), `n_multi_qus` LLM phrasings (`multi_qus`) and a HyDE hypothetical answer passage (`hyde_ans`). Each question (`Qus`) has its text, its BM25 tokens (lowercased and split on whitespace, the same as the l4 BM25 chunks) and its embedding; the HyDE answer (`Ans`) has its text and embedding only, because it is searched by embedding alone.
 
-### HyDE and hallucination
+`get_queries()` first validates `QueryArgs`. The cache folder is `{output folder}/queries/{n_sample_documents}_{n_sample_evals}_{eval_qna_llm}_{eval_qna_model}_{embedding_model}_{query_llm}_{query_llm_model}_{n_multi_qus}`, with `/` and `:` in model names replaced by `-`. It does not include the dataset size, so one set of queries is reused at every corpus size. If the folder holds both cache files they are loaded and returned. Otherwise `generate_queries()`:
 
-The HyDE answer is written by the LLM without seeing the documents, and the prompt asks for a plausible passage even when the LLM does not know the answer, so it can hold invented facts. It is only used as a search probe: it is embedded and searched with, and is never shown or used as an answer. The risk is in retrieval, not in the answer: invented names, numbers or claims can pull in wrong chunks, which the retrieval evaluation measures. If the HyDE text is ever passed to a later layer (for example into the l8 prompt or l9 generation), it can bring those invented facts into the generated answer and cause hallucination, so later layers must use only the retrieved chunks, never `hyde_ans`.
+1. Gets the query LLM with `llm.get_llm()`, which checks the Ollama server is running and the model is pulled. The LLM runs locally at temperature 0, with replies cut at `OLLAMA_MAX_TOKENS` (400) tokens, so the transformations cost nothing.
+2. Makes three LLM calls per question: the rewrite, the `n_multi_qus` phrasings (one per line) and the HyDE passage. If the phrasings reply does not have exactly `n_multi_qus` non-empty lines, the question gets no phrasings; if the HyDE reply still starts with "I don't know", it is stored as exactly `I don't know`. Both are printed and counted, and the run goes on. It prints the LLM cost ($0 for Ollama).
+3. Embeds every question and answer with `embedding_model` (a SentenceTransformer, normalized to length 1 like the l3 chunk embeddings).
+4. Builds one `Query` per question.
+
+The queries are then saved as `queries.json` (the texts and tokens, readable) and `embeddings.npz` (the float32 vectors), each written to a temporary file first and renamed into place.
+
+**HyDE and hallucination.** The HyDE answer is written by the LLM without seeing the documents, and the prompt asks for a plausible passage even when the LLM does not know the answer, so it can hold invented facts. It is only used as a search probe: it is embedded and searched with, and is never shown or used as an answer. The risk is in retrieval, not in the answer: invented names, numbers or claims can pull in wrong chunks, which the retrieval evaluation measures. If the HyDE text is ever passed to a later layer (for example into the l8 prompt or l9 generation), it can bring those invented facts into the generated answer and cause hallucination, so later layers must use only the retrieved chunks, never `hyde_ans`.
+
+### Architecture
+
+- **`query.py`** — Loads the cached queries, or transforms each eval question with the query LLM, embeds the results and saves them.
+- **`schema.py`** — Defines `Qus` (a searchable question), `Ans` (the HyDE answer) and `Query`, the layer's output record.
+- **`validate.py`** — Checks the query parameters and raises an error for the first invalid one, before any LLM call.
+- **`cache.py`** — Saves and loads the queries of one run as `queries.json` and `embeddings.npz`.
+- **`prompt.py`** — The rewrite, multi-query and HyDE prompt templates.
+
+The query LLM comes from the `llm` module. The cache folder path is built in `src/common/paths.py`.
+
+### Run results
+
+**200 eval questions, llama3.1:8b, 3 phrasings each** (from `log/l5_query/query_5k_100_200_log.txt`). The input is the 200-question eval set made from the 5000 `pixparse/pdfa-eng-wds` documents (see qna), loaded from its cache file `eval_qna_100_200_claude_all-MiniLM-L6-v2.json`. Settings: `embedding_model` `all-MiniLM-L6-v2`, `query_llm` `ollama`, `query_llm_model` `llama3.1:8b`, `n_multi_qus` 3. There was no query cache, so the queries were generated.
+
+| | Value |
+|---|---|
+| Eval QnA loaded | 200 |
+| Questions transformed | 200 of 200 |
+| Multi-query I don't know | 0 of 200 |
+| HyDE I don't know | 0 of 200 |
+| LLM cost | $0.0000 |
+| Queries saved | 200, to `outputs/pdfa-eng-wds/queries/100_200_claude_all-MiniLM-L6-v2_all-MiniLM-L6-v2_ollama_llama3.1-8b_3` |
+| Query time | 763.0530879497528s |
+
+The log has no per-stage timing, only the total. Nearly all of it is the LLM: each question makes three calls to `llama3.1:8b`, one after another, so 600 calls in total, each generating its reply token by token on the GPU. Embedding the results is a single batched SentenceTransformer pass per query type over short texts, and loading the eval set and saving the two cache files are file reads and writes, so they are small next to the 600 generations.
 
 ## Dependency notes
 
