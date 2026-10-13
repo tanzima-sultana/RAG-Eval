@@ -1,4 +1,5 @@
 import argparse
+import random
 import time
 
 from common import constants
@@ -225,6 +226,11 @@ def parse_args():
 		required=False,
 		default=constants.RERANK_TOP_K,
 		help="Number of chunks kept after the cross-encoder reranks the top_k chunks")
+	parser.add_argument(
+		"--tuning_queries_size",
+		type=int,
+		required=True,
+		help="Number of eval questions used for tuning; the rest are held out for one final check")
 
 	return parser.parse_args()
 
@@ -399,15 +405,30 @@ if __name__ == "__main__":
 	print(f"Query loaded : {len(queries)}")
 	print("\nLoading Query time : ", e5)
 
-	# 6. Retrieval
+	# 6. Split the queries into tuning and held-out
+	# Shuffled with a fixed seed, so every run gets the same split
+	if len(queries) <= args.tuning_queries_size:
+		raise ValueError(
+			f"Only {len(queries)} queries, need more than {args.tuning_queries_size} to keep some held out"
+		)
+	shuffled_queries = []
+	for query in queries:
+		shuffled_queries.append(query)
+	random_generator = random.Random(constants.TUNING_SPLIT_SEED)
+	random_generator.shuffle(shuffled_queries)
+	tuning_queries = shuffled_queries[:args.tuning_queries_size]
+	held_out_queries = shuffled_queries[args.tuning_queries_size:]
+	print(f"\n\nTuning queries : {len(tuning_queries)}, held-out queries : {len(held_out_queries)}")
+
+	# 7. Retrieval on the tuning queries only
 	print("\n\nLoading Retrieval")
-	s6 = time.time()
+	s7 = time.time()
 	retrieved_outputs = get_retrieved_outputs(
-		queries, chunks, faiss_index, bm25_index, qdrant_index, retrieval_args
+		tuning_queries, chunks, faiss_index, bm25_index, qdrant_index, retrieval_args
 	)
-	e6 = time.time() - s6
+	e7 = time.time() - s7
 	print(f"Retrieval loaded : {len(eval_qna)}")
-	print("\nLoading Retrieval time : ", e6)
+	print("\nLoading Retrieval time : ", e7)
 
 	# ---------
 	end = time.time()

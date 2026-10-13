@@ -26,7 +26,6 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
-from common import paths
 from common.args import ChunkingArgs
 from common.args import IndexArgs
 from common.constants import FAISS_FLATIP_INDEX, FAISS_IVF_INDEX, FAISS_HNSW_INDEX
@@ -69,25 +68,6 @@ class Langchain:
 			model_kwargs={"device": device},
 			encode_kwargs={"batch_size": 256, "normalize_embeddings": True}
 		)
-
-	def compute_index(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> tuple[LangchainFaissIndex, LangchainBm25Index, LangchainQdrantIndex]:
-		"""
-		Input: chunks, a dict of chunk_id to Chunk from l2_chunking;
-		embeddings, a dict of chunk_id to Embedded from l3_embedding;
-		output_path, the dataset's output folder the index folders are built under.
-		Output: a tuple of (LangchainFaissIndex, LangchainBm25Index, LangchainQdrantIndex).
-		What it does: gets the LangChain index folders and Qdrant collection
-		name, then builds or loads all three indexes from the same chunks.
-		"""
-		faiss_index_path = paths.get_faiss_index_path(output_path, self.chunking_args, self.index_args)
-		bm25_index_path = paths.get_bm25_index_path(output_path, self.chunking_args, self.index_args)
-		qdrant_collection_name = paths.get_qdrant_collection_name(output_path, self.chunking_args)
-
-		faiss_index = self.get_faiss_index(faiss_index_path, chunks, embeddings)
-		bm25_index = self.get_bm25_index(bm25_index_path, chunks)
-		qdrant_index = self.get_qdrant_index(qdrant_collection_name, chunks, embeddings)
-
-		return faiss_index, bm25_index, qdrant_index
 
 	def get_faiss_index(self, faiss_index_path: str, chunks: dict[str, Chunk], embeddings: dict[str, Embedded]) -> LangchainFaissIndex:
 		"""

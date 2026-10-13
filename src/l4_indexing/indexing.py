@@ -18,42 +18,55 @@ from l4_indexing import validate
 class Indexing:
 	def __init__(self, index_args: IndexArgs, chunking_args: ChunkingArgs):
 		"""
-		Input: index_args, the indexing settings; chunking_args, the chunking
+		Input: index_args, the indexing settings with one faiss_index_type; chunking_args, the chunking
 		settings the chunks and embeddings were made with.
 		Output: none.
-		What it does: stores both settings for use by compute_index.
+		What it does: validates index_args and stores both settings. For framework "langchain", also creates
+		the Langchain class once, which the three compute methods hand the work to.
 		"""
+		validate.validate_index_args(index_args)
 		self.index_args = index_args
 		self.chunking_args = chunking_args
 
-	def compute_index(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> tuple[FaissIndex, Bm25Index, QdrantIndex] | tuple[LangchainFaissIndex, LangchainBm25Index, LangchainQdrantIndex]:
-		"""
-		Input: chunks, a dict of chunk_id to Chunk from l2_chunking;
-		embeddings, a dict of chunk_id to Embedded from l3_embedding;
-		output_path, the dataset's output folder the index folders are built under.
-		Output: a tuple of (FaissIndex, Bm25Index, QdrantIndex), or for
-		framework "langchain" a tuple of (LangchainFaissIndex,
-		LangchainBm25Index, LangchainQdrantIndex).
-		What it does: validates index_args. For framework "langchain", hands
-		the work to the Langchain class. Otherwise builds all three indexes
-		from the same chunks: a FAISS index of the type in faiss_index_type,
-		a BM25 index over the chunk texts, and a Qdrant collection of the
-		embeddings.
-		"""
-
-		# 1. validate index args
-		validate.validate_index_args(self.index_args)
-
+		self.langchain = None
 		if self.chunking_args.framework == constants.LANGCHAIN_FRAMEWORK:
-			return Langchain(self.index_args, self.chunking_args).compute_index(chunks, embeddings, output_path)
+			self.langchain = Langchain(self.index_args, self.chunking_args)
 
-		# 2. Get the folder of the FAISS and BM25 indexes and the Qdrant collection name
+	def compute_faiss_index(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex | LangchainFaissIndex:
+		"""
+		Input: chunks and embeddings from l2 and l3; output_path, the dataset's output folder.
+		Output: the FAISS index of type faiss_index_type, built-in or LangChain.
+		What it does: builds the FAISS index, or loads it from cache.
+		"""
 		faiss_index_path = paths.get_faiss_index_path(output_path, self.chunking_args, self.index_args)
+
+		if self.langchain is not None:
+			return self.langchain.get_faiss_index(faiss_index_path, chunks, embeddings)
+
+		return faiss.get_faiss_index(faiss_index_path, self.index_args, embeddings)
+
+	def compute_bm25_index(self, chunks: dict[str, Chunk], output_path: str) -> Bm25Index | LangchainBm25Index:
+		"""
+		Input: chunks from l2; output_path, the dataset's output folder.
+		Output: the BM25 index, built-in or LangChain.
+		What it does: builds the BM25 index, or loads it from cache.
+		"""
 		bm25_index_path = paths.get_bm25_index_path(output_path, self.chunking_args, self.index_args)
+
+		if self.langchain is not None:
+			return self.langchain.get_bm25_index(bm25_index_path, chunks)
+
+		return bm25.get_bm25_index(bm25_index_path, self.index_args, chunks)
+
+	def compute_qdrant_index(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> QdrantIndex | LangchainQdrantIndex:
+		"""
+		Input: chunks and embeddings from l2 and l3; output_path, the dataset's output folder.
+		Output: the Qdrant collection, built-in or LangChain.
+		What it does: builds the Qdrant collection, or uses the existing one if it holds the same chunks.
+		"""
 		qdrant_collection_name = paths.get_qdrant_collection_name(output_path, self.chunking_args)
 
-		faiss_index = faiss.get_faiss_index(faiss_index_path, self.index_args, embeddings)
-		bm25_index = bm25.get_bm25_index(bm25_index_path, self.index_args, chunks)
-		qdrant_index = qdrant.get_qdrant_index(qdrant_collection_name, self.index_args, chunks, embeddings)
+		if self.langchain is not None:
+			return self.langchain.get_qdrant_index(qdrant_collection_name, chunks, embeddings)
 
-		return faiss_index, bm25_index, qdrant_index
+		return qdrant.get_qdrant_index(qdrant_collection_name, self.index_args, chunks, embeddings)

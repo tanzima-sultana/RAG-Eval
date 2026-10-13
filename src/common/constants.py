@@ -100,6 +100,19 @@ I_DONT_KNOW="I don't know"
 
 # 6. Retrieval
 
+# Query types searched for each eval question, one per l5 Query field
+ORIGINAL_QUERY="original"
+REWRITTEN_QUERY="rewritten"
+MULTI_QUERY="multi"
+HYDE_QUERY="hyde"
+# Retrieval types
+DENSE_RETRIEVAL="dense"
+# Indexer name of the Qdrant collection, stored in Retrieved.indexer
+QDRANT_INDEX="qdrant"
+
+# Seed for the tuning / held-out split, so every run gets the same split
+TUNING_SPLIT_SEED=42
+
 # Number of chunks each retriever returns for a query
 TOP_K=20
 # Number of chunks kept after the cross-encoder reranks the TOP_K chunks

@@ -94,11 +94,12 @@ def parse_args():
 		default="",
 		help="SentenceTransformer model used for token counts and semantic embeddings")
 	parser.add_argument(
-		"--chunk_type",
+		"--chunk_types",
 		type=str,
+		nargs="+",
 		required=False,
-		default=constants.FIXED_CHUNKING,
-		help="Chunking strategy: fixed, sentence or semantic")
+		default=[constants.FIXED_CHUNKING, constants.SENTENCE_CHUNKING, constants.SEMANTIC_CHUNKING],
+		help="Chunking strategies to build, one after another: fixed, sentence and/or semantic")
 	parser.add_argument(
 		"--min_chunk_size",
 		type=int,
@@ -124,11 +125,12 @@ def parse_args():
 		default=constants.SEMANTIC_THRESHOLD,
 		help="Similarity threshold used by semantic chunking")
 	parser.add_argument(
-		"--faiss_index_type",
+		"--faiss_index_types",
 		type=str,
+		nargs="+",
 		required=False,
-		default=constants.FAISS_FLATIP_INDEX,
-		help="FAISS index type: faiss_flatip, faiss_ivf or faiss_hnsw")
+		default=[constants.FAISS_FLATIP_INDEX, constants.FAISS_IVF_INDEX, constants.FAISS_HNSW_INDEX],
+		help="FAISS index types to build, one after another: faiss_flatip, faiss_ivf and/or faiss_hnsw")
 	parser.add_argument(
 		"--ivf_nlist",
 		type=int,
@@ -197,17 +199,17 @@ def make_ingest_args(parsed_args):
 	return ingest_args
 
 
-def make_chunking_args(parsed_args):
+def make_chunking_args(parsed_args, chunk_type: str):
 	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args().
-	Output: a ChunkingArgs object holding the chunking values.
+	Input: parsed_args, the argparse.Namespace returned by parse_args(); chunk_type, one of parsed_args.chunk_types.
+	Output: a ChunkingArgs object holding the chunking values for chunk_type.
 	What it does: copies each parsed chunking command line value into the
 	matching ChunkingArgs field.
 	"""
 	chunking_args = ChunkingArgs(
 		framework=parsed_args.framework,
 		model_name=parsed_args.model_name,
-		chunk_type=parsed_args.chunk_type,
+		chunk_type=chunk_type,
 		min_chunk_size=parsed_args.min_chunk_size,
 		max_chunk_size=parsed_args.max_chunk_size,
 		fixed_chunk_overlap=parsed_args.fixed_chunk_overlap,
@@ -216,15 +218,16 @@ def make_chunking_args(parsed_args):
 	return chunking_args
 
 
-def make_index_args(parsed_args):
+def make_index_args(parsed_args, faiss_index_type: str):
 	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args().
-	Output: an IndexArgs object holding the indexing values.
+	Input: parsed_args, the argparse.Namespace returned by parse_args(); faiss_index_type, one of
+	parsed_args.faiss_index_types.
+	Output: an IndexArgs object holding the indexing values for faiss_index_type.
 	What it does: copies each parsed indexing command line value into the
 	matching IndexArgs field.
 	"""
 	index_args = IndexArgs(
-		faiss_index_type=parsed_args.faiss_index_type,
+		faiss_index_type=faiss_index_type,
 		ivf_nlist=parsed_args.ivf_nlist,
 		hnsw_m=parsed_args.hnsw_m,
 		hnsw_ef_construction=parsed_args.hnsw_ef_construction,
@@ -253,31 +256,42 @@ if __name__ == "__main__":
 
 	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
 
-	# 2. Chunking
-	print("\n\nChunking")
-	chunking_args = make_chunking_args(args)
+	# Chunking, embedding and indexing are done once per chunk type
+	for chunk_type in args.chunk_types:
+		print(f"\n\n========== Chunk type : {chunk_type} ==========")
 
-	s2 = time.time()
-	chunks = Chunking(chunking_args).compute_chunks(documents, output_path)
-	e2 = time.time() - s2
-	print("\nChunking time : ", e2)
+		# 2. Chunking
+		print("\n\nChunking")
+		chunking_args = make_chunking_args(args, chunk_type)
 
-	# 3. Embedding
-	print("\n\nEmbedding")
+		s2 = time.time()
+		chunks = Chunking(chunking_args).compute_chunks(documents, output_path)
+		e2 = time.time() - s2
+		print("\nChunking time : ", e2)
 
-	s3 = time.time()
-	embeddings = Embedding(chunking_args).compute_embeddings(chunks, output_path)
-	e3 = time.time() - s3
-	print("\nEmbedding time : ", e3)
+		# 3. Embedding
+		print("\n\nEmbedding")
 
-	# 4. Indexing
-	print("\n\nIndexing")
-	index_args = make_index_args(args)
+		s3 = time.time()
+		embeddings = Embedding(chunking_args).compute_embeddings(chunks, output_path)
+		e3 = time.time() - s3
+		print("\nEmbedding time : ", e3)
 
-	s4 = time.time()
-	faiss_index, bm25_index, qdrant_index = Indexing(index_args, chunking_args).compute_index(chunks, embeddings, output_path)
-	e4 = time.time() - s4
-	print("\nIndexing time : ", e4)
+		# 4. Indexing
+		print("\n\nIndexing")
+
+		s4 = time.time()
+		# One FAISS index per FAISS type
+		for faiss_index_type in args.faiss_index_types:
+			index_args = make_index_args(args, faiss_index_type)
+			indexing = Indexing(index_args, chunking_args)
+			indexing.compute_faiss_index(chunks, embeddings, output_path)
+
+		# BM25 and Qdrant do not depend on the FAISS type, so they are built once, with the last Indexing
+		indexing.compute_bm25_index(chunks, output_path)
+		indexing.compute_qdrant_index(chunks, embeddings, output_path)
+		e4 = time.time() - s4
+		print("\nIndexing time : ", e4)
 
 	# ---------
 	end = time.time()

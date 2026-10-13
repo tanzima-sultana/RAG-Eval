@@ -592,7 +592,7 @@ def load_index(output_path: str, chunking_args: ChunkingArgs, index_args: IndexA
 	LangchainBm25Index, LangchainQdrantIndex).
 	What it does: load-only, for the eval phase; never builds. Validates
 	index_args, gets the index folders and the Qdrant collection name, and
-	loads the three indexes that Indexing.compute_index built with the same
+	loads the three indexes that Indexing built with the same
 	settings. For framework "langchain", hands the work to
 	load_langchain_index. Raises an error if any index is missing, or if
 	the FAISS index does not hold dataset_size documents.

@@ -46,8 +46,8 @@ BM25_TOKENIZER="whitespace"
 # 5. Eval QnA
 EVAL_QNA_LLM="claude" # LLM provider RAGAS uses to generate the eval QnA
 EVAL_QNA_MODEL="all-MiniLM-L6-v2" # Local embedding model RAGAS uses to build its knowledge graph
-N_SAMPLE_DOCUMENTS=200 # Documents randomly picked for RAGAS to generate the eval QnA from
-N_SAMPLE_EVALS=50 # Eval QnA items to generate
+N_SAMPLE_DOCUMENTS=100 # Documents randomly picked for RAGAS to generate the eval QnA from
+N_SAMPLE_EVALS=200 # Eval QnA items to generate
 
 # 6. Query
 QUERY_LLM="ollama" # Local LLM provider that transforms the eval questions
@@ -57,6 +57,7 @@ N_MULTI_QUS=3 # Phrasings the query LLM writes for each eval question
 # 7. Retrieval
 TOP_K=20 # Chunks each retriever returns for a query
 RERANK_TOP_K=5 # Chunks kept after the cross-encoder reranks the TOP_K chunks
+TUNING_QUERIES_SIZE=150 # Eval questions used for tuning; the rest are held out for one final check
 
 # run
 
@@ -94,4 +95,5 @@ python3 src/eval.py \
   --n_multi_qus "$N_MULTI_QUS" \
   --top_k "$TOP_K" \
   --rerank_top_k "$RERANK_TOP_K" \
+  --tuning_queries_size "$TUNING_QUERIES_SIZE" \
   2>&1 | tee "$LOG"

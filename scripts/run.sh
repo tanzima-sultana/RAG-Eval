@@ -26,14 +26,14 @@ PDF_PARSER="pypdfium2"
 # 2. Chunking
 FRAMEWORK="" # langchain or ""
 MODEL_NAME="all-MiniLM-L6-v2"
-CHUNKING_TYPE="fixed" # fixed, sentence, semantic
+CHUNKING_TYPES="fixed sentence semantic" # one or more of fixed, sentence, semantic, separated by spaces
 MIN_CHUNK_SIZE=128
 MAX_CHUNK_SIZE=256
 FIXED_CHUNK_OVERLAP=32
 SEMANTIC_THRESHOLD=0.2
 
 # 4. Indexing
-FAISS_INDEX_TYPE="faiss_flatip" # faiss_flatip, faiss_ivf, faiss_hnsw
+FAISS_INDEX_TYPES="faiss_flatip faiss_ivf faiss_hnsw" # one or more of faiss_flatip, faiss_ivf, faiss_hnsw, separated by spaces
 IVF_NLIST=256
 HNSW_M=32
 HNSW_EF_CONSTRUCTION=200
@@ -57,12 +57,12 @@ python3 src/build.py \
   --pdf_parser "$PDF_PARSER" \
   --framework "$FRAMEWORK" \
   --model_name "$MODEL_NAME" \
-  --chunk_type "$CHUNKING_TYPE" \
+  --chunk_types $CHUNKING_TYPES \
   --min_chunk_size "$MIN_CHUNK_SIZE" \
   --max_chunk_size "$MAX_CHUNK_SIZE" \
   --fixed_chunk_overlap "$FIXED_CHUNK_OVERLAP" \
   --semantic_threshold "$SEMANTIC_THRESHOLD" \
-  --faiss_index_type "$FAISS_INDEX_TYPE" \
+  --faiss_index_types $FAISS_INDEX_TYPES \
   --ivf_nlist "$IVF_NLIST" \
   --hnsw_m "$HNSW_M" \
   --hnsw_ef_construction "$HNSW_EF_CONSTRUCTION" \
