@@ -18,7 +18,7 @@ from l4_indexing import validate
 class Indexing:
 	def __init__(self, index_args: IndexArgs, chunking_args: ChunkingArgs):
 		"""
-		Input: index_args, the indexing settings with one faiss_index_type; chunking_args, the chunking
+		Input: index_args, the indexing settings with one index_type; chunking_args, the chunking
 		settings the chunks and embeddings were made with.
 		Output: none.
 		What it does: validates index_args and stores both settings. For framework "langchain", also creates
@@ -32,10 +32,24 @@ class Indexing:
 		if self.chunking_args.framework == constants.LANGCHAIN_FRAMEWORK:
 			self.langchain = Langchain(self.index_args, self.chunking_args)
 
+	def compute_index(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex | Bm25Index | QdrantIndex | LangchainFaissIndex | LangchainBm25Index | LangchainQdrantIndex:
+		"""
+		Input: chunks and embeddings from l2 and l3; output_path, the dataset's output folder.
+		Output: the index of index_type, built-in or LangChain.
+		What it does: builds the index of index_type, or loads it from cache.
+		"""
+		if self.index_args.index_type == constants.BM25_INDEX:
+			return self.compute_bm25_index(chunks, output_path)
+
+		if self.index_args.index_type == constants.QDRANT_INDEX:
+			return self.compute_qdrant_index(chunks, embeddings, output_path)
+
+		return self.compute_faiss_index(chunks, embeddings, output_path)
+
 	def compute_faiss_index(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex | LangchainFaissIndex:
 		"""
 		Input: chunks and embeddings from l2 and l3; output_path, the dataset's output folder.
-		Output: the FAISS index of type faiss_index_type, built-in or LangChain.
+		Output: the FAISS index of type index_type, built-in or LangChain.
 		What it does: builds the FAISS index, or loads it from cache.
 		"""
 		faiss_index_path = paths.get_faiss_index_path(output_path, self.chunking_args, self.index_args)

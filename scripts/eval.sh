@@ -28,14 +28,14 @@ PDF_PARSER="pypdfium2"
 # 2. Chunking
 FRAMEWORK="" # langchain or ""
 MODEL_NAME="all-MiniLM-L6-v2"
-CHUNKING_TYPE="fixed" # fixed, sentence, semantic
+CHUNKING_TYPES="fixed sentence semantic" # one or more of fixed, sentence, semantic, separated by spaces
 MIN_CHUNK_SIZE=128
 MAX_CHUNK_SIZE=256
 FIXED_CHUNK_OVERLAP=32
 SEMANTIC_THRESHOLD=0.2
 
 # 4. Indexing
-FAISS_INDEX_TYPE="faiss_flatip" # faiss_flatip, faiss_ivf, faiss_hnsw
+INDEX_TYPES="faiss_flatip faiss_ivf faiss_hnsw bm25 qdrant" # any of faiss_flatip, faiss_ivf, faiss_hnsw, bm25, qdrant, separated by spaces
 IVF_NLIST=256
 HNSW_M=32
 HNSW_EF_CONSTRUCTION=200
@@ -55,6 +55,7 @@ QUERY_LLM_MODEL="llama3.1:8b" # Local model the query LLM provider runs
 N_MULTI_QUS=3 # Phrasings the query LLM writes for each eval question
 
 # 7. Retrieval
+RETRIEVAL_TYPES="dense" # any of dense, bm25, hybrid, separated by spaces. Hybrid is not written yet
 TOP_K=20 # Chunks each retriever returns for a query
 RERANK_TOP_K=5 # Chunks kept after the cross-encoder reranks the TOP_K chunks
 TUNING_QUERIES_SIZE=150 # Eval questions used for tuning; the rest are held out for one final check
@@ -74,12 +75,12 @@ python3 src/eval.py \
   --pdf_parser "$PDF_PARSER" \
   --framework "$FRAMEWORK" \
   --model_name "$MODEL_NAME" \
-  --chunk_type "$CHUNKING_TYPE" \
+  --chunk_types $CHUNKING_TYPES \
   --min_chunk_size "$MIN_CHUNK_SIZE" \
   --max_chunk_size "$MAX_CHUNK_SIZE" \
   --fixed_chunk_overlap "$FIXED_CHUNK_OVERLAP" \
   --semantic_threshold "$SEMANTIC_THRESHOLD" \
-  --faiss_index_type "$FAISS_INDEX_TYPE" \
+  --index_types $INDEX_TYPES \
   --ivf_nlist "$IVF_NLIST" \
   --hnsw_m "$HNSW_M" \
   --hnsw_ef_construction "$HNSW_EF_CONSTRUCTION" \
@@ -93,6 +94,7 @@ python3 src/eval.py \
   --query_llm "$QUERY_LLM" \
   --query_llm_model "$QUERY_LLM_MODEL" \
   --n_multi_qus "$N_MULTI_QUS" \
+  --retrieval_types $RETRIEVAL_TYPES \
   --top_k "$TOP_K" \
   --rerank_top_k "$RERANK_TOP_K" \
   --tuning_queries_size "$TUNING_QUERIES_SIZE" \

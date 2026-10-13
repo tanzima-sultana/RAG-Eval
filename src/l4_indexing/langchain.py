@@ -76,7 +76,7 @@ class Langchain:
 		Output: a LangchainFaissIndex holding a LangChain FAISS vector store.
 		What it does: loads the saved vector store from faiss_index_path if
 		it holds exactly the same chunk_ids as embeddings. Otherwise builds a
-		FAISS index of type faiss_index_type with the same build functions
+		FAISS index of type index_type with the same build functions
 		as the built-in FAISS index, wraps it in a LangChain FAISS vector
 		store with one Document per chunk, saves it with save_local, and
 		returns it. The vectors are normalized, so the vector store uses
@@ -97,21 +97,21 @@ class Langchain:
 
 		# 2. Load the saved vector store if it holds exactly the same chunks
 		cached_faiss_index = cache._load_cached_langchain_faiss_index(
-			faiss_index_path, self.index_args.faiss_index_type, chunk_ids, self.embedding_model
+			faiss_index_path, self.index_args.index_type, chunk_ids, self.embedding_model
 		)
 		if cached_faiss_index is not None:
 			print(f"LangChain FAISS index loaded from cache : {cached_faiss_index.vector_store.index.ntotal} vectors")
 			return cached_faiss_index
 
 		# 3. Build a new FAISS index of the requested type
-		if self.index_args.faiss_index_type == FAISS_FLATIP_INDEX:
+		if self.index_args.index_type == FAISS_FLATIP_INDEX:
 			new_faiss_index = build_flatip_index(vectors, dimension)
-		elif self.index_args.faiss_index_type == FAISS_IVF_INDEX:
+		elif self.index_args.index_type == FAISS_IVF_INDEX:
 			new_faiss_index = build_ivf_index(vectors, dimension, self.index_args.ivf_nlist)
-		elif self.index_args.faiss_index_type == FAISS_HNSW_INDEX:
+		elif self.index_args.index_type == FAISS_HNSW_INDEX:
 			new_faiss_index = build_hnsw_index(vectors, dimension, self.index_args.hnsw_m, self.index_args.hnsw_ef_construction)
 		else:
-			raise ValueError(f"faiss_index_type ({self.index_args.faiss_index_type}) is not supported")
+			raise ValueError(f"index_type ({self.index_args.index_type}) is not supported")
 
 		# 4. Wrap it in a LangChain FAISS vector store
 		# The docstore maps each chunk_id to its Document, and
@@ -139,7 +139,7 @@ class Langchain:
 		cache._save_langchain_faiss_index(faiss_index_path, new_vector_store)
 
 		return LangchainFaissIndex(
-			faiss_index_type=self.index_args.faiss_index_type,
+			faiss_index_type=self.index_args.index_type,
 			vector_store=new_vector_store,
 			index_folder_path=faiss_index_path,
 			dimension=dimension

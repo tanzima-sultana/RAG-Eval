@@ -125,12 +125,12 @@ def parse_args():
 		default=constants.SEMANTIC_THRESHOLD,
 		help="Similarity threshold used by semantic chunking")
 	parser.add_argument(
-		"--faiss_index_types",
+		"--index_types",
 		type=str,
-		nargs="+",
+		nargs="*",
 		required=False,
-		default=[constants.FAISS_FLATIP_INDEX, constants.FAISS_IVF_INDEX, constants.FAISS_HNSW_INDEX],
-		help="FAISS index types to build, one after another: faiss_flatip, faiss_ivf and/or faiss_hnsw")
+		default=[constants.FAISS_FLATIP_INDEX, constants.FAISS_IVF_INDEX, constants.FAISS_HNSW_INDEX, constants.BM25_INDEX, constants.QDRANT_INDEX],
+		help="Indexes to build, one after another: any of faiss_flatip, faiss_ivf, faiss_hnsw, bm25 and qdrant, or none")
 	parser.add_argument(
 		"--ivf_nlist",
 		type=int,
@@ -218,16 +218,16 @@ def make_chunking_args(parsed_args, chunk_type: str):
 	return chunking_args
 
 
-def make_index_args(parsed_args, faiss_index_type: str):
+def make_index_args(parsed_args, index_type: str):
 	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args(); faiss_index_type, one of
-	parsed_args.faiss_index_types.
-	Output: an IndexArgs object holding the indexing values for faiss_index_type.
+	Input: parsed_args, the argparse.Namespace returned by parse_args(); index_type, one of
+	parsed_args.index_types.
+	Output: an IndexArgs object holding the indexing values for index_type.
 	What it does: copies each parsed indexing command line value into the
 	matching IndexArgs field.
 	"""
 	index_args = IndexArgs(
-		faiss_index_type=faiss_index_type,
+		index_type=index_type,
 		ivf_nlist=parsed_args.ivf_nlist,
 		hnsw_m=parsed_args.hnsw_m,
 		hnsw_ef_construction=parsed_args.hnsw_ef_construction,
@@ -281,15 +281,10 @@ if __name__ == "__main__":
 		print("\n\nIndexing")
 
 		s4 = time.time()
-		# One FAISS index per FAISS type
-		for faiss_index_type in args.faiss_index_types:
-			index_args = make_index_args(args, faiss_index_type)
-			indexing = Indexing(index_args, chunking_args)
-			indexing.compute_faiss_index(chunks, embeddings, output_path)
-
-		# BM25 and Qdrant do not depend on the FAISS type, so they are built once, with the last Indexing
-		indexing.compute_bm25_index(chunks, output_path)
-		indexing.compute_qdrant_index(chunks, embeddings, output_path)
+		# One index at a time. An index type not in the list is not built
+		for index_type in args.index_types:
+			index_args = make_index_args(args, index_type)
+			Indexing(index_args, chunking_args).compute_index(chunks, embeddings, output_path)
 		e4 = time.time() - s4
 		print("\nIndexing time : ", e4)
 

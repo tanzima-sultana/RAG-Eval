@@ -162,7 +162,7 @@ def load_faiss_index(faiss_index_path: str, index_args: IndexArgs, dataset_size:
 	saved_index = faiss.read_index(index_file_path)
 	print(f"FAISS index loaded : {saved_index.ntotal} vectors")
 	return FaissIndex(
-		faiss_index_type=index_args.faiss_index_type,
+		faiss_index_type=index_args.index_type,
 		faiss_index=saved_index,
 		chunk_ids=saved_chunk_ids,
 		index_file_path=index_file_path,
@@ -431,7 +431,7 @@ def load_langchain_faiss_index(faiss_index_path: str, index_args: IndexArgs, dat
 
 	print(f"LangChain FAISS index loaded : {saved_vector_store.index.ntotal} vectors")
 	return LangchainFaissIndex(
-		faiss_index_type=index_args.faiss_index_type,
+		faiss_index_type=index_args.index_type,
 		vector_store=saved_vector_store,
 		index_folder_path=faiss_index_path,
 		dimension=saved_vector_store.index.d
@@ -581,54 +581,43 @@ def load_langchain_qdrant_index(qdrant_collection_name: str, embedding_model: Hu
 		dimension=collection_info.config.params.vectors.size
 	)
 
-# ------ Load all indexes (eval phase)
-def load_index(output_path: str, chunking_args: ChunkingArgs, index_args: IndexArgs, dataset_size: int) -> tuple[FaissIndex, Bm25Index, QdrantIndex] | tuple[LangchainFaissIndex, LangchainBm25Index, LangchainQdrantIndex]:
+# ------ Load one index (eval phase)
+def load_index(output_path: str, chunking_args: ChunkingArgs, index_args: IndexArgs, dataset_size: int) -> FaissIndex | Bm25Index | QdrantIndex | LangchainFaissIndex | LangchainBm25Index | LangchainQdrantIndex:
 	"""
-	Input: output_path, the dataset's output folder the index folders are
-	under; chunking_args and index_args, the settings the indexes were
-	built with; dataset_size, the number of documents the indexes must hold.
-	Output: a tuple of (FaissIndex, Bm25Index, QdrantIndex), or for
-	framework "langchain" a tuple of (LangchainFaissIndex,
-	LangchainBm25Index, LangchainQdrantIndex).
-	What it does: load-only, for the eval phase; never builds. Validates
-	index_args, gets the index folders and the Qdrant collection name, and
-	loads the three indexes that Indexing built with the same
-	settings. For framework "langchain", hands the work to
-	load_langchain_index. Raises an error if any index is missing, or if
-	the FAISS index does not hold dataset_size documents.
+	Input: output_path, the dataset's output folder; chunking_args and index_args, the settings the index was built
+	with; dataset_size, the number of documents a FAISS index must hold.
+	Output: the saved index of index_type. For framework "langchain", the LangChain index.
+	What it does: load-only, never builds. Raises an error if the index is missing.
 	"""
-
-	# 1. validate index args
 	validate.validate_index_args(index_args)
 
 	if chunking_args.framework == constants.LANGCHAIN_FRAMEWORK:
 		return load_langchain_index(output_path, chunking_args, index_args, dataset_size)
 
-	# 2. Get the folder of the FAISS and BM25 indexes and the Qdrant collection name
+	if index_args.index_type == constants.BM25_INDEX:
+		bm25_index_path = paths.get_bm25_index_path(output_path, chunking_args, index_args)
+		return load_bm25_index(bm25_index_path)
+
+	if index_args.index_type == constants.QDRANT_INDEX:
+		qdrant_collection_name = paths.get_qdrant_collection_name(output_path, chunking_args)
+		return load_qdrant_index(qdrant_collection_name)
+
 	faiss_index_path = paths.get_faiss_index_path(output_path, chunking_args, index_args)
-	bm25_index_path = paths.get_bm25_index_path(output_path, chunking_args, index_args)
-	qdrant_collection_name = paths.get_qdrant_collection_name(output_path, chunking_args)
+	return load_faiss_index(faiss_index_path, index_args, dataset_size)
 
-	# 3. Load the three indexes
-	faiss_index = load_faiss_index(faiss_index_path, index_args, dataset_size)
-	bm25_index = load_bm25_index(bm25_index_path)
-	qdrant_index = load_qdrant_index(qdrant_collection_name)
-
-	return faiss_index, bm25_index, qdrant_index
-
-def load_langchain_index(output_path: str, chunking_args: ChunkingArgs, index_args: IndexArgs, dataset_size: int) -> tuple[LangchainFaissIndex, LangchainBm25Index, LangchainQdrantIndex]:
+def load_langchain_index(output_path: str, chunking_args: ChunkingArgs, index_args: IndexArgs, dataset_size: int) -> LangchainFaissIndex | LangchainBm25Index | LangchainQdrantIndex:
 	"""
-	Input: output_path, the dataset's output folder the index folders are
-	under; chunking_args and index_args, the settings the indexes were
-	built with; dataset_size, the number of documents the indexes must hold.
-	Output: a tuple of (LangchainFaissIndex, LangchainBm25Index, LangchainQdrantIndex).
-	What it does: load-only, never builds. Loads LangChain's
-	HuggingFaceEmbeddings, which the FAISS and Qdrant vector stores need to
-	embed queries, gets the LangChain index folders and Qdrant collection
-	name, and loads all three LangChain indexes.
+	Input: output_path, the dataset's output folder; chunking_args and index_args, the settings the index was built
+	with; dataset_size, the number of documents a FAISS index must hold.
+	Output: the saved LangChain index of index_type.
+	What it does: load-only, never builds. FAISS and Qdrant also need LangChain's HuggingFaceEmbeddings to embed
+	queries, so it is loaded for them.
 	"""
+	if index_args.index_type == constants.BM25_INDEX:
+		bm25_index_path = paths.get_bm25_index_path(output_path, chunking_args, index_args)
+		return load_langchain_bm25_index(bm25_index_path)
 
-	# 1. Load the query embedding model, normalized like l3_embedding
+	# The query embedding model, normalized like l3_embedding
 	device = "cuda" if torch.cuda.is_available() else "cpu"
 	embedding_model = HuggingFaceEmbeddings(
 		model_name=chunking_args.model_name,
@@ -636,14 +625,9 @@ def load_langchain_index(output_path: str, chunking_args: ChunkingArgs, index_ar
 		encode_kwargs={"batch_size": 256, "normalize_embeddings": True}
 	)
 
-	# 2. Get the folder of the FAISS and BM25 indexes and the Qdrant collection name
+	if index_args.index_type == constants.QDRANT_INDEX:
+		qdrant_collection_name = paths.get_qdrant_collection_name(output_path, chunking_args)
+		return load_langchain_qdrant_index(qdrant_collection_name, embedding_model)
+
 	faiss_index_path = paths.get_faiss_index_path(output_path, chunking_args, index_args)
-	bm25_index_path = paths.get_bm25_index_path(output_path, chunking_args, index_args)
-	qdrant_collection_name = paths.get_qdrant_collection_name(output_path, chunking_args)
-
-	# 3. Load the three indexes
-	faiss_index = load_langchain_faiss_index(faiss_index_path, index_args, dataset_size, embedding_model)
-	bm25_index = load_langchain_bm25_index(bm25_index_path)
-	qdrant_index = load_langchain_qdrant_index(qdrant_collection_name, embedding_model)
-
-	return faiss_index, bm25_index, qdrant_index
+	return load_langchain_faiss_index(faiss_index_path, index_args, dataset_size, embedding_model)

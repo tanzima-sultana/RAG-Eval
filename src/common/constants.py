@@ -33,6 +33,8 @@ SEMANTIC_THRESHOLD=0.2
 FAISS_FLATIP_INDEX="faiss_flatip"
 FAISS_IVF_INDEX="faiss_ivf"
 FAISS_HNSW_INDEX="faiss_hnsw"
+BM25_INDEX="bm25"
+QDRANT_INDEX="qdrant"
 
 IVF_NLIST=256
 HNSW_M=32
@@ -107,8 +109,10 @@ MULTI_QUERY="multi"
 HYDE_QUERY="hyde"
 # Retrieval types
 DENSE_RETRIEVAL="dense"
-# Indexer name of the Qdrant collection, stored in Retrieved.indexer
-QDRANT_INDEX="qdrant"
+BM25_RETRIEVAL="bm25"
+HYBRID_RETRIEVAL="hybrid"
+# Reciprocal rank fusion constant for hybrid: a chunk at rank r (from 1) gets 1 / (RRF_K + r) from each list
+RRF_K=60
 
 # Seed for the tuning / held-out split, so every run gets the same split
 TUNING_SPLIT_SEED=42

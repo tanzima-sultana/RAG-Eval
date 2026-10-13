@@ -18,11 +18,11 @@ from l4_indexing.schema import QdrantIndex
 from l5_query.schema import Query
 from l6_retrieval.schema import Retrieved
 
-def get_dense_outputs(queries: list[Query], faiss_index: FaissIndex, qdrant_index: QdrantIndex, top_k: int) -> list[Retrieved]:
+def get_dense_outputs(queries: list[Query], chunk_type: str, index_type: str, index: FaissIndex | QdrantIndex, top_k: int) -> list[Retrieved]:
 	"""
-	Input: l5 queries, the built-in FAISS index and Qdrant collection, and top_k.
-	Output: one Retrieved per query, query type and indexer (FAISS or Qdrant), not reranked.
-	What it does: searches both indexes with each query type's embeddings and keeps the top_k chunks.
+	Input: l5 queries, the chunk type, one built-in FAISS index or Qdrant collection with its index type, and top_k.
+	Output: one Retrieved per query and query type, not reranked.
+	What it does: searches the index with each query type's embeddings and keeps the top_k chunks.
 	"""
 	dense_outputs = []
 
@@ -43,16 +43,15 @@ def get_dense_outputs(queries: list[Query], faiss_index: FaissIndex, qdrant_inde
 		query_types_and_vectors.append((MULTI_QUERY, multi_vectors))
 		query_types_and_vectors.append((HYDE_QUERY, hyde_vectors))
 
-		# 2. Search both indexes with each query type
+		# 2. Search the index with each query type
 		# A query type with no embeddings gets a Retrieved with no chunks, so it still counts as a miss
 		for query_type, query_vectors in query_types_and_vectors:
-			faiss_hits = search_faiss(faiss_index, query_vectors, top_k)
-			faiss_retrieved = make_dense_retrieved(query.id, query_type, faiss_index.faiss_index_type, top_k, faiss_hits)
-			dense_outputs.append(faiss_retrieved)
-
-			qdrant_hits = search_qdrant(qdrant_index, query_vectors, top_k)
-			qdrant_retrieved = make_dense_retrieved(query.id, query_type, QDRANT_INDEX, top_k, qdrant_hits)
-			dense_outputs.append(qdrant_retrieved)
+			if index_type == QDRANT_INDEX:
+				hits = search_qdrant(index, query_vectors, top_k)
+			else:
+				hits = search_faiss(index, query_vectors, top_k)
+			retrieved = make_dense_retrieved(query.id, query_type, chunk_type, index_type, top_k, hits)
+			dense_outputs.append(retrieved)
 
 	return dense_outputs
 
@@ -100,9 +99,9 @@ def search_qdrant(qdrant_index: QdrantIndex, query_vectors: list[np.ndarray], to
 
 	return hits
 
-def make_dense_retrieved(query_id: str, query_type: str, indexer: str, top_k: int, hits: list[tuple[str, float]]) -> Retrieved:
+def make_dense_retrieved(query_id: str, query_type: str, chunk_type: str, index_type: str, top_k: int, hits: list[tuple[str, float]]) -> Retrieved:
 	"""
-	Input: the query id and type, the indexer name, top_k, and the (chunk_id, score) pairs found.
+	Input: the query id and type, the chunk type, the index type, top_k, and the (chunk_id, score) pairs found.
 	Output: a Retrieved holding the top_k chunks, best first.
 	What it does: keeps each chunk once with its best score, so the multi query phrasings are merged.
 	"""
@@ -127,8 +126,9 @@ def make_dense_retrieved(query_id: str, query_type: str, indexer: str, top_k: in
 	return Retrieved(
 		id=query_id,
 		query_type=query_type,
+		chunk_type=chunk_type,
 		retrieval_type=DENSE_RETRIEVAL,
-		indexer=indexer,
+		index_type=index_type,
 		top_k=top_k,
 		reranking=False,
 		rerank_top_k=0,

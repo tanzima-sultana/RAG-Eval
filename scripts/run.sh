@@ -33,7 +33,7 @@ FIXED_CHUNK_OVERLAP=32
 SEMANTIC_THRESHOLD=0.2
 
 # 4. Indexing
-FAISS_INDEX_TYPES="faiss_flatip faiss_ivf faiss_hnsw" # one or more of faiss_flatip, faiss_ivf, faiss_hnsw, separated by spaces
+INDEX_TYPES="faiss_flatip faiss_ivf faiss_hnsw bm25 qdrant" # any of faiss_flatip, faiss_ivf, faiss_hnsw, bm25, qdrant, separated by spaces
 IVF_NLIST=256
 HNSW_M=32
 HNSW_EF_CONSTRUCTION=200
@@ -62,7 +62,7 @@ python3 src/build.py \
   --max_chunk_size "$MAX_CHUNK_SIZE" \
   --fixed_chunk_overlap "$FIXED_CHUNK_OVERLAP" \
   --semantic_threshold "$SEMANTIC_THRESHOLD" \
-  --faiss_index_types $FAISS_INDEX_TYPES \
+  --index_types $INDEX_TYPES \
   --ivf_nlist "$IVF_NLIST" \
   --hnsw_m "$HNSW_M" \
   --hnsw_ef_construction "$HNSW_EF_CONSTRUCTION" \

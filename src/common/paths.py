@@ -91,14 +91,14 @@ def get_faiss_index_path(output_path:str, chunking_args: ChunkingArgs, index_arg
 	else:
 		framework_folder = f"{chunking_args.framework}/"
 
-	if index_args.faiss_index_type == FAISS_FLATIP_INDEX:
+	if index_args.index_type == FAISS_FLATIP_INDEX:
 		faiss_folder = "flatip"
-	elif index_args.faiss_index_type == FAISS_IVF_INDEX:
+	elif index_args.index_type == FAISS_IVF_INDEX:
 		faiss_folder = f"ivf_{index_args.ivf_nlist}"
-	elif index_args.faiss_index_type == FAISS_HNSW_INDEX:
+	elif index_args.index_type == FAISS_HNSW_INDEX:
 		faiss_folder = f"hnsw_{index_args.hnsw_m}_{index_args.hnsw_ef_construction}"
 	else:
-		raise ValueError(f"faiss_index_type ({index_args.faiss_index_type}) is not supported")
+		raise ValueError(f"index_type ({index_args.index_type}) is not supported")
 
 	return (
 		f"{output_path}/indexes/faiss/{framework_folder}{chunking_args.chunk_type}/{chunking_args.model_name}/"

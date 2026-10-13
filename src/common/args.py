@@ -29,7 +29,8 @@ class ChunkingArgs:
 
 @dataclasses.dataclass
 class IndexArgs:
-	faiss_index_type: str
+	# faiss_flatip, faiss_ivf, faiss_hnsw, bm25 or qdrant
+	index_type: str
 	ivf_nlist: int
 	hnsw_m: int
 	hnsw_ef_construction: int
@@ -54,5 +55,7 @@ class QueryArgs:
 
 @dataclasses.dataclass
 class RetrievalArgs:
+	framework: str
+	retrieval_types: list[str]
 	top_k: int
 	rerank_top_k: int

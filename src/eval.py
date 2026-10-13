@@ -15,7 +15,7 @@ from l2_chunking.cache import load_chunks
 from l4_indexing import cache as index_cache
 from qna.qna import get_eval_qna
 from l5_query.query import get_queries
-from l6_retrieval.retrieval import get_retrieved_outputs
+from l6_retrieval.retrieval import Retrieval
 
 def parse_args():
 	"""
@@ -101,11 +101,12 @@ def parse_args():
 		default="",
 		help="SentenceTransformer model the build used")
 	parser.add_argument(
-		"--chunk_type",
+		"--chunk_types",
 		type=str,
+		nargs="+",
 		required=False,
-		default=constants.FIXED_CHUNKING,
-		help="Chunking strategy the build used: fixed, sentence or semantic")
+		default=[constants.FIXED_CHUNKING, constants.SENTENCE_CHUNKING, constants.SEMANTIC_CHUNKING],
+		help="Chunking strategies the build made, loaded one after another: fixed, sentence and/or semantic")
 	parser.add_argument(
 		"--min_chunk_size",
 		type=int,
@@ -131,11 +132,12 @@ def parse_args():
 		default=constants.SEMANTIC_THRESHOLD,
 		help="Semantic threshold the build used")
 	parser.add_argument(
-		"--faiss_index_type",
+		"--index_types",
 		type=str,
+		nargs="*",
 		required=False,
-		default=constants.FAISS_FLATIP_INDEX,
-		help="FAISS index type the build used: faiss_flatip, faiss_ivf or faiss_hnsw")
+		default=[constants.FAISS_FLATIP_INDEX, constants.FAISS_IVF_INDEX, constants.FAISS_HNSW_INDEX, constants.BM25_INDEX, constants.QDRANT_INDEX],
+		help="Indexes the build made, loaded one after another: any of faiss_flatip, faiss_ivf, faiss_hnsw, bm25 and qdrant, or none")
 	parser.add_argument(
 		"--ivf_nlist",
 		type=int,
@@ -215,6 +217,13 @@ def parse_args():
 		default=constants.N_MULTI_QUS,
 		help="Number of phrasings the query LLM writes for each eval question")
 	parser.add_argument(
+		"--retrieval_types",
+		type=str,
+		nargs="+",
+		required=False,
+		default=[constants.DENSE_RETRIEVAL, constants.BM25_RETRIEVAL, constants.HYBRID_RETRIEVAL],
+		help="Retrieval types to run, one after another: dense, bm25 and/or hybrid")
+	parser.add_argument(
 		"--top_k",
 		type=int,
 		required=False,
@@ -257,17 +266,17 @@ def make_ingest_args(parsed_args):
 	return ingest_args
 
 
-def make_chunking_args(parsed_args):
+def make_chunking_args(parsed_args, chunk_type: str):
 	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args().
-	Output: a ChunkingArgs object holding the chunking values of the build.
+	Input: parsed_args, the argparse.Namespace returned by parse_args(); chunk_type, one of parsed_args.chunk_types.
+	Output: a ChunkingArgs object holding the chunking values of the build for chunk_type.
 	What it does: copies each parsed chunking value into the matching
 	ChunkingArgs field.
 	"""
 	chunking_args = ChunkingArgs(
 		framework=parsed_args.framework,
 		model_name=parsed_args.model_name,
-		chunk_type=parsed_args.chunk_type,
+		chunk_type=chunk_type,
 		min_chunk_size=parsed_args.min_chunk_size,
 		max_chunk_size=parsed_args.max_chunk_size,
 		fixed_chunk_overlap=parsed_args.fixed_chunk_overlap,
@@ -276,16 +285,17 @@ def make_chunking_args(parsed_args):
 	return chunking_args
 
 
-def make_index_args(parsed_args):
+def make_index_args(parsed_args, index_type: str):
 	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args().
-	Output: an IndexArgs object holding the index values of the build.
+	Input: parsed_args, the argparse.Namespace returned by parse_args(); index_type, one of
+	parsed_args.index_types.
+	Output: an IndexArgs object holding the index values of the build for index_type.
 	What it does: copies each parsed index value into the matching
 	IndexArgs field. qdrant_batch_size only matters while building, so it
 	is set to its default.
 	"""
 	index_args = IndexArgs(
-		faiss_index_type=parsed_args.faiss_index_type,
+		index_type=index_type,
 		ivf_nlist=parsed_args.ivf_nlist,
 		hnsw_m=parsed_args.hnsw_m,
 		hnsw_ef_construction=parsed_args.hnsw_ef_construction,
@@ -335,9 +345,11 @@ def make_retrieval_args(parsed_args):
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args().
 	Output: a RetrievalArgs object holding the retrieval settings.
-	What it does: copies the parsed top_k and rerank_top_k into the matching RetrievalArgs fields.
+	What it does: copies the parsed framework, retrieval_types, top_k and rerank_top_k into the matching RetrievalArgs fields.
 	"""
 	retrieval_args = RetrievalArgs(
+		framework=parsed_args.framework,
+		retrieval_types=parsed_args.retrieval_types,
 		top_k=parsed_args.top_k,
 		rerank_top_k=parsed_args.rerank_top_k
 	)
@@ -351,11 +363,8 @@ if __name__ == "__main__":
 	print(args)
 
 	ingest_args = make_ingest_args(args)
-	chunking_args = make_chunking_args(args)
-	index_args = make_index_args(args)
 	eval_qna_args = make_eval_qna_args(args)
 	query_args = make_query_args(args)
-	retrieval_args = make_retrieval_args(args)
 	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
 
 	# 1. Load the l1 documents
@@ -366,46 +375,24 @@ if __name__ == "__main__":
 	e1 = time.time() - s1
 	print("\nLoading documents time : ", e1)
 
-	# 2. Load the l2 chunks of those documents
-	# Load-only; raises an error if a document has no chunk file
-	print("\n\nLoading chunks")
-	s2 = time.time()
-	chunk_path = paths.get_chunk_path(output_path, chunking_args)
-	doc_ids = []
-	for doc_id in documents:
-		doc_ids.append(doc_id)
-	chunks = load_chunks(chunk_path, doc_ids)
-	e2 = time.time() - s2
-	print(f"Chunk folder : {chunk_path}")
-	print(f"Chunks loaded : {len(chunks)} from {len(doc_ids)} documents")
-	print("\nLoading chunks time : ", e2)
-
-	# 3. Load the built indexes
-	# Raises an error if any index is missing or was built with a different dataset size
-	print("\n\nLoading indexes")
-	s3 = time.time()
-	faiss_index, bm25_index, qdrant_index = index_cache.load_index(output_path, chunking_args, index_args, args.dataset_size)
-	e3 = time.time() - s3
-	print("\nLoading indexes time : ", e3)
-
-	# 4. Load eval QnA
+	# 2. Load eval QnA
 	# Reuses {output_path}/eval_qna_{n_sample_documents}_{n_sample_evals}_{eval_qna_llm}_{eval_qna_model}.json if it exists
 	print("\n\nLoading eval QnA")
-	s4 = time.time()
+	s2 = time.time()
 	eval_qna = get_eval_qna(output_path, documents, eval_qna_args)
-	e4 = time.time() - s4
+	e2 = time.time() - s2
 	print(f"Eval QnA loaded : {len(eval_qna)}")
-	print("\nLoading eval QnA time : ", e4)
+	print("\nLoading eval QnA time : ", e2)
 
-	# 5. Query
+	# 3. Query
 	print("\n\nLoading Query")
-	s5 = time.time()
+	s3 = time.time()
 	queries = get_queries(output_path, eval_qna, eval_qna_args, query_args)
-	e5 = time.time() - s5
+	e3 = time.time() - s3
 	print(f"Query loaded : {len(queries)}")
-	print("\nLoading Query time : ", e5)
+	print("\nLoading Query time : ", e3)
 
-	# 6. Split the queries into tuning and held-out
+	# 4. Split the queries into tuning and held-out
 	# Shuffled with a fixed seed, so every run gets the same split
 	if len(queries) <= args.tuning_queries_size:
 		raise ValueError(
@@ -420,15 +407,77 @@ if __name__ == "__main__":
 	held_out_queries = shuffled_queries[args.tuning_queries_size:]
 	print(f"\n\nTuning queries : {len(tuning_queries)}, held-out queries : {len(held_out_queries)}")
 
-	# 7. Retrieval on the tuning queries only
-	print("\n\nLoading Retrieval")
-	s7 = time.time()
-	retrieved_outputs = get_retrieved_outputs(
-		tuning_queries, chunks, faiss_index, bm25_index, qdrant_index, retrieval_args
-	)
-	e7 = time.time() - s7
-	print(f"Retrieval loaded : {len(eval_qna)}")
-	print("\nLoading Retrieval time : ", e7)
+	doc_ids = []
+	for doc_id in documents:
+		doc_ids.append(doc_id)
+
+	# Retrieval settings do not depend on the chunk type
+	retrieval_args = make_retrieval_args(args)
+	retrieval = Retrieval(retrieval_args)
+		
+	# One chunk type at a time, so only its chunks and indexes are in memory
+	for chunk_type in args.chunk_types:
+		print(f"\n\n========== Chunk type : {chunk_type} ==========")
+		chunking_args = make_chunking_args(args, chunk_type)
+
+		# 5. Load the l2 chunks
+		# Load-only; raises an error if a document has no chunk file
+		print("\n\nLoading chunks")
+		s5 = time.time()
+		chunk_path = paths.get_chunk_path(output_path, chunking_args)
+		chunks = load_chunks(chunk_path, doc_ids)
+		e5 = time.time() - s5
+		print(f"Chunk folder : {chunk_path}")
+		print(f"Chunks loaded : {len(chunks)} from {len(doc_ids)} documents")
+		print("\nLoading chunks time : ", e5)
+
+		# Kept for hybrid: dense outputs of each dense index, and the BM25 outputs
+		retrieved_dense_outputs = {}
+		retrieved_bm25_outputs = []
+
+		# One index at a time, so only one index is in memory
+		for index_type in args.index_types:
+			# 6. Load the l4 index
+			# Raises an error if the index is missing or was built with a different dataset size
+			print(f"\n\nLoading index : {index_type}")
+			s6 = time.time()
+			index_args = make_index_args(args, index_type)
+			index = index_cache.load_index(output_path, chunking_args, index_args, args.dataset_size)
+			e6 = time.time() - s6
+			print("\nLoading index time : ", e6)
+
+			# 7. Dense retrieval on the tuning queries. 
+			if constants.DENSE_RETRIEVAL in retrieval_args.retrieval_types:
+				s7 = time.time()
+				dense_outputs = retrieval.compute_dense_retrieval(tuning_queries, chunk_type, index_type, index)
+				if len(dense_outputs) > 0:
+					retrieved_dense_outputs[index_type] = dense_outputs
+					print(f"\n\nDense retrieved outputs on {index_type} : {len(dense_outputs)}")
+					print("\nDense retrieval time : ", time.time() - s7)
+
+					# 8. Retrieval quality evaluation of dense
+
+			# 9. BM25 retrieval on the tuning queries. 
+			if constants.BM25_RETRIEVAL in retrieval_args.retrieval_types:
+				s9 = time.time()
+				bm25_outputs = retrieval.compute_bm25_retrieval(tuning_queries, chunk_type, index_type, index)
+				if len(bm25_outputs) > 0:
+					retrieved_bm25_outputs = bm25_outputs
+					print(f"\n\nBM25 retrieved outputs on {index_type} : {len(bm25_outputs)}")
+					print("\nBM25 retrieval time : ", time.time() - s9)
+
+					# 10. Retrieval quality evaluation of BM25
+
+		# 11. Hybrid: each dense index's outputs fused with the BM25 outputs, only if both exist and hybrid is given
+		if len(retrieved_dense_outputs) > 0 and len(retrieved_bm25_outputs) > 0 and constants.HYBRID_RETRIEVAL in args.retrieval_types:
+
+			for index_type in retrieved_dense_outputs:
+				s11 = time.time()
+				hybrid_outputs = retrieval.compute_hybrid_retrieval(chunk_type, index_type, retrieved_dense_outputs[index_type], retrieved_bm25_outputs)
+				print(f"\n\nHybrid retrieved outputs on {index_type}+{constants.BM25_INDEX} : {len(hybrid_outputs)}")
+				print("\nHybrid retrieval time : ", time.time() - s11)
+
+				# 12. Retrieval quality evaluation of hybrid
 
 	# ---------
 	end = time.time()

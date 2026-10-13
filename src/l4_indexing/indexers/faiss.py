@@ -25,7 +25,7 @@ def get_faiss_index(faiss_index_path: str, index_args: IndexArgs, embeddings: di
 	What it does: loads the saved index from faiss_index_path if it holds
 	exactly the same chunk_ids as embeddings. Otherwise builds a new index
 	from all the embedding vectors with the method that matches
-	faiss_index_type, saves it, and returns it. The vectors are normalized
+	index_type, saves it, and returns it. The vectors are normalized
 	by l3_embedding, so inner product is the same as cosine similarity.
 	"""
 	if len(embeddings) == 0:
@@ -42,27 +42,27 @@ def get_faiss_index(faiss_index_path: str, index_args: IndexArgs, embeddings: di
 	dimension = vectors.shape[1]
 
 	# 2. Load the saved index if it holds exactly the same chunks
-	cached_faiss_index = cache._load_cached_faiss_index(faiss_index_path, index_args.faiss_index_type, chunk_ids)
+	cached_faiss_index = cache._load_cached_faiss_index(faiss_index_path, index_args.index_type, chunk_ids)
 	if cached_faiss_index is not None:
 		print(f"FAISS index loaded from cache : {cached_faiss_index.faiss_index.ntotal} vectors")
 		return cached_faiss_index
 
 	# 3. Build a new index of the requested type
-	if index_args.faiss_index_type == FAISS_FLATIP_INDEX:
+	if index_args.index_type == FAISS_FLATIP_INDEX:
 		new_index = build_flatip_index(vectors, dimension)
-	elif index_args.faiss_index_type == FAISS_IVF_INDEX:
+	elif index_args.index_type == FAISS_IVF_INDEX:
 		new_index = build_ivf_index(vectors, dimension, index_args.ivf_nlist)
-	elif index_args.faiss_index_type == FAISS_HNSW_INDEX:
+	elif index_args.index_type == FAISS_HNSW_INDEX:
 		new_index = build_hnsw_index(vectors, dimension, index_args.hnsw_m, index_args.hnsw_ef_construction)
 	else:
-		raise ValueError(f"faiss_index_type ({index_args.faiss_index_type}) is not supported")
+		raise ValueError(f"index_type ({index_args.index_type}) is not supported")
 	print(f"FAISS index built : {new_index.ntotal} vectors")
 
 	# 4. Save the index and its chunk ids
 	cache._save_faiss_index(faiss_index_path, new_index, chunk_ids)
 
 	return FaissIndex(
-		faiss_index_type=index_args.faiss_index_type,
+		faiss_index_type=index_args.index_type,
 		faiss_index=new_index,
 		chunk_ids=chunk_ids,
 		index_file_path=os.path.join(faiss_index_path, "index.faiss"),
