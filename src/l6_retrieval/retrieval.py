@@ -1,7 +1,12 @@
+import torch
+from sentence_transformers import CrossEncoder
+
 from common.args import RetrievalArgs
+from common.constants import CROSS_ENCODER_MODEL
 from common.constants import LANGCHAIN_FRAMEWORK
 from common.constants import DENSE_RETRIEVAL, BM25_RETRIEVAL, HYBRID_RETRIEVAL
 from common.constants import FAISS_FLATIP_INDEX, FAISS_HNSW_INDEX, FAISS_IVF_INDEX, BM25_INDEX, QDRANT_INDEX
+from l2_chunking.schema import Chunk
 from l4_indexing.schema import FaissIndex
 from l4_indexing.schema import Bm25Index
 from l4_indexing.schema import QdrantIndex
@@ -15,14 +20,15 @@ from l6_retrieval.langchain import Langchain
 from l6_retrieval.retrievars import dense
 from l6_retrieval.retrievars import bm25
 from l6_retrieval.retrievars import hybrid
+from l6_retrieval import rerank
 
 class Retrieval:
 	def __init__(self, retrieval_args: RetrievalArgs):
 		"""
-		Input: retrieval_args, the framework, retrieval_types, top_k and rerank_top_k.
+		Input: retrieval_args, the framework, retrieval_types, top_k, reranking and rerank_top_k.
 		Output: none.
 		What it does: validates retrieval_args and stores it. For framework "langchain", also creates the Langchain
-		class once, which the dense and BM25 methods hand the work to.
+		class once, which the dense and BM25 methods hand the work to. With reranking, also loads the cross-encoder once.
 		"""
 		validate.validate_retrieval_args(retrieval_args)
 		self.retrieval_args = retrieval_args
@@ -30,6 +36,11 @@ class Retrieval:
 		self.langchain = None
 		if self.retrieval_args.framework == LANGCHAIN_FRAMEWORK:
 			self.langchain = Langchain(self.retrieval_args.top_k)
+
+		self.cross_encoder = None
+		if self.retrieval_args.reranking:
+			device = "cuda" if torch.cuda.is_available() else "cpu"
+			self.cross_encoder = CrossEncoder(CROSS_ENCODER_MODEL, device=device)
 
 	def compute_dense_retrieval(self, queries: list[Query], chunk_type: str, index_type: str, index: FaissIndex | QdrantIndex | LangchainFaissIndex | LangchainQdrantIndex) -> list[Retrieved]:
 		"""
@@ -46,9 +57,10 @@ class Retrieval:
 			return []
 
 		if self.langchain is not None:
-			return self.langchain.get_dense_outputs(queries, chunk_type, index_type, index)
+			dense_outputs = self.langchain.get_dense_outputs(queries, chunk_type, index_type, index)
+		else:
+			dense_outputs = dense.get_dense_outputs(queries, chunk_type, index_type, index, self.retrieval_args.top_k)
 
-		dense_outputs = dense.get_dense_outputs(queries, chunk_type, index_type, index, self.retrieval_args.top_k)
 		return dense_outputs
 	
 	def compute_bm25_retrieval(self, queries: list[Query], chunk_type: str, index_type: str, index: Bm25Index | LangchainBm25Index) -> list[Retrieved]:
@@ -65,9 +77,10 @@ class Retrieval:
 			return []
 
 		if self.langchain is not None:
-			return self.langchain.get_bm25_outputs(queries, chunk_type, index_type, index)
+			bm25_outputs = self.langchain.get_bm25_outputs(queries, chunk_type, index_type, index)
+		else:
+			bm25_outputs = bm25.get_bm25_outputs(queries, chunk_type, index_type, index, self.retrieval_args.top_k)
 
-		bm25_outputs = bm25.get_bm25_outputs(queries, chunk_type, index_type, index, self.retrieval_args.top_k)
 		return bm25_outputs
 	
 	def compute_hybrid_retrieval(self, chunk_type: str, dense_index_type: str, dense_outputs: list[Retrieved], bm25_outputs: list[Retrieved]) -> list[Retrieved]:
@@ -80,4 +93,32 @@ class Retrieval:
 			return []
 
 		hybrid_outputs = hybrid.get_hybrid_outputs(chunk_type, dense_index_type, dense_outputs, bm25_outputs, self.retrieval_args.top_k)
+
 		return hybrid_outputs
+
+	def get_reranked_dense_retrieval(self, queries: list[Query], chunks: dict[str, Chunk], dense_outputs: list[Retrieved]) -> list[Retrieved]:
+		"""
+		Input: l5 queries, the l2 chunks, and the dense outputs.
+		Output: one reranked Retrieved per dense output, holding the best rerank_top_k chunks.
+		What it does: reranks the chunks of each dense output with the cross-encoder.
+		"""
+		reranked_dense_outputs = rerank.get_reranked_outputs(queries, chunks, dense_outputs, self.cross_encoder, self.retrieval_args.rerank_top_k)
+		return reranked_dense_outputs
+
+	def get_reranked_bm25_retrieval(self, queries: list[Query], chunks: dict[str, Chunk], bm25_outputs: list[Retrieved]) -> list[Retrieved]:
+		"""
+		Input: l5 queries, the l2 chunks, and the BM25 outputs.
+		Output: one reranked Retrieved per BM25 output, holding the best rerank_top_k chunks.
+		What it does: reranks the chunks of each BM25 output with the cross-encoder.
+		"""
+		reranked_bm25_outputs = rerank.get_reranked_outputs(queries, chunks, bm25_outputs, self.cross_encoder, self.retrieval_args.rerank_top_k)
+		return reranked_bm25_outputs
+
+	def get_reranked_hybrid_retrieval(self, queries: list[Query], chunks: dict[str, Chunk], hybrid_outputs: list[Retrieved]) -> list[Retrieved]:
+		"""
+		Input: l5 queries, the l2 chunks, and the hybrid outputs.
+		Output: one reranked Retrieved per hybrid output, holding the best rerank_top_k chunks.
+		What it does: reranks the chunks of each hybrid output with the cross-encoder.
+		"""
+		reranked_hybrid_outputs = rerank.get_reranked_outputs(queries, chunks, hybrid_outputs, self.cross_encoder, self.retrieval_args.rerank_top_k)
+		return reranked_hybrid_outputs

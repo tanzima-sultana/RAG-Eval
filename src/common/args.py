@@ -58,4 +58,5 @@ class RetrievalArgs:
 	framework: str
 	retrieval_types: list[str]
 	top_k: int
+	reranking: bool
 	rerank_top_k: int

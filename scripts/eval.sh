@@ -57,6 +57,7 @@ N_MULTI_QUS=3 # Phrasings the query LLM writes for each eval question
 # 7. Retrieval
 RETRIEVAL_TYPES="dense" # any of dense, bm25, hybrid, separated by spaces. Hybrid is not written yet
 TOP_K=20 # Chunks each retriever returns for a query
+RERANKING=true # true to also rerank the TOP_K chunks with the cross-encoder, false not to
 RERANK_TOP_K=5 # Chunks kept after the cross-encoder reranks the TOP_K chunks
 TUNING_QUERIES_SIZE=150 # Eval questions used for tuning; the rest are held out for one final check
 
@@ -96,6 +97,7 @@ python3 src/eval.py \
   --n_multi_qus "$N_MULTI_QUS" \
   --retrieval_types $RETRIEVAL_TYPES \
   --top_k "$TOP_K" \
+  --reranking "$RERANKING" \
   --rerank_top_k "$RERANK_TOP_K" \
   --tuning_queries_size "$TUNING_QUERIES_SIZE" \
   2>&1 | tee "$LOG"

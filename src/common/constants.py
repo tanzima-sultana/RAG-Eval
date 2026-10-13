@@ -121,3 +121,5 @@ TUNING_SPLIT_SEED=42
 TOP_K=20
 # Number of chunks kept after the cross-encoder reranks the TOP_K chunks
 RERANK_TOP_K=5
+# Cross-encoder that reranks the TOP_K chunks against the eval question
+CROSS_ENCODER_MODEL="cross-encoder/ms-marco-MiniLM-L-6-v2"
