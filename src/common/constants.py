@@ -79,3 +79,17 @@ EVAL_MIN_DOCUMENT_TOKENS=500
 # An eval passage is linked to the document that contains its first this many characters (whitespace collapsed),
 # because RAGAS sometimes stitches non-adjacent sections of a document into one passage
 EVAL_PASSAGE_MATCH_CHARS=80
+
+# 5. Query
+
+# Local LLM provider that rewrites the eval questions, writes the multi-query phrasings and the HyDE answers
+OLLAMA_LLM="ollama"
+# Ollama server, started by the Ollama install
+OLLAMA_URL="http://localhost:11434"
+# Seconds before one Ollama call times out. The first call after 5 idle minutes also reloads the model onto the GPU
+OLLAMA_TIMEOUT_SECONDS=120
+QUERY_LLM=OLLAMA_LLM
+# Local model the query LLM provider runs
+QUERY_LLM_MODEL="llama3.1:8b"
+# Number of phrasings the query LLM writes for each eval question
+N_MULTI_QUS=3

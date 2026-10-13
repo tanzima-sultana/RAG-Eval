@@ -49,6 +49,11 @@ EVAL_QNA_MODEL="all-MiniLM-L6-v2" # Local embedding model RAGAS uses to build it
 N_SAMPLE_DOCUMENTS=200 # Documents randomly picked for RAGAS to generate the eval QnA from
 N_SAMPLE_EVALS=50 # Eval QnA items to generate
 
+# 6. Query
+QUERY_LLM="ollama" # Local LLM provider that transforms the eval questions
+QUERY_LLM_MODEL="llama3.1:8b" # Local model the query LLM provider runs
+N_MULTI_QUS=3 # Phrasings the query LLM writes for each eval question
+
 # run
 
 python3 src/eval.py \
@@ -80,4 +85,7 @@ python3 src/eval.py \
   --eval_qna_model "$EVAL_QNA_MODEL" \
   --n_sample_documents "$N_SAMPLE_DOCUMENTS" \
   --n_sample_evals "$N_SAMPLE_EVALS" \
+  --query_llm "$QUERY_LLM" \
+  --query_llm_model "$QUERY_LLM_MODEL" \
+  --n_multi_qus "$N_MULTI_QUS" \
   2>&1 | tee "$LOG"

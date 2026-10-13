@@ -9,6 +9,7 @@ import torch
 from langchain_core.documents import Document as LangchainDocument
 from langchain_huggingface import HuggingFaceEmbeddings
 from ragas.embeddings import LangchainEmbeddingsWrapper
+from ragas.llms import LangchainLLMWrapper
 from ragas.testset import TestsetGenerator
 from ragas.testset.graph import KnowledgeGraph
 from ragas.testset.graph import Node
@@ -19,11 +20,13 @@ from ragas.utils import num_tokens_from_string
 
 from common import paths
 from common.args import EvalQnAArgs
+from common.constants import CLAUDE_TRANSFORMS_MODEL
+from common.constants import CLAUDE_QUESTION_MODEL
 from common.constants import SAMPLE_DOCUMENTS_SEED
 from common.constants import EVAL_MIN_DOCUMENT_TOKENS
 from common.constants import EVAL_PASSAGE_MATCH_CHARS
 from l1_ingestion.schema import Document
-from llm.llm import get_llm_generator
+from llm.llm import get_llm
 from qna.schema import EvalQnA
 from qna import validate
 
@@ -105,8 +108,13 @@ def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna
 		)
 		langchain_documents.append(langchain_document)
 
-	# 4. Get LLM generator
-	llm_generator = get_llm_generator(eval_qna_args.eval_qna_llm)
+	# 4. Get the Claude LLMs
+	# A cheaper model builds the knowledge graph, a stronger one writes the questions
+	transforms_claude_llm = get_llm(eval_qna_args.eval_qna_llm, CLAUDE_TRANSFORMS_MODEL)
+	question_claude_llm = get_llm(eval_qna_args.eval_qna_llm, CLAUDE_QUESTION_MODEL)
+	# RAGAS sets temperature 0.01 by default, which the Claude 5.5 models reject
+	transforms_llm = LangchainLLMWrapper(transforms_claude_llm.claude_llm, bypass_temperature=True)
+	question_llm = LangchainLLMWrapper(question_claude_llm.claude_llm, bypass_temperature=True)
 
 	device = "cuda" if torch.cuda.is_available() else "cpu"
 	huggingface_embeddings = HuggingFaceEmbeddings(
@@ -132,7 +140,7 @@ def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna
 			knowledge_graph.nodes.append(document_node)
 		transforms = default_transforms(
 			documents=langchain_documents,
-			llm=llm_generator.transforms_llm,
+			llm=transforms_llm,
 			embedding_model=eval_embeddings
 		)
 		apply_transforms(knowledge_graph, transforms)
@@ -143,12 +151,15 @@ def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna
 
 	# 6. Generate test sets
 	testset_generator = TestsetGenerator(
-		llm=llm_generator.question_llm,
+		llm=question_llm,
 		embedding_model=eval_embeddings,
 		knowledge_graph=knowledge_graph
 	)
 	testset = testset_generator.generate(testset_size=eval_qna_args.n_sample_evals)
-	llm_generator.compute_cost()
+	transforms_cost = transforms_claude_llm.compute_cost()
+	question_cost = question_claude_llm.compute_cost()
+	total_cost = transforms_cost + question_cost
+	print(f"Claude total cost : ${total_cost:.4f}")
 
 	if len(testset.samples) == 0:
 		raise ValueError(

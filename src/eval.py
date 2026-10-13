@@ -7,10 +7,12 @@ from common.args import IngestArgs
 from common.args import ChunkingArgs
 from common.args import IndexArgs
 from common.args import EvalQnAArgs
+from common.args import QueryArgs
 from l1_ingestion.ingestion import ingestion
 from l2_chunking.cache import load_chunks
 from l4_indexing import cache as index_cache
 from qna.qna import get_eval_qna
+from l5_query.query import get_queries
 
 def parse_args():
 	"""
@@ -191,6 +193,24 @@ def parse_args():
 		required=False,
 		default=constants.SAMPLE_DOCUMENTS,
 		help="Number of documents randomly picked for RAGAS to generate the eval QnA from")
+	parser.add_argument(
+		"--query_llm",
+		type=str,
+		required=False,
+		default=constants.QUERY_LLM,
+		help="Local LLM provider that transforms the eval questions: ollama")
+	parser.add_argument(
+		"--query_llm_model",
+		type=str,
+		required=False,
+		default=constants.QUERY_LLM_MODEL,
+		help="Local model the query LLM provider runs, e.g. llama3.1:8b")
+	parser.add_argument(
+		"--n_multi_qus",
+		type=int,
+		required=False,
+		default=constants.N_MULTI_QUS,
+		help="Number of phrasings the query LLM writes for each eval question")
 
 	return parser.parse_args()
 
@@ -273,6 +293,23 @@ def make_eval_qna_args(parsed_args):
 	)
 	return eval_qna_args
 
+
+def make_query_args(parsed_args):
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args().
+	Output: a QueryArgs object holding the query transformation settings.
+	What it does: copies the build's embedding model (model_name), the parsed
+	query LLM provider, its model and the number of multi-query phrasings into
+	the matching QueryArgs fields.
+	"""
+	query_args = QueryArgs(
+		embedding_model=parsed_args.model_name,
+		query_llm=parsed_args.query_llm,
+		query_llm_model=parsed_args.query_llm_model,
+		n_multi_qus=parsed_args.n_multi_qus
+	)
+	return query_args
+
 if __name__ == "__main__":
 	print("\n ------------- RAG Eval -------- \n")
 	start = time.time()
@@ -284,6 +321,7 @@ if __name__ == "__main__":
 	chunking_args = make_chunking_args(args)
 	index_args = make_index_args(args)
 	eval_qna_args = make_eval_qna_args(args)
+	query_args = make_query_args(args)
 	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
 
 	# 1. Load the l1 documents
@@ -324,6 +362,14 @@ if __name__ == "__main__":
 	e4 = time.time() - s4
 	print(f"Eval QnA loaded : {len(eval_qna)}")
 	print("\nLoading eval QnA time : ", e4)
+
+	# 5. Query
+	print("\n\nLoading Query")
+	s5 = time.time()
+	queries = get_queries(output_path, eval_qna, eval_qna_args, query_args)
+	e5 = time.time() - s5
+	print(f"Query loaded : {len(eval_qna)}")
+	print("\nLoading eQuery time : ", e5)
 
 	# ---------
 	end = time.time()

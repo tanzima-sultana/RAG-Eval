@@ -44,3 +44,10 @@ class EvalQnAArgs:
 	eval_qna_model: str
 	n_sample_documents: int
 	n_sample_evals: int
+
+@dataclasses.dataclass
+class QueryArgs:
+	embedding_model: str
+	query_llm: str
+	query_llm_model: str
+	n_multi_qus: int

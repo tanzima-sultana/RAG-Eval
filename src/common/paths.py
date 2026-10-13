@@ -4,6 +4,7 @@ import os
 from common.args import ChunkingArgs
 from common.args import IndexArgs
 from common.args import EvalQnAArgs
+from common.args import QueryArgs
 from common.constants import NO_FRAMEWORK
 from common.constants import FAISS_FLATIP_INDEX, FAISS_IVF_INDEX, FAISS_HNSW_INDEX
 
@@ -184,4 +185,23 @@ def get_eval_kg_path(output_path:str, eval_qna_args: EvalQnAArgs) -> str:
 	return (
 		f"{output_path}/eval_kg_{eval_qna_args.n_sample_documents}_"
 		f"{eval_qna_args.eval_qna_llm}_{eval_qna_model}.json"
+	)
+
+# ------ Query
+def get_query_path(output_path:str, eval_qna_args: EvalQnAArgs, query_args: QueryArgs) -> str:
+	"""
+	Input: output_path, the dataset's output folder; eval_qna_args, the settings of the eval set the queries are made from;
+	query_args, the query settings.
+	Output: the query cache folder path as a string.
+	What it does: builds {output_path}/queries/{n_sample_documents}_{n_sample_evals}_{eval_qna_llm}_{eval_qna_model}_
+	{embedding_model}_{query_llm}_{query_llm_model}_{n_multi_qus}, with any "/" or ":" in the model names replaced by "-".
+	"""
+	eval_qna_model = eval_qna_args.eval_qna_model.replace("/", "-")
+	embedding_model = query_args.embedding_model.replace("/", "-")
+	query_llm_model = query_args.query_llm_model.replace("/", "-").replace(":", "-")
+
+	return (
+		f"{output_path}/queries/{eval_qna_args.n_sample_documents}_{eval_qna_args.n_sample_evals}_"
+		f"{eval_qna_args.eval_qna_llm}_{eval_qna_model}_{embedding_model}_"
+		f"{query_args.query_llm}_{query_llm_model}_{query_args.n_multi_qus}"
 	)

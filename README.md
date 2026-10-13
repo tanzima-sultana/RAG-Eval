@@ -256,7 +256,7 @@ Index size on disk, built-in → LangChain (bytes):
 
 1. Keeps only documents with more than `EVAL_MIN_DOCUMENT_TOKENS` (500) tokens, counted with RAGAS's own counter (tiktoken `cl100k_base`), because RAGAS only extracts headlines and summaries from documents over 500 tokens. It raises an error if fewer documents than `n_sample_documents` are left.
 2. Sorts those doc_ids and picks `n_sample_documents` of them with a fixed seed (`SAMPLE_DOCUMENTS_SEED` = 42), so the same documents are picked every run.
-3. Gets the LLM generator from `llm.get_llm_generator()` and turns each picked document into a LangChain `Document`.
+3. Gets the two Claude models with `llm.get_llm()` (`CLAUDE_TRANSFORMS_MODEL` and `CLAUDE_QUESTION_MODEL`), wraps each for RAGAS as `transforms_llm` and `question_llm`, and turns each picked document into a LangChain `Document`.
 4. Builds the RAGAS knowledge graph with `transforms_llm` (Claude Haiku 5.5): headlines, splitting into chunks, summaries, a filter that drops chunks not useful for questions, themes, named entities, and the links between related chunks. The graph is saved to `{output folder}/eval_kg_{n_sample_documents}_{eval_qna_llm}_{eval_qna_model}.json` and loaded from there on later runs, so a failed or repeated run does not pay to build it again. Its name has no `n_sample_evals`, so more questions can later be generated from the same documents and only the question writing is paid.
 5. Runs the RAGAS `TestsetGenerator` on the graph with `question_llm` (Claude Sonnet 5.5) to write the personas, scenarios, questions and answers. After generation it prints the calls, tokens and cost of each model and the total (see `llm`).
 6. Raises an error if RAGAS generated nothing, so no empty file is saved. If it generated fewer than `n_sample_evals`, it prints a warning and keeps the ones generated.
@@ -367,7 +367,7 @@ The two generated items are one `single_hop_specific_query_synthesizer` question
 
 ### Overview
 
-`llm` gives the rest of the project the LLMs it needs without exposing which models are used. `qna` passes `--eval_qna_llm` (a provider name, default `claude`) to `get_llm_generator()` and gets back an LLM generator with three things: `transforms_llm` for the RAGAS knowledge graph steps, `question_llm` for writing the questions and answers, and `compute_cost()` to print and return the API cost of the run.
+`llm` gives the rest of the project the LLMs it needs without exposing which models are used. `get_llm(llm, llm_model)` takes a provider name (`claude` or `ollama`) and a model, checks the model can be used on that provider, and returns a `ClaudeLLM` or `OllamaLLM`. Both have `generate(prompt)`, which returns the reply text, and `compute_cost()`, which prints and returns the cost of its calls (always 0 for Ollama). `qna` passes `--eval_qna_llm` (default `claude`) with each of its two Claude models, wraps each `ClaudeLLM` for RAGAS, and adds up the two costs.
 
 For `claude` the models are chosen in `src/common/constants.py`:
 
@@ -380,8 +380,9 @@ The knowledge graph steps make most of the calls and send whole documents and ch
 
 ### Architecture
 
-- **`llm.py`** — `get_llm_generator()`: picks the LLM generator for the given provider. Raises an error for an unsupported provider.
-- **`claude.py`** — `ClaudeLLMGenerator` with the Haiku and Sonnet RAGAS LLMs, the token counter attached to each Claude call, and the cost calculation from `CLAUDE_PRICES_PER_MILLION_TOKENS`.
+- **`llm.py`** — `get_llm()`: checks the provider and model and returns its LLM. For `claude` the model must have a price in `CLAUDE_PRICES_PER_MILLION_TOKENS`; for `ollama` the server must be running and the model pulled. Raises an error otherwise.
+- **`claude.py`** — `ClaudeLLM`: one Claude model with `generate()`, the token counter attached to each call, and `compute_cost()` from `CLAUDE_PRICES_PER_MILLION_TOKENS`.
+- **`ollama.py`** — `OllamaLLM`: one local Ollama model with `generate()`, called over HTTP at temperature 0, and `compute_cost()`, which is always 0 because local calls are free.
 - **`gemini.py`** — Empty placeholder for Gemini models.
 - **`chatgpt.py`** — Empty placeholder for OpenAI models.
 
