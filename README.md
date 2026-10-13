@@ -429,6 +429,68 @@ The query LLM comes from the `llm` module. The cache folder path is built in `sr
 
 The log has no per-stage timing, only the total. Nearly all of it is the LLM: each question makes three calls to `llama3.1:8b`, one after another, so 600 calls in total, each generating its reply token by token on the GPU. Embedding the results is a single batched SentenceTransformer pass per query type over short texts, and loading the eval set and saving the two cache files are file reads and writes, so they are small next to the 600 generations.
 
+## l6_retrieval
+
+### Overview
+
+`l6_retrieval` finds the chunks for each eval question. `src/eval.py` splits the 200 queries with a fixed seed (`TUNING_SPLIT_SEED` 42) into `--tuning_queries_size` (150) tuning queries and 50 held-out queries, and only the tuning queries are retrieved. It creates one `Retrieval(retrieval_args)` before the loops. `RetrievalArgs` holds `--framework`, `--retrieval_types` (any of `dense`, `bm25`, `hybrid`), `--top_k` (20), `--reranking` (`true` or `false`) and `--rerank_top_k` (5). It then loops one item at a time:
+
+1. For each chunk type in `--chunk_types`, it loads that chunk type's l2 chunks.
+2. For each index type in `--index_types`, it loads that one l4 index with `index_cache.load_index()` (load-only, never builds) and runs:
+   - **Dense** (`compute_dense_retrieval`) on `faiss_flatip`, `faiss_ivf`, `faiss_hnsw` and `qdrant`. It searches with each query type's embedding and keeps the top_k chunks. The score is cosine similarity. The multi-query phrasings are searched one by one and merged, keeping each chunk's best score. A HyDE answer stored as `I don't know` is not searched.
+   - **BM25** (`compute_bm25_retrieval`) on `bm25`. It scores every chunk with the query tokens and keeps the top_k chunks with a score above 0. HyDE has no tokens, so BM25 has no HyDE record.
+   - Each method returns `[]` when its type is not in `--retrieval_types` or the index is the wrong kind, so the loop needs no type checks.
+3. After the index loop, **hybrid** (`compute_hybrid_retrieval`) fuses each dense index's outputs with the BM25 outputs of the same question and query type, using reciprocal rank fusion. A chunk gets `1 / (RRF_K + rank)` from each list it is in, with `RRF_K` 60, and the top_k by fused score are kept. Ranks are used, not scores, because dense and BM25 scores are on different scales. `index_type` is written as e.g. `faiss_flatip+bm25`.
+4. With `--reranking true`, each plain output list is reranked separately (`get_reranked_dense_retrieval`, `get_reranked_bm25_retrieval`, `get_reranked_hybrid_retrieval`). The cross-encoder `cross-encoder/ms-marco-MiniLM-L-6-v2` (`CROSS_ENCODER_MODEL`, loaded once in `Retrieval.__init__`) scores each chunk's text against the original eval question, and the best `rerank_top_k` are kept. Every query type is reranked against the original question, because that is what the answer must match. The reranked records are a separate list from the plain ones, and hybrid always fuses the plain top_k lists.
+
+Each output is a list of `Retrieved`, one per eval question and query type:
+- **Setup fields:** `id` (the `EvalQnA` id), `query_type`, `chunk_type`, `retrieval_type`, `index_type`, `top_k`, `reranking`, `rerank_top_k`.
+- **Result fields:** the ranked `chunk_ids`, their `chunk_scores` and `doc_ids`. The doc id is the part of the chunk id before the last `_`.
+
+Records per index, for 150 tuning queries:
+
+| Retrieval | Query types | Records |
+|---|---|---|
+| Dense | original, rewritten, multi, hyde | 600 |
+| BM25 | original, rewritten, multi | 450 |
+| Hybrid | original, rewritten, multi (no BM25 for HyDE) | 450 |
+
+A query type with nothing to search (no multi-query phrasings, or a HyDE `I don't know`) still gets a `Retrieved` with no chunks, so it counts as a miss. Nothing is saved to disk.
+
+With `--framework langchain`, `Retrieval` hands dense and BM25 to the `Langchain` class, which searches the LangChain indexes with the same l5 query embeddings and tokens:
+- **FAISS and Qdrant:** `similarity_search_with_score_by_vector`.
+- **BM25:** the retriever's rank_bm25 model directly (`vectorizer.get_scores`), because `BM25Retriever.invoke` returns no scores.
+
+The records are built by the same functions as the built-in ones, so hybrid, reranking and evaluation work unchanged, and only the chunking and indexing differ between the two frameworks. LangChain's own query transformers (`MultiQueryRetriever`, `HypotheticalDocumentEmbedder`) are not used: they would call an LLM again and give each framework different queries. `Retrieved` does not record the framework, because one run uses one framework.
+
+### Architecture
+
+- **`retrieval.py`**: `Retrieval`, the orchestrator. It validates the args, creates `Langchain` for `--framework langchain` and loads the cross-encoder for `--reranking true`. It has one method per retrieval type (`compute_dense_retrieval`, `compute_bm25_retrieval`, `compute_hybrid_retrieval`) and one per reranked list.
+- **`validate.py`**: checks `retrieval_types`, `top_k` ≥ 1, `rerank_top_k` ≥ 1 and `rerank_top_k` ≤ `top_k`.
+- **`schema.py`**: defines `Retrieved`, the layer's output record.
+- **`retrievars/dense.py`**: searches the built-in FAISS index or the Qdrant collection with each query type's embeddings and builds the dense `Retrieved` records.
+- **`retrievars/bm25.py`**: scores the built-in BM25 model with each query type's tokens and builds the BM25 `Retrieved` records.
+- **`retrievars/hybrid.py`**: matches dense and BM25 records by question and query type and fuses them with reciprocal rank fusion.
+- **`rerank.py`**: scores every (question, chunk text) pair with the cross-encoder in one batched call and keeps the best `rerank_top_k` per record.
+- **`langchain.py`**: `Langchain`, dense and BM25 search on the LangChain indexes.
+
+Retrieval quality (hit, precision, recall, MRR, nDCG at chunk and doc level) is measured in `l10_evaluation`, not here.
+
+### Run results
+
+**5000 documents, fixed chunks, 150 tuning queries, no reranking.** These come from two test runs whose logs were not saved under `log/`. Both used `--index_types faiss_flatip bm25 qdrant` and `--retrieval_types dense bm25 hybrid`. The times are those printed by `src/eval.py`.
+
+| | Built-in | LangChain |
+|---|---|---|
+| Dense on faiss_flatip | 600 records, 7s | 600 records, 10s |
+| BM25 | 450 records, 361s | 450 records, 385s |
+| Dense on qdrant | 600 records, 5s | 600 records, 14s |
+| Hybrid faiss_flatip+bm25 | 450 records, 0.02s | 450 records, 0.01s |
+| Hybrid qdrant+bm25 | 450 records, 0.01s | 450 records, 0.01s |
+
+- **BM25 is nearly all of the time.** rank_bm25's `get_scores` scores every one of the 91670 chunks for every token list in Python, 750 lists for 150 questions: 150 original + 150 rewritten + 450 multi-query phrasings. FAISS and Qdrant search are vector lookups, so dense takes seconds.
+- **Hybrid** only merges two lists of 20 chunk ids per record, so it takes no measurable time.
+
 ## Dependency notes
 
 - **`langchain-community` is pinned to 0.4.1, not 0.4.2.** `ragas` 0.4.3 (the latest release, used for eval QnA generation in `src/qna/qna.py`) imports `langchain_community.chat_models.vertexai`, which was removed in `langchain-community` 0.4.2, so `import ragas` fails on 0.4.2. Older `ragas` releases (0.3.x) have the same import.
