@@ -535,7 +535,7 @@ Each `Quality` has these fields:
 
 ### Architecture
 
-- **`retrieval_evaluation.py`**: `RetrievalEvaluation`, with `compute_retrieval_quality`, `compute_chunk_quality` and `compute_doc_quality`.
+- **`retrieval_evaluation.py`**: `RetrievalEvaluation`, with `compute_retrieval_quality`, `compute_chunk_quality`, `compute_doc_quality` and `get_filtered_retrieval_qualities`.
 - **`schema.py`**: defines `Quality` and `RetrievalQuality`.
 - **`summary.py`**: `print_retrieval_summary`, the mean of each metric per setup.
 - **`answer_quality.py`**: empty placeholder.
@@ -771,6 +771,26 @@ These are the best reranked rows (k=5):
 | sentence | hybrid | qdrant+bm25 | rewritten | 5 | 150 | 0.853 | 0.365 | 0.823 | 0.784 | 0.785 | 0.940 | 0.607 | 0.930 | 0.907 | 0.906 |
 
 </details>
+
+**Filtered retrieval quality.** The table above has 186 setups, 27,900 `(Retrieved, RetrievalQuality)` pairs: 4,650 plain and 4,650 reranked per chunk type. Each `Retrieved` that goes on to the next layers (context, prompt, generation, answer quality) becomes one LLM call, and generation and answer evaluation may use a paid API. So only the best few setups go on.
+
+After the summary, `eval.py` calls `retrieval_evaluation.get_filtered_retrieval_qualities(n_retrieval_quality, retrieval_qualities)` and prints the summary again for what it keeps. The method:
+1. **Scores each setup.** It groups the pairs by setup (chunk type, retrieval type, index, query type, reranking) and scores each setup by its mean chunk-level recall, with mean chunk-level MRR breaking ties. Chunk level is used because generation needs the passage that holds the answer, not just the right document. Recall comes first because a missed passage cannot be answered from. MRR breaks ties because the right chunk near the top helps the LLM.
+2. **Keeps the best of each kind.** It keeps the best `--n_retrieval_quality` plain setups and, separately, the best `--n_retrieval_quality` reranked setups. They are ranked apart because plain setups are scored at k=20 and reranked ones at k=5, so plain would nearly always win a joint ranking only because it has more chunks.
+3. **Skips duplicates.** It drops any `Retrieved` with the same question and the same chunks, in the same order, as one already kept, because it would give the LLM the same prompt and cost a call for nothing. This only happens when n ≥ 2 picks setups that return the same chunks, such as `faiss_flatip` and `qdrant`.
+
+`--n_retrieval_quality` is 1 (`N_RETRIEVAL_QUALITY`), so 1 plain and 1 reranked setup are kept: 2 × 150 = 300 records instead of 27,900. A plain record has 20 chunks and a reranked one 5, so none of them can be duplicates of each other. The filter only regroups and sorts the qualities, so it takes well under a second and is not cached; it is recomputed from the cached retrieved outputs on every run.
+
+On the 5000-doc built-in run, loaded from the cache in 38.47s (`log/l6_retrieval/log_5k_retrieval_quality_rerank_cached.txt`), the filter kept 300 records with 0 duplicates skipped:
+
+| Chunk | Retrieval | Index | Query | Rerank | k | n | c_hit | c_prec | c_rec | c_mrr | c_ndcg | d_hit | d_prec | d_rec | d_mrr | d_ndcg |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| sentence | hybrid | faiss_flatip+bm25 | original | no | 20 | 150 | 0.940 | 0.154 | 0.927 | 0.718 | 0.712 | 0.987 | 0.363 | 0.983 | 0.828 | 0.823 |
+| sentence | hybrid | qdrant+bm25 | original | yes | 5 | 150 | 0.853 | 0.360 | 0.837 | 0.768 | 0.768 | 0.947 | 0.611 | 0.943 | 0.885 | 0.889 |
+
+- **Plain:** faiss_flatip+bm25 and qdrant+bm25 have the same recall (0.927), and faiss_flatip+bm25 wins on MRR (0.718 vs 0.716).
+- **Reranked:** faiss_flatip+bm25 and qdrant+bm25 have exactly the same recall and MRR. When scores tie, the setup that sorts last alphabetically is kept, so qdrant+bm25 was chosen. The two are effectively the same setup, since both are exact search over the same vectors.
+- **Both kept setups** use sentence chunks, hybrid retrieval and the original question.
 
 ## Dependency notes
 

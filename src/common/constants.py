@@ -126,3 +126,6 @@ CROSS_ENCODER_MODEL="cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 # Share of a chunk's words that must be in a context passage for the chunk to count as relevant at chunk level
 CHUNK_CONTEXT_OVERLAP_THRESHOLD=0.5
+
+# Number of best plain setups and of best reranked setups whose retrieved outputs go on to the next layers
+N_RETRIEVAL_QUALITY=1

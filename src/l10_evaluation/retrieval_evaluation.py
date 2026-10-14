@@ -47,6 +47,73 @@ class RetrievalEvaluation:
 			doc_quality=doc_quality
 		)
 
+	def get_filtered_retrieval_qualities(self, n_retrieval_quality: int, retrieval_qualities: list[tuple[Retrieved, RetrievalQuality]]) -> list[tuple[Retrieved, RetrievalQuality]]:
+		"""
+		Input: n_retrieval_quality, the number of setups to keep of each kind; retrieval_qualities, one
+		(Retrieved, RetrievalQuality) per eval question and setup.
+		Output: the (Retrieved, RetrievalQuality) of the kept setups, at most n_retrieval_quality x the number of
+		questions of each kind.
+		What it does: ranks the setups by mean chunk-level recall, then mean chunk-level MRR, and keeps the best
+		n_retrieval_quality plain setups and the best n_retrieval_quality reranked setups. Plain and reranked setups
+		are ranked apart, because they are scored at a different k. A Retrieved with the same question and the same
+		chunks as one already kept is skipped, since it would give the LLM the same prompt.
+		"""
+		if n_retrieval_quality < 1:
+			raise ValueError(f"n_retrieval_quality ({n_retrieval_quality}) must be at least 1")
+
+		# 1. Group the qualities by setup
+		retrieval_qualities_by_setup = {}
+		for retrieved, retrieval_quality in retrieval_qualities:
+			setup = (retrieved.chunk_type, retrieved.retrieval_type, retrieved.index_type, retrieved.query_type, retrieved.reranking)
+			if setup not in retrieval_qualities_by_setup:
+				retrieval_qualities_by_setup[setup] = []
+			retrieval_qualities_by_setup[setup].append((retrieved, retrieval_quality))
+
+		# 2. Score each setup by its mean chunk-level recall and MRR, plain and reranked apart
+		plain_setup_scores = []
+		reranked_setup_scores = []
+		for setup in retrieval_qualities_by_setup:
+			setup_retrieval_qualities = retrieval_qualities_by_setup[setup]
+			recall_sum = 0.0
+			mrr_sum = 0.0
+			for retrieved, retrieval_quality in setup_retrieval_qualities:
+				recall_sum = recall_sum + retrieval_quality.chunk_quality.recall
+				mrr_sum = mrr_sum + retrieval_quality.chunk_quality.mrr
+			mean_recall = recall_sum / len(setup_retrieval_qualities)
+			mean_mrr = mrr_sum / len(setup_retrieval_qualities)
+
+			reranking = setup[4]
+			if reranking:
+				reranked_setup_scores.append((mean_recall, mean_mrr, setup))
+			else:
+				plain_setup_scores.append((mean_recall, mean_mrr, setup))
+
+		# 3. Keep the best n_retrieval_quality of each. Equal recall and MRR fall back to the setup order
+		best_plain_setup_scores = sorted(plain_setup_scores, reverse=True)[:n_retrieval_quality]
+		best_reranked_setup_scores = sorted(reranked_setup_scores, reverse=True)[:n_retrieval_quality]
+
+		# 4. Collect the qualities of the kept setups, best first
+		kept_retrieval_qualities = []
+		for mean_recall, mean_mrr, setup in best_plain_setup_scores:
+			kept_retrieval_qualities.extend(retrieval_qualities_by_setup[setup])
+		for mean_recall, mean_mrr, setup in best_reranked_setup_scores:
+			kept_retrieval_qualities.extend(retrieval_qualities_by_setup[setup])
+
+		# 5. Skip duplicates: the same question with the same chunks, in the same order, as one already kept
+		filtered_retrieval_qualities = []
+		kept_question_chunks = set()
+		duplicate_count = 0
+		for retrieved, retrieval_quality in kept_retrieval_qualities:
+			question_chunks = (retrieved.id, tuple(retrieved.chunk_ids))
+			if question_chunks in kept_question_chunks:
+				duplicate_count = duplicate_count + 1
+				continue
+			kept_question_chunks.add(question_chunks)
+			filtered_retrieval_qualities.append((retrieved, retrieval_quality))
+
+		print(f"\n\nFiltered retrieved outputs : {len(filtered_retrieval_qualities)} ({duplicate_count} duplicates skipped)")
+		return filtered_retrieval_qualities
+
 	def compute_chunk_quality(self, retrieved: Retrieved, chunks: dict[str, Chunk], eval_qna_item: EvalQnA, k: int) -> Quality:
 		"""
 		Input: one Retrieved, the l2 chunks, its eval question and k.

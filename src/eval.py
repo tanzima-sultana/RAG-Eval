@@ -249,6 +249,12 @@ def parse_args():
 		type=int,
 		required=True,
 		help="Number of eval questions used for tuning; the rest are held out for one final check")
+	parser.add_argument(
+		"--n_retrieval_quality",
+		type=int,
+		required=False,
+		default=constants.N_RETRIEVAL_QUALITY,
+		help="Number of best plain setups and of best reranked setups whose retrieved outputs go on to the next layers")
 
 	return parser.parse_args()
 
@@ -526,6 +532,10 @@ if __name__ == "__main__":
 
 	# 19. Retrieval quality of every setup, averaged over the tuning queries
 	print_retrieval_summary(retrieval_qualities)
+
+	# 20. Keep the best n_retrieval_quality plain setups and the best n_retrieval_quality reranked setups
+	filtered_retrieval_qualities = retrieval_evaluation.get_filtered_retrieval_qualities(args.n_retrieval_quality, retrieval_qualities)
+	print_retrieval_summary(filtered_retrieval_qualities)
 
 	# ---------
 	end = time.time()
