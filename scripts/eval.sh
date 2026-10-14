@@ -55,7 +55,7 @@ QUERY_LLM_MODEL="llama3.1:8b" # Local model the query LLM provider runs
 N_MULTI_QUS=3 # Phrasings the query LLM writes for each eval question
 
 # 7. Retrieval
-RETRIEVAL_TYPES="dense" # any of dense, bm25, hybrid, separated by spaces. Hybrid is not written yet
+RETRIEVAL_TYPES="dense bm25 hybrid" # any of dense, bm25, hybrid, separated by spaces
 TOP_K=20 # Chunks each retriever returns for a query
 RERANKING=true # true to also rerank the TOP_K chunks with the cross-encoder, false not to
 RERANK_TOP_K=5 # Chunks kept after the cross-encoder reranks the TOP_K chunks

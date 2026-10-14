@@ -512,6 +512,16 @@ The retrieved folder paths are built in `src/common/paths.py`. Retrieval quality
 - **Reranking added about 595s**, the difference between the first two runs. The cross-encoder scores 20 chunks for every plain record: 4650 records per chunk type.
 - **From the cache**, all 54 files load (plain and reranked dense on 4 indexes, BM25, and hybrid on 4 pairs, for 3 chunk types). The run takes 33.31s, most of it loading the l1 documents and the 15 indexes, and it prints the same quality table.
 
+**5000 documents, LangChain, all chunk types and indexes, reranking on, 150 tuning queries** (from `log/l6_retrieval/log_5k_langchain_retrieval_quality_rerank.txt`). Same settings as the built-in runs, with `--framework langchain`. There was no LangChain cache, so this run computed and saved all 54 files under `retrieved/langchain/`.
+
+| | fixed | sentence | semantic |
+|---|---|---|---|
+| Chunks, built-in / LangChain | 91670 / 91670 | 94053 / 94053 | 104900 / 112218 |
+| BM25 retrieval time, built-in → LangChain | 359.73s → 378.92s | 404.23s → 405.31s | 466.89s → 474.48s |
+
+- **Total: 1997.63s**, against 1868.99s for the built-in run with reranking.
+- **BM25 still takes most of the time.** The LangChain BM25 search scores the retriever's own rank_bm25 model the same way the built-in one does, so the times are close. Semantic has 7318 more LangChain chunks, which is part of why it is the slowest.
+
 ## l10_evaluation
 
 ### Overview
@@ -791,6 +801,224 @@ On the 5000-doc built-in run, loaded from the cache in 38.47s (`log/l6_retrieval
 - **Plain:** faiss_flatip+bm25 and qdrant+bm25 have the same recall (0.927), and faiss_flatip+bm25 wins on MRR (0.718 vs 0.716).
 - **Reranked:** faiss_flatip+bm25 and qdrant+bm25 have exactly the same recall and MRR. When scores tie, the setup that sorts last alphabetically is kept, so qdrant+bm25 was chosen. The two are effectively the same setup, since both are exact search over the same vectors.
 - **Both kept setups** use sentence chunks, hybrid retrieval and the original question.
+
+**LangChain retrieval quality, 5000 documents, 150 tuning queries** (from `log/l6_retrieval/log_5k_langchain_retrieval_quality_rerank.txt`). Same setups as built-in, searched on the LangChain chunks and indexes with the same l5 queries. The best setup per chunk type (ranked like the filter, by chunk-level recall then MRR):
+
+| Chunk | Rerank | Built-in best | c_rec / c_mrr / c_hit | LangChain best | c_rec / c_mrr / c_hit |
+|---|---|---|---|---|---|
+| fixed | no | hybrid qdrant+bm25 original | 0.900 / 0.729 / 0.913 | hybrid faiss_flatip+bm25 original | 0.900 / 0.725 / 0.913 |
+| fixed | yes | hybrid qdrant+bm25 original | 0.817 / 0.771 / 0.840 | hybrid qdrant+bm25 original | 0.817 / 0.772 / 0.840 |
+| sentence | no | hybrid faiss_flatip+bm25 original | 0.927 / 0.718 / 0.940 | hybrid qdrant+bm25 original | 0.927 / 0.721 / 0.940 |
+| sentence | yes | hybrid qdrant+bm25 original | 0.837 / 0.768 / 0.853 | hybrid qdrant+bm25 original | 0.837 / 0.768 / 0.853 |
+| semantic | no | hybrid faiss_flatip+bm25 original | 0.903 / 0.723 / 0.913 | hybrid faiss_flatip+bm25 original | 0.903 / 0.719 / 0.920 |
+| semantic | yes | hybrid faiss_hnsw+bm25 rewritten | 0.827 / 0.779 / 0.853 | hybrid faiss_hnsw+bm25 original | 0.827 / 0.770 / 0.853 |
+
+- **LangChain and built-in score the same.** Averaged over each chunk type's 62 rows, LangChain's chunk hit differs from built-in's by less than 0.3 points. The best recall per chunk type is identical.
+- **Fixed and sentence rows differ by at most 2.0 and 2.7 points** of chunk hit. Both frameworks have the same number of chunks, so the small differences come from slightly different chunk boundaries and text.
+- **Semantic rows differ by up to 6.7 points,** but 0.05 points on average. LangChain's semantic chunker makes 7318 more chunks, so individual setups move up or down, but neither framework is better overall.
+- **The filtered 300 are the same setups** as built-in: sentence, hybrid, original question. Plain qdrant+bm25 (c_rec 0.927, MRR 0.721, a tie on recall that LangChain's qdrant wins on MRR) and reranked qdrant+bm25 (c_rec 0.837, MRR 0.768). 0 duplicates were skipped.
+
+<details>
+<summary>All 93 LangChain plain rows (k=20)</summary>
+
+| Chunk | Retrieval | Index | Query | k | n | c_hit | c_prec | c_rec | c_mrr | c_ndcg | d_hit | d_prec | d_rec | d_mrr | d_ndcg |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| fixed | bm25 | bm25 | multi | 20 | 150 | 0.820 | 0.108 | 0.797 | 0.612 | 0.624 | 0.880 | 0.280 | 0.870 | 0.745 | 0.738 |
+| fixed | bm25 | bm25 | original | 20 | 150 | 0.867 | 0.119 | 0.843 | 0.699 | 0.703 | 0.913 | 0.321 | 0.903 | 0.811 | 0.799 |
+| fixed | bm25 | bm25 | rewritten | 20 | 150 | 0.780 | 0.103 | 0.757 | 0.596 | 0.614 | 0.887 | 0.265 | 0.877 | 0.743 | 0.734 |
+| fixed | dense | faiss_flatip | hyde | 20 | 150 | 0.873 | 0.129 | 0.847 | 0.670 | 0.685 | 0.947 | 0.378 | 0.930 | 0.827 | 0.817 |
+| fixed | dense | faiss_flatip | multi | 20 | 150 | 0.860 | 0.125 | 0.833 | 0.663 | 0.665 | 0.933 | 0.354 | 0.920 | 0.789 | 0.778 |
+| fixed | dense | faiss_flatip | original | 20 | 150 | 0.840 | 0.124 | 0.813 | 0.650 | 0.661 | 0.920 | 0.357 | 0.903 | 0.784 | 0.778 |
+| fixed | dense | faiss_flatip | rewritten | 20 | 150 | 0.820 | 0.122 | 0.800 | 0.657 | 0.644 | 0.913 | 0.343 | 0.900 | 0.780 | 0.763 |
+| fixed | dense | faiss_hnsw | hyde | 20 | 150 | 0.853 | 0.125 | 0.820 | 0.663 | 0.676 | 0.927 | 0.377 | 0.907 | 0.819 | 0.810 |
+| fixed | dense | faiss_hnsw | multi | 20 | 150 | 0.840 | 0.125 | 0.807 | 0.650 | 0.648 | 0.913 | 0.359 | 0.897 | 0.779 | 0.763 |
+| fixed | dense | faiss_hnsw | original | 20 | 150 | 0.787 | 0.121 | 0.767 | 0.613 | 0.621 | 0.867 | 0.350 | 0.847 | 0.735 | 0.735 |
+| fixed | dense | faiss_hnsw | rewritten | 20 | 150 | 0.800 | 0.119 | 0.773 | 0.640 | 0.631 | 0.873 | 0.339 | 0.860 | 0.754 | 0.740 |
+| fixed | dense | faiss_ivf | hyde | 20 | 150 | 0.613 | 0.084 | 0.587 | 0.492 | 0.497 | 0.733 | 0.253 | 0.720 | 0.653 | 0.645 |
+| fixed | dense | faiss_ivf | multi | 20 | 150 | 0.600 | 0.089 | 0.577 | 0.477 | 0.475 | 0.747 | 0.271 | 0.733 | 0.637 | 0.621 |
+| fixed | dense | faiss_ivf | original | 20 | 150 | 0.553 | 0.082 | 0.530 | 0.442 | 0.445 | 0.680 | 0.262 | 0.667 | 0.596 | 0.586 |
+| fixed | dense | faiss_ivf | rewritten | 20 | 150 | 0.513 | 0.073 | 0.497 | 0.421 | 0.415 | 0.640 | 0.227 | 0.630 | 0.566 | 0.550 |
+| fixed | dense | qdrant | hyde | 20 | 150 | 0.873 | 0.129 | 0.847 | 0.670 | 0.685 | 0.947 | 0.378 | 0.930 | 0.827 | 0.817 |
+| fixed | dense | qdrant | multi | 20 | 150 | 0.860 | 0.125 | 0.833 | 0.663 | 0.665 | 0.933 | 0.354 | 0.920 | 0.789 | 0.779 |
+| fixed | dense | qdrant | original | 20 | 150 | 0.847 | 0.124 | 0.817 | 0.648 | 0.661 | 0.920 | 0.356 | 0.903 | 0.784 | 0.777 |
+| fixed | dense | qdrant | rewritten | 20 | 150 | 0.827 | 0.122 | 0.807 | 0.657 | 0.646 | 0.913 | 0.343 | 0.900 | 0.785 | 0.765 |
+| fixed | hybrid | faiss_flatip+bm25 | multi | 20 | 150 | 0.880 | 0.131 | 0.863 | 0.706 | 0.691 | 0.947 | 0.352 | 0.943 | 0.816 | 0.800 |
+| fixed | hybrid | faiss_flatip+bm25 | original | 20 | 150 | 0.913 | 0.138 | 0.900 | 0.725 | 0.719 | 0.967 | 0.370 | 0.963 | 0.856 | 0.834 |
+| fixed | hybrid | faiss_flatip+bm25 | rewritten | 20 | 150 | 0.880 | 0.131 | 0.863 | 0.686 | 0.684 | 0.960 | 0.339 | 0.950 | 0.806 | 0.806 |
+| fixed | hybrid | faiss_hnsw+bm25 | multi | 20 | 150 | 0.880 | 0.131 | 0.863 | 0.693 | 0.681 | 0.947 | 0.353 | 0.943 | 0.804 | 0.792 |
+| fixed | hybrid | faiss_hnsw+bm25 | original | 20 | 150 | 0.913 | 0.136 | 0.897 | 0.695 | 0.698 | 0.967 | 0.371 | 0.963 | 0.825 | 0.817 |
+| fixed | hybrid | faiss_hnsw+bm25 | rewritten | 20 | 150 | 0.880 | 0.131 | 0.863 | 0.674 | 0.673 | 0.960 | 0.338 | 0.950 | 0.788 | 0.793 |
+| fixed | hybrid | faiss_ivf+bm25 | multi | 20 | 150 | 0.833 | 0.122 | 0.813 | 0.556 | 0.590 | 0.900 | 0.318 | 0.887 | 0.707 | 0.721 |
+| fixed | hybrid | faiss_ivf+bm25 | original | 20 | 150 | 0.867 | 0.127 | 0.837 | 0.579 | 0.614 | 0.933 | 0.341 | 0.923 | 0.735 | 0.743 |
+| fixed | hybrid | faiss_ivf+bm25 | rewritten | 20 | 150 | 0.827 | 0.116 | 0.800 | 0.509 | 0.561 | 0.913 | 0.296 | 0.900 | 0.675 | 0.690 |
+| fixed | hybrid | qdrant+bm25 | multi | 20 | 150 | 0.880 | 0.131 | 0.863 | 0.707 | 0.691 | 0.947 | 0.352 | 0.943 | 0.817 | 0.801 |
+| fixed | hybrid | qdrant+bm25 | original | 20 | 150 | 0.913 | 0.138 | 0.900 | 0.722 | 0.718 | 0.967 | 0.370 | 0.963 | 0.856 | 0.834 |
+| fixed | hybrid | qdrant+bm25 | rewritten | 20 | 150 | 0.880 | 0.131 | 0.863 | 0.692 | 0.688 | 0.960 | 0.339 | 0.950 | 0.812 | 0.809 |
+| semantic | bm25 | bm25 | multi | 20 | 150 | 0.820 | 0.110 | 0.790 | 0.611 | 0.625 | 0.880 | 0.275 | 0.870 | 0.739 | 0.725 |
+| semantic | bm25 | bm25 | original | 20 | 150 | 0.867 | 0.123 | 0.840 | 0.684 | 0.691 | 0.920 | 0.313 | 0.913 | 0.803 | 0.799 |
+| semantic | bm25 | bm25 | rewritten | 20 | 150 | 0.773 | 0.103 | 0.750 | 0.605 | 0.616 | 0.853 | 0.261 | 0.843 | 0.749 | 0.728 |
+| semantic | dense | faiss_flatip | hyde | 20 | 150 | 0.853 | 0.134 | 0.833 | 0.641 | 0.658 | 0.927 | 0.376 | 0.910 | 0.802 | 0.790 |
+| semantic | dense | faiss_flatip | multi | 20 | 150 | 0.873 | 0.133 | 0.840 | 0.669 | 0.676 | 0.927 | 0.354 | 0.913 | 0.804 | 0.789 |
+| semantic | dense | faiss_flatip | original | 20 | 150 | 0.833 | 0.134 | 0.803 | 0.651 | 0.658 | 0.927 | 0.352 | 0.907 | 0.788 | 0.781 |
+| semantic | dense | faiss_flatip | rewritten | 20 | 150 | 0.840 | 0.128 | 0.807 | 0.631 | 0.641 | 0.913 | 0.345 | 0.900 | 0.775 | 0.760 |
+| semantic | dense | faiss_hnsw | hyde | 20 | 150 | 0.813 | 0.132 | 0.790 | 0.619 | 0.634 | 0.907 | 0.374 | 0.890 | 0.785 | 0.773 |
+| semantic | dense | faiss_hnsw | multi | 20 | 150 | 0.867 | 0.135 | 0.833 | 0.656 | 0.660 | 0.920 | 0.357 | 0.907 | 0.791 | 0.775 |
+| semantic | dense | faiss_hnsw | original | 20 | 150 | 0.793 | 0.133 | 0.763 | 0.617 | 0.624 | 0.873 | 0.352 | 0.850 | 0.750 | 0.741 |
+| semantic | dense | faiss_hnsw | rewritten | 20 | 150 | 0.813 | 0.127 | 0.780 | 0.612 | 0.620 | 0.887 | 0.345 | 0.870 | 0.755 | 0.741 |
+| semantic | dense | faiss_ivf | hyde | 20 | 150 | 0.627 | 0.092 | 0.583 | 0.496 | 0.503 | 0.740 | 0.256 | 0.720 | 0.651 | 0.641 |
+| semantic | dense | faiss_ivf | multi | 20 | 150 | 0.613 | 0.096 | 0.577 | 0.473 | 0.486 | 0.747 | 0.254 | 0.730 | 0.631 | 0.632 |
+| semantic | dense | faiss_ivf | original | 20 | 150 | 0.533 | 0.088 | 0.500 | 0.410 | 0.421 | 0.653 | 0.224 | 0.637 | 0.555 | 0.553 |
+| semantic | dense | faiss_ivf | rewritten | 20 | 150 | 0.547 | 0.081 | 0.510 | 0.440 | 0.437 | 0.680 | 0.221 | 0.660 | 0.581 | 0.570 |
+| semantic | dense | qdrant | hyde | 20 | 150 | 0.853 | 0.134 | 0.833 | 0.641 | 0.658 | 0.927 | 0.376 | 0.910 | 0.802 | 0.790 |
+| semantic | dense | qdrant | multi | 20 | 150 | 0.873 | 0.134 | 0.840 | 0.669 | 0.676 | 0.927 | 0.354 | 0.913 | 0.804 | 0.789 |
+| semantic | dense | qdrant | original | 20 | 150 | 0.827 | 0.134 | 0.797 | 0.647 | 0.655 | 0.920 | 0.352 | 0.900 | 0.785 | 0.777 |
+| semantic | dense | qdrant | rewritten | 20 | 150 | 0.833 | 0.128 | 0.800 | 0.623 | 0.635 | 0.907 | 0.344 | 0.893 | 0.767 | 0.754 |
+| semantic | hybrid | faiss_flatip+bm25 | multi | 20 | 150 | 0.887 | 0.143 | 0.870 | 0.695 | 0.689 | 0.940 | 0.347 | 0.940 | 0.826 | 0.798 |
+| semantic | hybrid | faiss_flatip+bm25 | original | 20 | 150 | 0.920 | 0.149 | 0.903 | 0.719 | 0.717 | 0.980 | 0.375 | 0.977 | 0.837 | 0.828 |
+| semantic | hybrid | faiss_flatip+bm25 | rewritten | 20 | 150 | 0.887 | 0.135 | 0.877 | 0.659 | 0.668 | 0.960 | 0.339 | 0.953 | 0.797 | 0.785 |
+| semantic | hybrid | faiss_hnsw+bm25 | multi | 20 | 150 | 0.887 | 0.143 | 0.870 | 0.689 | 0.687 | 0.940 | 0.349 | 0.940 | 0.820 | 0.796 |
+| semantic | hybrid | faiss_hnsw+bm25 | original | 20 | 150 | 0.920 | 0.148 | 0.900 | 0.695 | 0.701 | 0.973 | 0.375 | 0.970 | 0.811 | 0.810 |
+| semantic | hybrid | faiss_hnsw+bm25 | rewritten | 20 | 150 | 0.880 | 0.135 | 0.867 | 0.640 | 0.656 | 0.947 | 0.339 | 0.937 | 0.778 | 0.776 |
+| semantic | hybrid | faiss_ivf+bm25 | multi | 20 | 150 | 0.853 | 0.128 | 0.837 | 0.557 | 0.597 | 0.913 | 0.309 | 0.907 | 0.712 | 0.728 |
+| semantic | hybrid | faiss_ivf+bm25 | original | 20 | 150 | 0.900 | 0.136 | 0.877 | 0.554 | 0.610 | 0.953 | 0.328 | 0.947 | 0.677 | 0.723 |
+| semantic | hybrid | faiss_ivf+bm25 | rewritten | 20 | 150 | 0.853 | 0.117 | 0.827 | 0.537 | 0.578 | 0.927 | 0.289 | 0.913 | 0.686 | 0.702 |
+| semantic | hybrid | qdrant+bm25 | multi | 20 | 150 | 0.887 | 0.143 | 0.870 | 0.695 | 0.689 | 0.940 | 0.347 | 0.940 | 0.826 | 0.798 |
+| semantic | hybrid | qdrant+bm25 | original | 20 | 150 | 0.920 | 0.148 | 0.903 | 0.716 | 0.715 | 0.980 | 0.375 | 0.977 | 0.834 | 0.825 |
+| semantic | hybrid | qdrant+bm25 | rewritten | 20 | 150 | 0.887 | 0.135 | 0.877 | 0.655 | 0.666 | 0.960 | 0.339 | 0.953 | 0.794 | 0.783 |
+| sentence | bm25 | bm25 | multi | 20 | 150 | 0.807 | 0.113 | 0.770 | 0.624 | 0.625 | 0.880 | 0.259 | 0.870 | 0.742 | 0.738 |
+| sentence | bm25 | bm25 | original | 20 | 150 | 0.853 | 0.130 | 0.820 | 0.702 | 0.686 | 0.907 | 0.308 | 0.900 | 0.812 | 0.790 |
+| sentence | bm25 | bm25 | rewritten | 20 | 150 | 0.787 | 0.116 | 0.757 | 0.649 | 0.633 | 0.880 | 0.252 | 0.870 | 0.768 | 0.746 |
+| sentence | dense | faiss_flatip | hyde | 20 | 150 | 0.860 | 0.145 | 0.840 | 0.656 | 0.660 | 0.933 | 0.370 | 0.917 | 0.800 | 0.791 |
+| sentence | dense | faiss_flatip | multi | 20 | 150 | 0.873 | 0.139 | 0.850 | 0.620 | 0.631 | 0.927 | 0.350 | 0.913 | 0.765 | 0.761 |
+| sentence | dense | faiss_flatip | original | 20 | 150 | 0.853 | 0.135 | 0.837 | 0.630 | 0.646 | 0.900 | 0.343 | 0.887 | 0.752 | 0.757 |
+| sentence | dense | faiss_flatip | rewritten | 20 | 150 | 0.860 | 0.134 | 0.837 | 0.604 | 0.629 | 0.933 | 0.338 | 0.923 | 0.764 | 0.762 |
+| sentence | dense | faiss_hnsw | hyde | 20 | 150 | 0.827 | 0.142 | 0.800 | 0.644 | 0.646 | 0.913 | 0.370 | 0.893 | 0.792 | 0.783 |
+| sentence | dense | faiss_hnsw | multi | 20 | 150 | 0.847 | 0.137 | 0.823 | 0.616 | 0.625 | 0.913 | 0.352 | 0.897 | 0.762 | 0.755 |
+| sentence | dense | faiss_hnsw | original | 20 | 150 | 0.813 | 0.131 | 0.790 | 0.604 | 0.618 | 0.860 | 0.342 | 0.837 | 0.721 | 0.727 |
+| sentence | dense | faiss_hnsw | rewritten | 20 | 150 | 0.807 | 0.128 | 0.770 | 0.581 | 0.600 | 0.893 | 0.336 | 0.873 | 0.742 | 0.740 |
+| sentence | dense | faiss_ivf | hyde | 20 | 150 | 0.627 | 0.102 | 0.600 | 0.491 | 0.496 | 0.747 | 0.270 | 0.730 | 0.658 | 0.644 |
+| sentence | dense | faiss_ivf | multi | 20 | 150 | 0.647 | 0.107 | 0.627 | 0.499 | 0.500 | 0.773 | 0.273 | 0.763 | 0.627 | 0.629 |
+| sentence | dense | faiss_ivf | original | 20 | 150 | 0.607 | 0.099 | 0.587 | 0.461 | 0.469 | 0.713 | 0.264 | 0.697 | 0.581 | 0.591 |
+| sentence | dense | faiss_ivf | rewritten | 20 | 150 | 0.573 | 0.096 | 0.550 | 0.451 | 0.449 | 0.707 | 0.255 | 0.690 | 0.590 | 0.585 |
+| sentence | dense | qdrant | hyde | 20 | 150 | 0.860 | 0.145 | 0.840 | 0.656 | 0.660 | 0.933 | 0.370 | 0.917 | 0.800 | 0.791 |
+| sentence | dense | qdrant | multi | 20 | 150 | 0.873 | 0.139 | 0.850 | 0.620 | 0.632 | 0.927 | 0.350 | 0.913 | 0.765 | 0.761 |
+| sentence | dense | qdrant | original | 20 | 150 | 0.853 | 0.135 | 0.837 | 0.630 | 0.646 | 0.900 | 0.343 | 0.887 | 0.752 | 0.758 |
+| sentence | dense | qdrant | rewritten | 20 | 150 | 0.853 | 0.134 | 0.827 | 0.604 | 0.627 | 0.927 | 0.337 | 0.917 | 0.763 | 0.760 |
+| sentence | hybrid | faiss_flatip+bm25 | multi | 20 | 150 | 0.907 | 0.146 | 0.900 | 0.681 | 0.677 | 0.953 | 0.340 | 0.953 | 0.831 | 0.807 |
+| sentence | hybrid | faiss_flatip+bm25 | original | 20 | 150 | 0.940 | 0.154 | 0.927 | 0.718 | 0.712 | 0.987 | 0.363 | 0.983 | 0.828 | 0.823 |
+| sentence | hybrid | faiss_flatip+bm25 | rewritten | 20 | 150 | 0.907 | 0.146 | 0.887 | 0.681 | 0.679 | 0.967 | 0.335 | 0.957 | 0.820 | 0.802 |
+| sentence | hybrid | faiss_hnsw+bm25 | multi | 20 | 150 | 0.907 | 0.145 | 0.893 | 0.657 | 0.660 | 0.953 | 0.340 | 0.953 | 0.813 | 0.795 |
+| sentence | hybrid | faiss_hnsw+bm25 | original | 20 | 150 | 0.940 | 0.152 | 0.927 | 0.702 | 0.707 | 0.980 | 0.360 | 0.977 | 0.808 | 0.816 |
+| sentence | hybrid | faiss_hnsw+bm25 | rewritten | 20 | 150 | 0.893 | 0.144 | 0.870 | 0.666 | 0.666 | 0.960 | 0.335 | 0.947 | 0.804 | 0.791 |
+| sentence | hybrid | faiss_ivf+bm25 | multi | 20 | 150 | 0.867 | 0.137 | 0.840 | 0.598 | 0.604 | 0.940 | 0.314 | 0.930 | 0.714 | 0.731 |
+| sentence | hybrid | faiss_ivf+bm25 | original | 20 | 150 | 0.900 | 0.147 | 0.873 | 0.585 | 0.624 | 0.953 | 0.339 | 0.947 | 0.708 | 0.749 |
+| sentence | hybrid | faiss_ivf+bm25 | rewritten | 20 | 150 | 0.853 | 0.134 | 0.827 | 0.548 | 0.588 | 0.927 | 0.306 | 0.913 | 0.695 | 0.712 |
+| sentence | hybrid | qdrant+bm25 | multi | 20 | 150 | 0.907 | 0.146 | 0.900 | 0.681 | 0.677 | 0.953 | 0.340 | 0.953 | 0.831 | 0.807 |
+| sentence | hybrid | qdrant+bm25 | original | 20 | 150 | 0.940 | 0.154 | 0.927 | 0.721 | 0.713 | 0.987 | 0.363 | 0.983 | 0.831 | 0.824 |
+| sentence | hybrid | qdrant+bm25 | rewritten | 20 | 150 | 0.907 | 0.146 | 0.883 | 0.681 | 0.680 | 0.967 | 0.335 | 0.957 | 0.820 | 0.802 |
+
+</details>
+
+<details>
+<summary>All 93 LangChain reranked rows (k=5)</summary>
+
+| Chunk | Retrieval | Index | Query | k | n | c_hit | c_prec | c_rec | c_mrr | c_ndcg | d_hit | d_prec | d_rec | d_mrr | d_ndcg |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| fixed | bm25 | bm25 | multi | 5 | 150 | 0.787 | 0.304 | 0.753 | 0.725 | 0.727 | 0.873 | 0.551 | 0.853 | 0.846 | 0.839 |
+| fixed | bm25 | bm25 | original | 5 | 150 | 0.813 | 0.315 | 0.780 | 0.746 | 0.744 | 0.887 | 0.561 | 0.867 | 0.852 | 0.847 |
+| fixed | bm25 | bm25 | rewritten | 5 | 150 | 0.753 | 0.296 | 0.723 | 0.698 | 0.698 | 0.860 | 0.536 | 0.843 | 0.826 | 0.824 |
+| fixed | dense | faiss_flatip | hyde | 5 | 150 | 0.833 | 0.333 | 0.793 | 0.745 | 0.749 | 0.927 | 0.593 | 0.907 | 0.861 | 0.868 |
+| fixed | dense | faiss_flatip | multi | 5 | 150 | 0.827 | 0.327 | 0.787 | 0.738 | 0.741 | 0.900 | 0.577 | 0.880 | 0.853 | 0.853 |
+| fixed | dense | faiss_flatip | original | 5 | 150 | 0.793 | 0.317 | 0.773 | 0.722 | 0.720 | 0.893 | 0.567 | 0.883 | 0.836 | 0.840 |
+| fixed | dense | faiss_flatip | rewritten | 5 | 150 | 0.807 | 0.324 | 0.773 | 0.732 | 0.731 | 0.900 | 0.579 | 0.883 | 0.848 | 0.851 |
+| fixed | dense | faiss_hnsw | hyde | 5 | 150 | 0.813 | 0.323 | 0.770 | 0.725 | 0.731 | 0.907 | 0.588 | 0.883 | 0.839 | 0.847 |
+| fixed | dense | faiss_hnsw | multi | 5 | 150 | 0.800 | 0.323 | 0.760 | 0.712 | 0.716 | 0.880 | 0.579 | 0.860 | 0.826 | 0.828 |
+| fixed | dense | faiss_hnsw | original | 5 | 150 | 0.747 | 0.304 | 0.727 | 0.686 | 0.684 | 0.847 | 0.553 | 0.833 | 0.797 | 0.801 |
+| fixed | dense | faiss_hnsw | rewritten | 5 | 150 | 0.780 | 0.315 | 0.747 | 0.700 | 0.701 | 0.853 | 0.557 | 0.840 | 0.799 | 0.806 |
+| fixed | dense | faiss_ivf | hyde | 5 | 150 | 0.567 | 0.219 | 0.533 | 0.519 | 0.521 | 0.713 | 0.420 | 0.700 | 0.667 | 0.668 |
+| fixed | dense | faiss_ivf | multi | 5 | 150 | 0.580 | 0.229 | 0.553 | 0.531 | 0.530 | 0.713 | 0.449 | 0.703 | 0.677 | 0.673 |
+| fixed | dense | faiss_ivf | original | 5 | 150 | 0.533 | 0.211 | 0.507 | 0.482 | 0.485 | 0.667 | 0.432 | 0.653 | 0.620 | 0.623 |
+| fixed | dense | faiss_ivf | rewritten | 5 | 150 | 0.493 | 0.196 | 0.473 | 0.445 | 0.445 | 0.620 | 0.392 | 0.610 | 0.583 | 0.580 |
+| fixed | dense | qdrant | hyde | 5 | 150 | 0.833 | 0.333 | 0.793 | 0.745 | 0.749 | 0.927 | 0.593 | 0.907 | 0.861 | 0.868 |
+| fixed | dense | qdrant | multi | 5 | 150 | 0.827 | 0.327 | 0.787 | 0.738 | 0.741 | 0.900 | 0.576 | 0.880 | 0.853 | 0.853 |
+| fixed | dense | qdrant | original | 5 | 150 | 0.800 | 0.317 | 0.777 | 0.725 | 0.726 | 0.900 | 0.567 | 0.887 | 0.843 | 0.847 |
+| fixed | dense | qdrant | rewritten | 5 | 150 | 0.807 | 0.323 | 0.773 | 0.732 | 0.731 | 0.900 | 0.576 | 0.883 | 0.848 | 0.851 |
+| fixed | hybrid | faiss_flatip+bm25 | multi | 5 | 150 | 0.840 | 0.337 | 0.813 | 0.757 | 0.757 | 0.927 | 0.599 | 0.910 | 0.868 | 0.868 |
+| fixed | hybrid | faiss_flatip+bm25 | original | 5 | 150 | 0.840 | 0.348 | 0.817 | 0.772 | 0.768 | 0.927 | 0.611 | 0.907 | 0.881 | 0.876 |
+| fixed | hybrid | faiss_flatip+bm25 | rewritten | 5 | 150 | 0.833 | 0.344 | 0.803 | 0.754 | 0.754 | 0.927 | 0.607 | 0.907 | 0.880 | 0.883 |
+| fixed | hybrid | faiss_hnsw+bm25 | multi | 5 | 150 | 0.840 | 0.337 | 0.813 | 0.756 | 0.756 | 0.927 | 0.601 | 0.910 | 0.867 | 0.868 |
+| fixed | hybrid | faiss_hnsw+bm25 | original | 5 | 150 | 0.840 | 0.345 | 0.817 | 0.771 | 0.766 | 0.927 | 0.609 | 0.907 | 0.881 | 0.877 |
+| fixed | hybrid | faiss_hnsw+bm25 | rewritten | 5 | 150 | 0.840 | 0.341 | 0.810 | 0.756 | 0.758 | 0.933 | 0.601 | 0.913 | 0.882 | 0.885 |
+| fixed | hybrid | faiss_ivf+bm25 | multi | 5 | 150 | 0.807 | 0.323 | 0.773 | 0.742 | 0.739 | 0.893 | 0.572 | 0.870 | 0.852 | 0.846 |
+| fixed | hybrid | faiss_ivf+bm25 | original | 5 | 150 | 0.807 | 0.327 | 0.777 | 0.733 | 0.734 | 0.893 | 0.581 | 0.880 | 0.846 | 0.843 |
+| fixed | hybrid | faiss_ivf+bm25 | rewritten | 5 | 150 | 0.793 | 0.319 | 0.757 | 0.730 | 0.725 | 0.893 | 0.573 | 0.873 | 0.856 | 0.851 |
+| fixed | hybrid | qdrant+bm25 | multi | 5 | 150 | 0.840 | 0.337 | 0.813 | 0.757 | 0.757 | 0.927 | 0.600 | 0.910 | 0.868 | 0.868 |
+| fixed | hybrid | qdrant+bm25 | original | 5 | 150 | 0.840 | 0.348 | 0.817 | 0.772 | 0.768 | 0.927 | 0.611 | 0.907 | 0.881 | 0.877 |
+| fixed | hybrid | qdrant+bm25 | rewritten | 5 | 150 | 0.827 | 0.343 | 0.797 | 0.753 | 0.752 | 0.927 | 0.607 | 0.907 | 0.880 | 0.883 |
+| semantic | bm25 | bm25 | multi | 5 | 150 | 0.793 | 0.300 | 0.753 | 0.721 | 0.730 | 0.867 | 0.536 | 0.847 | 0.838 | 0.834 |
+| semantic | bm25 | bm25 | original | 5 | 150 | 0.827 | 0.321 | 0.793 | 0.728 | 0.745 | 0.893 | 0.545 | 0.887 | 0.840 | 0.847 |
+| semantic | bm25 | bm25 | rewritten | 5 | 150 | 0.753 | 0.285 | 0.723 | 0.678 | 0.687 | 0.853 | 0.520 | 0.837 | 0.804 | 0.809 |
+| semantic | dense | faiss_flatip | hyde | 5 | 150 | 0.813 | 0.327 | 0.767 | 0.724 | 0.734 | 0.913 | 0.596 | 0.890 | 0.867 | 0.862 |
+| semantic | dense | faiss_flatip | multi | 5 | 150 | 0.827 | 0.323 | 0.777 | 0.737 | 0.751 | 0.907 | 0.577 | 0.887 | 0.871 | 0.864 |
+| semantic | dense | faiss_flatip | original | 5 | 150 | 0.793 | 0.317 | 0.753 | 0.704 | 0.716 | 0.900 | 0.571 | 0.880 | 0.850 | 0.852 |
+| semantic | dense | faiss_flatip | rewritten | 5 | 150 | 0.807 | 0.320 | 0.760 | 0.747 | 0.750 | 0.907 | 0.569 | 0.883 | 0.877 | 0.869 |
+| semantic | dense | faiss_hnsw | hyde | 5 | 150 | 0.773 | 0.316 | 0.723 | 0.689 | 0.699 | 0.887 | 0.587 | 0.863 | 0.832 | 0.835 |
+| semantic | dense | faiss_hnsw | multi | 5 | 150 | 0.813 | 0.320 | 0.767 | 0.725 | 0.738 | 0.887 | 0.575 | 0.870 | 0.855 | 0.847 |
+| semantic | dense | faiss_hnsw | original | 5 | 150 | 0.747 | 0.307 | 0.707 | 0.667 | 0.679 | 0.853 | 0.556 | 0.830 | 0.805 | 0.810 |
+| semantic | dense | faiss_hnsw | rewritten | 5 | 150 | 0.773 | 0.312 | 0.723 | 0.710 | 0.715 | 0.873 | 0.555 | 0.847 | 0.848 | 0.838 |
+| semantic | dense | faiss_ivf | hyde | 5 | 150 | 0.607 | 0.237 | 0.553 | 0.527 | 0.540 | 0.720 | 0.431 | 0.700 | 0.675 | 0.675 |
+| semantic | dense | faiss_ivf | multi | 5 | 150 | 0.573 | 0.233 | 0.530 | 0.511 | 0.520 | 0.733 | 0.429 | 0.717 | 0.664 | 0.670 |
+| semantic | dense | faiss_ivf | original | 5 | 150 | 0.513 | 0.205 | 0.473 | 0.429 | 0.444 | 0.620 | 0.383 | 0.607 | 0.557 | 0.565 |
+| semantic | dense | faiss_ivf | rewritten | 5 | 150 | 0.513 | 0.207 | 0.470 | 0.459 | 0.466 | 0.640 | 0.383 | 0.623 | 0.611 | 0.608 |
+| semantic | dense | qdrant | hyde | 5 | 150 | 0.813 | 0.327 | 0.767 | 0.724 | 0.734 | 0.913 | 0.596 | 0.890 | 0.867 | 0.862 |
+| semantic | dense | qdrant | multi | 5 | 150 | 0.827 | 0.323 | 0.777 | 0.737 | 0.751 | 0.907 | 0.577 | 0.887 | 0.871 | 0.865 |
+| semantic | dense | qdrant | original | 5 | 150 | 0.787 | 0.316 | 0.747 | 0.704 | 0.715 | 0.893 | 0.569 | 0.873 | 0.850 | 0.850 |
+| semantic | dense | qdrant | rewritten | 5 | 150 | 0.800 | 0.317 | 0.753 | 0.740 | 0.743 | 0.900 | 0.567 | 0.877 | 0.870 | 0.861 |
+| semantic | hybrid | faiss_flatip+bm25 | multi | 5 | 150 | 0.833 | 0.348 | 0.800 | 0.745 | 0.753 | 0.907 | 0.603 | 0.890 | 0.871 | 0.863 |
+| semantic | hybrid | faiss_flatip+bm25 | original | 5 | 150 | 0.847 | 0.351 | 0.817 | 0.761 | 0.768 | 0.927 | 0.615 | 0.913 | 0.884 | 0.881 |
+| semantic | hybrid | faiss_flatip+bm25 | rewritten | 5 | 150 | 0.847 | 0.352 | 0.817 | 0.773 | 0.777 | 0.933 | 0.612 | 0.923 | 0.899 | 0.891 |
+| semantic | hybrid | faiss_hnsw+bm25 | multi | 5 | 150 | 0.833 | 0.348 | 0.800 | 0.746 | 0.754 | 0.907 | 0.601 | 0.890 | 0.871 | 0.865 |
+| semantic | hybrid | faiss_hnsw+bm25 | original | 5 | 150 | 0.853 | 0.355 | 0.827 | 0.770 | 0.776 | 0.920 | 0.616 | 0.910 | 0.882 | 0.878 |
+| semantic | hybrid | faiss_hnsw+bm25 | rewritten | 5 | 150 | 0.847 | 0.352 | 0.817 | 0.768 | 0.773 | 0.927 | 0.609 | 0.917 | 0.895 | 0.886 |
+| semantic | hybrid | faiss_ivf+bm25 | multi | 5 | 150 | 0.813 | 0.321 | 0.770 | 0.739 | 0.750 | 0.900 | 0.565 | 0.880 | 0.861 | 0.858 |
+| semantic | hybrid | faiss_ivf+bm25 | original | 5 | 150 | 0.840 | 0.340 | 0.800 | 0.746 | 0.755 | 0.913 | 0.595 | 0.900 | 0.872 | 0.865 |
+| semantic | hybrid | faiss_ivf+bm25 | rewritten | 5 | 150 | 0.827 | 0.325 | 0.780 | 0.747 | 0.756 | 0.913 | 0.575 | 0.893 | 0.876 | 0.872 |
+| semantic | hybrid | qdrant+bm25 | multi | 5 | 150 | 0.833 | 0.347 | 0.800 | 0.745 | 0.753 | 0.907 | 0.603 | 0.890 | 0.871 | 0.863 |
+| semantic | hybrid | qdrant+bm25 | original | 5 | 150 | 0.847 | 0.351 | 0.817 | 0.762 | 0.769 | 0.927 | 0.615 | 0.913 | 0.885 | 0.882 |
+| semantic | hybrid | qdrant+bm25 | rewritten | 5 | 150 | 0.847 | 0.351 | 0.817 | 0.773 | 0.777 | 0.933 | 0.609 | 0.923 | 0.899 | 0.891 |
+| sentence | bm25 | bm25 | multi | 5 | 150 | 0.760 | 0.293 | 0.720 | 0.680 | 0.686 | 0.860 | 0.509 | 0.843 | 0.818 | 0.822 |
+| sentence | bm25 | bm25 | original | 5 | 150 | 0.807 | 0.320 | 0.777 | 0.727 | 0.729 | 0.893 | 0.560 | 0.883 | 0.841 | 0.846 |
+| sentence | bm25 | bm25 | rewritten | 5 | 150 | 0.760 | 0.311 | 0.730 | 0.692 | 0.693 | 0.853 | 0.519 | 0.847 | 0.812 | 0.813 |
+| sentence | dense | faiss_flatip | hyde | 5 | 150 | 0.807 | 0.340 | 0.777 | 0.734 | 0.740 | 0.907 | 0.589 | 0.890 | 0.856 | 0.861 |
+| sentence | dense | faiss_flatip | multi | 5 | 150 | 0.807 | 0.340 | 0.777 | 0.737 | 0.737 | 0.893 | 0.571 | 0.877 | 0.841 | 0.847 |
+| sentence | dense | faiss_flatip | original | 5 | 150 | 0.780 | 0.324 | 0.753 | 0.701 | 0.704 | 0.867 | 0.560 | 0.857 | 0.813 | 0.819 |
+| sentence | dense | faiss_flatip | rewritten | 5 | 150 | 0.827 | 0.341 | 0.790 | 0.755 | 0.752 | 0.920 | 0.584 | 0.903 | 0.869 | 0.871 |
+| sentence | dense | faiss_hnsw | hyde | 5 | 150 | 0.780 | 0.332 | 0.750 | 0.708 | 0.713 | 0.887 | 0.585 | 0.870 | 0.842 | 0.844 |
+| sentence | dense | faiss_hnsw | multi | 5 | 150 | 0.787 | 0.328 | 0.750 | 0.712 | 0.714 | 0.887 | 0.565 | 0.867 | 0.827 | 0.835 |
+| sentence | dense | faiss_hnsw | original | 5 | 150 | 0.740 | 0.309 | 0.707 | 0.667 | 0.670 | 0.833 | 0.539 | 0.813 | 0.782 | 0.788 |
+| sentence | dense | faiss_hnsw | rewritten | 5 | 150 | 0.767 | 0.316 | 0.727 | 0.689 | 0.691 | 0.860 | 0.549 | 0.843 | 0.811 | 0.813 |
+| sentence | dense | faiss_ivf | hyde | 5 | 150 | 0.600 | 0.249 | 0.563 | 0.539 | 0.542 | 0.687 | 0.436 | 0.670 | 0.654 | 0.654 |
+| sentence | dense | faiss_ivf | multi | 5 | 150 | 0.607 | 0.267 | 0.583 | 0.557 | 0.555 | 0.727 | 0.456 | 0.720 | 0.684 | 0.683 |
+| sentence | dense | faiss_ivf | original | 5 | 150 | 0.573 | 0.239 | 0.543 | 0.522 | 0.522 | 0.660 | 0.427 | 0.643 | 0.621 | 0.621 |
+| sentence | dense | faiss_ivf | rewritten | 5 | 150 | 0.533 | 0.229 | 0.507 | 0.506 | 0.502 | 0.667 | 0.420 | 0.657 | 0.634 | 0.635 |
+| sentence | dense | qdrant | hyde | 5 | 150 | 0.807 | 0.340 | 0.777 | 0.738 | 0.743 | 0.907 | 0.589 | 0.890 | 0.859 | 0.863 |
+| sentence | dense | qdrant | multi | 5 | 150 | 0.807 | 0.340 | 0.777 | 0.737 | 0.737 | 0.893 | 0.571 | 0.877 | 0.841 | 0.847 |
+| sentence | dense | qdrant | original | 5 | 150 | 0.780 | 0.325 | 0.753 | 0.704 | 0.705 | 0.867 | 0.561 | 0.857 | 0.813 | 0.819 |
+| sentence | dense | qdrant | rewritten | 5 | 150 | 0.820 | 0.339 | 0.780 | 0.744 | 0.743 | 0.913 | 0.583 | 0.897 | 0.862 | 0.864 |
+| sentence | hybrid | faiss_flatip+bm25 | multi | 5 | 150 | 0.833 | 0.356 | 0.813 | 0.760 | 0.758 | 0.920 | 0.589 | 0.910 | 0.869 | 0.869 |
+| sentence | hybrid | faiss_flatip+bm25 | original | 5 | 150 | 0.853 | 0.360 | 0.837 | 0.768 | 0.768 | 0.947 | 0.611 | 0.943 | 0.885 | 0.889 |
+| sentence | hybrid | faiss_flatip+bm25 | rewritten | 5 | 150 | 0.860 | 0.367 | 0.830 | 0.785 | 0.788 | 0.947 | 0.608 | 0.937 | 0.909 | 0.909 |
+| sentence | hybrid | faiss_hnsw+bm25 | multi | 5 | 150 | 0.820 | 0.353 | 0.800 | 0.747 | 0.745 | 0.907 | 0.585 | 0.900 | 0.866 | 0.861 |
+| sentence | hybrid | faiss_hnsw+bm25 | original | 5 | 150 | 0.847 | 0.353 | 0.830 | 0.760 | 0.761 | 0.940 | 0.600 | 0.933 | 0.875 | 0.881 |
+| sentence | hybrid | faiss_hnsw+bm25 | rewritten | 5 | 150 | 0.847 | 0.360 | 0.813 | 0.768 | 0.770 | 0.933 | 0.600 | 0.923 | 0.890 | 0.892 |
+| sentence | hybrid | faiss_ivf+bm25 | multi | 5 | 150 | 0.820 | 0.344 | 0.783 | 0.738 | 0.738 | 0.900 | 0.572 | 0.887 | 0.853 | 0.851 |
+| sentence | hybrid | faiss_ivf+bm25 | original | 5 | 150 | 0.827 | 0.356 | 0.800 | 0.741 | 0.742 | 0.900 | 0.592 | 0.887 | 0.851 | 0.855 |
+| sentence | hybrid | faiss_ivf+bm25 | rewritten | 5 | 150 | 0.820 | 0.335 | 0.780 | 0.743 | 0.746 | 0.907 | 0.569 | 0.897 | 0.865 | 0.864 |
+| sentence | hybrid | qdrant+bm25 | multi | 5 | 150 | 0.833 | 0.356 | 0.813 | 0.760 | 0.758 | 0.920 | 0.589 | 0.910 | 0.869 | 0.869 |
+| sentence | hybrid | qdrant+bm25 | original | 5 | 150 | 0.853 | 0.360 | 0.837 | 0.768 | 0.767 | 0.947 | 0.612 | 0.943 | 0.885 | 0.889 |
+| sentence | hybrid | qdrant+bm25 | rewritten | 5 | 150 | 0.860 | 0.365 | 0.827 | 0.782 | 0.786 | 0.947 | 0.607 | 0.937 | 0.909 | 0.909 |
+
+</details>
 
 ## Dependency notes
 
