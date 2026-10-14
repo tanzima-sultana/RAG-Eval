@@ -6,7 +6,7 @@ from common.args import IndexArgs
 from common.args import EvalQnAArgs
 from common.args import QueryArgs
 from common.constants import NO_FRAMEWORK
-from common.constants import FAISS_FLATIP_INDEX, FAISS_IVF_INDEX, FAISS_HNSW_INDEX
+from common.constants import FAISS_FLATIP_INDEX, FAISS_IVF_INDEX, FAISS_HNSW_INDEX, BM25_INDEX, QDRANT_INDEX
 
 # ------ Dataset
 def get_output_path(input_path:str, output_path:str) -> str:
@@ -204,4 +204,70 @@ def get_query_path(output_path:str, eval_qna_args: EvalQnAArgs, query_args: Quer
 		f"{output_path}/queries/{eval_qna_args.n_sample_documents}_{eval_qna_args.n_sample_evals}_"
 		f"{eval_qna_args.eval_qna_llm}_{eval_qna_model}_{embedding_model}_"
 		f"{query_args.query_llm}_{query_llm_model}_{query_args.n_multi_qus}"
+	)
+
+# ------ Retrieval
+def get_retrieved_index_folder(index_args: IndexArgs) -> str:
+	"""
+	Input: index_args, the indexing parameters of one index.
+	Output: the index's folder name in the retrieved folder.
+	What it does: names the index by its type and parameters: "flatip", "ivf_{nlist}", "hnsw_{m}_{ef_construction}",
+	"bm25_{k1}_{b}_{tokenizer}" or "qdrant", so changing an index parameter never reuses old outputs.
+	"""
+	if index_args.index_type == FAISS_FLATIP_INDEX:
+		return "flatip"
+	if index_args.index_type == FAISS_IVF_INDEX:
+		return f"ivf_{index_args.ivf_nlist}"
+	if index_args.index_type == FAISS_HNSW_INDEX:
+		return f"hnsw_{index_args.hnsw_m}_{index_args.hnsw_ef_construction}"
+	if index_args.index_type == BM25_INDEX:
+		return f"bm25_{index_args.bm25_k1}_{index_args.bm25_b}_{index_args.bm25_tokenizer}"
+	if index_args.index_type == QDRANT_INDEX:
+		return "qdrant"
+	raise ValueError(f"index_type ({index_args.index_type}) is not supported")
+
+def get_retrieved_path(output_path:str, chunking_args: ChunkingArgs, index_args: IndexArgs, tuning_queries_size: int) -> str:
+	"""
+	Input: output_path, the dataset's output folder; chunking_args and index_args, the chunks and index searched;
+	tuning_queries_size, the number of tuning queries.
+	Output: the retrieved folder path of one index, as a string ending with "/".
+	What it does: builds {output_path}/retrieved/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/
+	{index_folder}/{tuning_queries_size}/, with a {framework}/ folder after retrieved/ when a framework such as
+	langchain is used.
+	"""
+	if chunking_args.framework == NO_FRAMEWORK:
+		framework_folder = ""
+	else:
+		framework_folder = f"{chunking_args.framework}/"
+
+	index_folder = get_retrieved_index_folder(index_args)
+
+	return (
+		f"{output_path}/retrieved/{framework_folder}{chunking_args.chunk_type}/{chunking_args.model_name}/"
+		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
+		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}/"
+		f"{index_folder}/{tuning_queries_size}/"
+	)
+
+def get_hybrid_retrieved_path(output_path:str, chunking_args: ChunkingArgs, dense_index_args: IndexArgs, bm25_index_args: IndexArgs, tuning_queries_size: int) -> str:
+	"""
+	Input: output_path, the dataset's output folder; chunking_args, the chunks searched; dense_index_args and
+	bm25_index_args, the two indexes fused; tuning_queries_size, the number of tuning queries.
+	Output: the retrieved folder path of one hybrid pair, as a string ending with "/".
+	What it does: the same as get_retrieved_path, with both index folders joined by "+" as the index folder,
+	e.g. flatip+bm25_1.5_0.75_whitespace.
+	"""
+	if chunking_args.framework == NO_FRAMEWORK:
+		framework_folder = ""
+	else:
+		framework_folder = f"{chunking_args.framework}/"
+
+	dense_index_folder = get_retrieved_index_folder(dense_index_args)
+	bm25_index_folder = get_retrieved_index_folder(bm25_index_args)
+
+	return (
+		f"{output_path}/retrieved/{framework_folder}{chunking_args.chunk_type}/{chunking_args.model_name}/"
+		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
+		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}/"
+		f"{dense_index_folder}+{bm25_index_folder}/{tuning_queries_size}/"
 	)

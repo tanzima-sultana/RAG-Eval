@@ -14,6 +14,8 @@ import dataclasses
 import json
 import os
 
+from common import paths
+from common.args import ChunkingArgs
 from l2_chunking.schema import Chunk
 
 def chunk_to_json_dict(chunk: Chunk) -> dict:
@@ -87,17 +89,19 @@ def _save_chunks(chunk_path: str, doc_id: str, chunks: dict[str, Chunk]) -> None
 		json.dump(chunk_dicts, f)
 	os.replace(temporary_file, cache_file)
 
-def load_chunks(chunk_path: str, doc_ids: list[str]) -> dict[str, Chunk]:
+def load_chunks(output_path: str, chunking_args: ChunkingArgs, doc_ids: list[str]) -> dict[str, Chunk]:
 	"""
-	Input: chunk_path, the chunk folder of a chunking run; doc_ids, the
-	documents whose chunks to load, for example the ids of the documents
-	returned by l1 ingestion.
+	Input: output_path, the dataset's output folder; chunking_args, the
+	settings the chunks were made with; doc_ids, the documents whose chunks
+	to load, for example the ids of the documents returned by l1 ingestion.
 	Output: a dict of chunk_id to Chunk with every chunk of those
 	documents, document by document in the order of doc_ids.
 	What it does: load-only, never chunks anything. Reads the {doc_id}.json
-	file of each document. Raises FileNotFoundError if chunk_path or a
-	document's file does not exist.
+	file of each document from the chunk folder. Raises FileNotFoundError if
+	the chunk folder or a document's file does not exist.
 	"""
+	chunk_path = paths.get_chunk_path(output_path, chunking_args)
+	print(f"Chunk folder : {chunk_path}")
 	if not os.path.isdir(chunk_path):
 		raise FileNotFoundError(
 			f"No chunk folder at {chunk_path}. Run scripts/run.sh with the same chunking args first."

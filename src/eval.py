@@ -16,6 +16,8 @@ from l4_indexing import cache as index_cache
 from qna.qna import get_eval_qna
 from l5_query.query import get_queries
 from l6_retrieval.retrieval import Retrieval
+from l10_evaluation.summary import print_retrieval_summary
+from l10_evaluation.retrieval_evaluation import RetrievalEvaluation
 
 def parse_args():
 	"""
@@ -421,7 +423,9 @@ if __name__ == "__main__":
 
 	# Retrieval settings do not depend on the chunk type
 	retrieval_args = make_retrieval_args(args)
-	retrieval = Retrieval(retrieval_args)
+
+	# Finds each Retrieved's eval question by its id
+	retrieval_evaluation = RetrievalEvaluation(eval_qna)
 	
 	# List of (retrieved, quality) tuples, one per Retrieved
 	retrieval_qualities = []
@@ -434,12 +438,13 @@ if __name__ == "__main__":
 		# Load-only; raises an error if a document has no chunk file
 		print("\n\nLoading chunks")
 		s5 = time.time()
-		chunk_path = paths.get_chunk_path(output_path, chunking_args)
-		chunks = load_chunks(chunk_path, doc_ids)
+		chunks = load_chunks(output_path, chunking_args, doc_ids)
 		e5 = time.time() - s5
-		print(f"Chunk folder : {chunk_path}")
 		print(f"Chunks loaded : {len(chunks)} from {len(doc_ids)} documents")
 		print("\nLoading chunks time : ", e5)
+
+		# One Retrieval per chunk type. index_type is left empty here; each Retrieval method sets its own
+		retrieval = Retrieval(retrieval_args, chunking_args, make_index_args(args, ""), args.tuning_queries_size, output_path)
 
 		# Kept for hybrid: dense outputs of each dense index, and the BM25 outputs
 		retrieved_dense_outputs = {}
@@ -467,15 +472,15 @@ if __name__ == "__main__":
 
 					# 8. Retrieval quality evaluation of dense
 					for retrieved in dense_outputs:
-						retrieval_qualities.append((retrieved, retrieval_quality.compute_retrieval_quality(retrieved)))
+						retrieval_qualities.append((retrieved, retrieval_evaluation.compute_retrieval_quality(retrieved, chunks)))
 					
 					# 9. Rerank
 					if retrieval_args.reranking:
-						reranked_dense_outputs = retrieval.get_reranked_dense_retrieval(tuning_queries, chunks, dense_outputs)
+						reranked_dense_outputs = retrieval.get_reranked_dense_retrieval(tuning_queries, chunks, index_type, dense_outputs)
 
 						# 10. Retrieval quality evaluation of reranked_dense
 						for retrieved in reranked_dense_outputs:
-							retrieval_qualities.append((retrieved, retrieval_quality.compute_retrieval_quality(retrieved)))
+							retrieval_qualities.append((retrieved, retrieval_evaluation.compute_retrieval_quality(retrieved, chunks)))
 
 			# 11. BM25 retrieval on the tuning queries. 
 			if constants.BM25_RETRIEVAL in retrieval_args.retrieval_types:
@@ -488,7 +493,7 @@ if __name__ == "__main__":
 
 					# 12. Retrieval quality evaluation of BM25
 					for retrieved in bm25_outputs:
-						retrieval_qualities.append((retrieved, retrieval_quality.compute_retrieval_quality(retrieved)))
+						retrieval_qualities.append((retrieved, retrieval_evaluation.compute_retrieval_quality(retrieved, chunks)))
 
 					# 13. Rerank
 					if retrieval_args.reranking:
@@ -496,7 +501,7 @@ if __name__ == "__main__":
 
 						# 14. Retrieval quality evaluation of reranked_bm25
 						for retrieved in reranked_bm25_outputs:
-							retrieval_qualities.append((retrieved, retrieval_quality.compute_retrieval_quality(retrieved)))
+							retrieval_qualities.append((retrieved, retrieval_evaluation.compute_retrieval_quality(retrieved, chunks)))
 
 		# 15. Hybrid: each dense index's outputs fused with the BM25 outputs, only if both exist and hybrid is given
 		if len(retrieved_dense_outputs) > 0 and len(retrieved_bm25_outputs) > 0 and constants.HYBRID_RETRIEVAL in args.retrieval_types:
@@ -509,17 +514,18 @@ if __name__ == "__main__":
 
 				# 16. Retrieval quality evaluation of hybrid
 				for retrieved in hybrid_outputs:
-					retrieval_qualities.append((retrieved, retrieval_quality.compute_retrieval_quality(retrieved)))
+					retrieval_qualities.append((retrieved, retrieval_evaluation.compute_retrieval_quality(retrieved, chunks)))
 
 				# 17. Rerank
 				if retrieval_args.reranking:
-					reranked_hybrid_outputs = retrieval.get_reranked_hybrid_retrieval(tuning_queries, chunks, hybrid_outputs)
+					reranked_hybrid_outputs = retrieval.get_reranked_hybrid_retrieval(tuning_queries, chunks, index_type, hybrid_outputs)
 
 					# 18. Retrieval quality evaluation of reranked_hybrid
 					for retrieved in reranked_hybrid_outputs:
-						retrieval_qualities.append((retrieved, retrieval_quality.compute_retrieval_quality(retrieved)))
+						retrieval_qualities.append((retrieved, retrieval_evaluation.compute_retrieval_quality(retrieved, chunks)))
 
-	# Outside loop
+	# 19. Retrieval quality of every setup, averaged over the tuning queries
+	print_retrieval_summary(retrieval_qualities)
 
 	# ---------
 	end = time.time()

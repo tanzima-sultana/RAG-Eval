@@ -123,3 +123,6 @@ TOP_K=20
 RERANK_TOP_K=5
 # Cross-encoder that reranks the TOP_K chunks against the eval question
 CROSS_ENCODER_MODEL="cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+# Share of a chunk's words that must be in a context passage for the chunk to count as relevant at chunk level
+CHUNK_CONTEXT_OVERLAP_THRESHOLD=0.5
