@@ -1,15 +1,15 @@
-import argparse
 import random
 import time
 
 from common import constants
 from common import paths
-from common.args import IngestArgs
-from common.args import ChunkingArgs
-from common.args import IndexArgs
-from common.args import EvalQnAArgs
-from common.args import QueryArgs
-from common.args import RetrievalArgs
+from common.args import parse_eval_args
+from common.args import make_ingest_args
+from common.args import make_chunking_args
+from common.args import make_index_args
+from common.args import make_eval_qna_args
+from common.args import make_query_args
+from common.args import make_retrieval_args
 from l1_ingestion.ingestion import ingestion
 from l2_chunking.cache import load_chunks
 from l4_indexing import cache as index_cache
@@ -19,370 +19,20 @@ from l6_retrieval.retrieval import Retrieval
 from l7_context.context import get_context_list
 from l10_evaluation.summary import print_retrieval_summary
 from l10_evaluation.retrieval_evaluation import RetrievalEvaluation
+from l5_query.schema import Query
+from l6_retrieval.schema import Retrieved
+from l7_context.schema import Context
+from l10_evaluation.schema import RetrievalQuality
 
-def parse_args():
+def load_eval_inputs(args, output_path: str):
 	"""
-	Input: none. Reads the command line arguments passed to eval.py.
-	Output: an argparse.Namespace with one attribute per argument.
-	What it does: defines the arguments that identify which build to
-	evaluate and parses them. They must have the same values the build was
-	run with, because the chunk, embedding and index folders and the
-	Qdrant collection name are built from them. Defaults match build.py.
+	Input: args, the parsed eval arguments; output_path, the dataset's output folder.
+	Output: the l1 documents, the eval QnA, the tuning queries and the held-out queries.
+	What it does: loads the documents, eval QnA and l5 queries from their caches and splits the queries.
 	"""
-	parser = argparse.ArgumentParser(description="RAG-Eval evaluation parameters")
-
-	parser.add_argument(
-		"--dataset_size",
-		type=int,
-		required=False,
-		default=0,
-		help="Number of documents the build was made with")
-	parser.add_argument(
-		"--input_path",
-		type=str,
-		required=False,
-		default="",
-		help="Input dataset local path or Hugging Face dataset id used by the build")
-	parser.add_argument(
-		"--output_path",
-		type=str,
-		required=False,
-		default="",
-		help="Base output folder the build wrote to")
-	parser.add_argument(
-		"--download_workers",
-		type=int,
-		required=False,
-		default=constants.DOWNLOAD_WORKERS,
-		help="Number of parallel download workers")
-	parser.add_argument(
-		"--max_batch_rows",
-		type=int,
-		required=False,
-		default=constants.MAX_BATCH_ROWS,
-		help="Maximum number of source rows per batch")
-	parser.add_argument(
-		"--hugging_face_split",
-		type=str,
-		required=False,
-		default=constants.HUGGING_FACE_SPLIT,
-		help="Hugging Face dataset split to read")
-	parser.add_argument(
-		"--parse_workers",
-		type=int,
-		required=False,
-		default=constants.PARSE_WORKERS,
-		help="Number of parallel parse workers")
-	parser.add_argument(
-		"--parse_timeout_seconds",
-		type=int,
-		required=False,
-		default=constants.PARSE_TIMEOUT_SECONDS,
-		help="Per-document parse timeout in seconds")
-	parser.add_argument(
-		"--dedup_threshold",
-		type=float,
-		required=False,
-		default=constants.DEDUP_THRESHOLD,
-		help="Near-duplicate similarity threshold")
-	parser.add_argument(
-		"--pdf_parser",
-		type=str,
-		required=False,
-		default=constants.PDF_PARSER,
-		help="Library used to parse PDF files: pypdf or pypdfium2")
-	parser.add_argument(
-		"--framework",
-		type=str,
-		required=False,
-		default="",
-		help="Framework the build used: langchain, or empty for the built-in layers")
-	parser.add_argument(
-		"--model_name",
-		type=str,
-		required=False,
-		default="",
-		help="SentenceTransformer model the build used")
-	parser.add_argument(
-		"--chunk_types",
-		type=str,
-		nargs="+",
-		required=False,
-		default=[constants.FIXED_CHUNKING, constants.SENTENCE_CHUNKING, constants.SEMANTIC_CHUNKING],
-		help="Chunking strategies the build made, loaded one after another: fixed, sentence and/or semantic")
-	parser.add_argument(
-		"--min_chunk_size",
-		type=int,
-		required=False,
-		default=constants.MIN_CHUNK_SIZE,
-		help="Minimum chunk size the build used")
-	parser.add_argument(
-		"--max_chunk_size",
-		type=int,
-		required=False,
-		default=constants.MAX_CHUNK_SIZE,
-		help="Maximum chunk size the build used")
-	parser.add_argument(
-		"--fixed_chunk_overlap",
-		type=int,
-		required=False,
-		default=constants.FIXED_CHUNK_OVERLAP,
-		help="Fixed chunk overlap the build used")
-	parser.add_argument(
-		"--semantic_threshold",
-		type=float,
-		required=False,
-		default=constants.SEMANTIC_THRESHOLD,
-		help="Semantic threshold the build used")
-	parser.add_argument(
-		"--index_types",
-		type=str,
-		nargs="*",
-		required=False,
-		default=[constants.FAISS_FLATIP_INDEX, constants.FAISS_IVF_INDEX, constants.FAISS_HNSW_INDEX, constants.BM25_INDEX, constants.QDRANT_INDEX],
-		help="Indexes the build made, loaded one after another: any of faiss_flatip, faiss_ivf, faiss_hnsw, bm25 and qdrant, or none")
-	parser.add_argument(
-		"--ivf_nlist",
-		type=int,
-		required=False,
-		default=constants.IVF_NLIST,
-		help="Number of IVF clusters the build used")
-	parser.add_argument(
-		"--hnsw_m",
-		type=int,
-		required=False,
-		default=constants.HNSW_M,
-		help="HNSW neighbours per node the build used")
-	parser.add_argument(
-		"--hnsw_ef_construction",
-		type=int,
-		required=False,
-		default=constants.HNSW_EF_CONSTRUCTION,
-		help="HNSW build candidate list size the build used")
-	parser.add_argument(
-		"--bm25_k1",
-		type=float,
-		required=False,
-		default=constants.BM25_K1,
-		help="BM25 k1 the build used")
-	parser.add_argument(
-		"--bm25_b",
-		type=float,
-		required=False,
-		default=constants.BM25_B,
-		help="BM25 b the build used")
-	parser.add_argument(
-		"--bm25_tokenizer",
-		type=str,
-		required=False,
-		default=constants.BM25_TOKENIZER,
-		help="BM25 tokenizer the build used")
-	parser.add_argument(
-		"--n_sample_evals",
-		type=int,
-		required=False,
-		default=constants.N_EVAL_SAMPLES,
-		help="Number of eval QnA items to load or generate")
-	parser.add_argument(
-		"--eval_qna_llm",
-		type=str,
-		required=False,
-		default=constants.EVAL_QNA_LLM,
-		help="LLM provider RAGAS uses to generate the eval QnA: claude")
-	parser.add_argument(
-		"--eval_qna_model",
-		type=str,
-		required=False,
-		default=constants.EVAL_QNA_MODEL,
-		help="Local HuggingFace embedding model RAGAS uses to build its knowledge graph")
-	parser.add_argument(
-		"--n_sample_documents",
-		type=int,
-		required=False,
-		default=constants.SAMPLE_DOCUMENTS,
-		help="Number of documents randomly picked for RAGAS to generate the eval QnA from")
-	parser.add_argument(
-		"--query_llm",
-		type=str,
-		required=False,
-		default=constants.QUERY_LLM,
-		help="Local LLM provider that transforms the eval questions: ollama")
-	parser.add_argument(
-		"--query_llm_model",
-		type=str,
-		required=False,
-		default=constants.QUERY_LLM_MODEL,
-		help="Local model the query LLM provider runs, e.g. llama3.1:8b")
-	parser.add_argument(
-		"--n_multi_qus",
-		type=int,
-		required=False,
-		default=constants.N_MULTI_QUS,
-		help="Number of phrasings the query LLM writes for each eval question")
-	parser.add_argument(
-		"--retrieval_types",
-		type=str,
-		nargs="+",
-		required=False,
-		default=[constants.DENSE_RETRIEVAL, constants.BM25_RETRIEVAL, constants.HYBRID_RETRIEVAL],
-		help="Retrieval types to run, one after another: dense, bm25 and/or hybrid")
-	parser.add_argument(
-		"--top_k",
-		type=int,
-		required=False,
-		default=constants.TOP_K,
-		help="Number of chunks each retriever returns for a query")
-	parser.add_argument(
-		"--reranking",
-		type=str,
-		required=False,
-		choices=["true", "false"],
-		default="false",
-		help="true to also rerank the top_k chunks of every retrieval with the cross-encoder, false not to")
-	parser.add_argument(
-		"--rerank_top_k",
-		type=int,
-		required=False,
-		default=constants.RERANK_TOP_K,
-		help="Number of chunks kept after the cross-encoder reranks the top_k chunks")
-	parser.add_argument(
-		"--tuning_queries_size",
-		type=int,
-		required=True,
-		help="Number of eval questions used for tuning; the rest are held out for one final check")
-	parser.add_argument(
-		"--n_retrieval_quality",
-		type=int,
-		required=False,
-		default=constants.N_RETRIEVAL_QUALITY,
-		help="Number of best plain setups and of best reranked setups whose retrieved outputs go on to the next layers")
-
-	return parser.parse_args()
-
-
-def make_ingest_args(parsed_args):
-	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args().
-	Output: an IngestArgs object holding the same values.
-	What it does: copies each parsed command line value into the matching
-	IngestArgs field.
-	"""
-	ingest_args = IngestArgs(
-		dataset_size=parsed_args.dataset_size,
-		input_path=parsed_args.input_path,
-		output_path=parsed_args.output_path,
-		download_workers=parsed_args.download_workers,
-		max_batch_rows=parsed_args.max_batch_rows,
-		hugging_face_split=parsed_args.hugging_face_split,
-		parse_workers=parsed_args.parse_workers,
-		parse_timeout_seconds=parsed_args.parse_timeout_seconds,
-		dedup_threshold=parsed_args.dedup_threshold,
-		pdf_parser=parsed_args.pdf_parser
-	)
-	return ingest_args
-
-
-def make_chunking_args(parsed_args, chunk_type: str):
-	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args(); chunk_type, one of parsed_args.chunk_types.
-	Output: a ChunkingArgs object holding the chunking values of the build for chunk_type.
-	What it does: copies each parsed chunking value into the matching
-	ChunkingArgs field.
-	"""
-	chunking_args = ChunkingArgs(
-		framework=parsed_args.framework,
-		model_name=parsed_args.model_name,
-		chunk_type=chunk_type,
-		min_chunk_size=parsed_args.min_chunk_size,
-		max_chunk_size=parsed_args.max_chunk_size,
-		fixed_chunk_overlap=parsed_args.fixed_chunk_overlap,
-		semantic_threshold=parsed_args.semantic_threshold
-	)
-	return chunking_args
-
-
-def make_index_args(parsed_args, index_type: str):
-	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args(); index_type, one of
-	parsed_args.index_types.
-	Output: an IndexArgs object holding the index values of the build for index_type.
-	What it does: copies each parsed index value into the matching
-	IndexArgs field. qdrant_batch_size only matters while building, so it
-	is set to its default.
-	"""
-	index_args = IndexArgs(
-		index_type=index_type,
-		ivf_nlist=parsed_args.ivf_nlist,
-		hnsw_m=parsed_args.hnsw_m,
-		hnsw_ef_construction=parsed_args.hnsw_ef_construction,
-		bm25_k1=parsed_args.bm25_k1,
-		bm25_b=parsed_args.bm25_b,
-		bm25_tokenizer=parsed_args.bm25_tokenizer,
-		qdrant_batch_size=constants.QDRANT_BATCH_SIZE
-	)
-	return index_args
-
-
-def make_eval_qna_args(parsed_args):
-	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args().
-	Output: an EvalQnAArgs object holding the QnA generator settings.
-	What it does: copies the parsed LLM generator, eval embedding
-	model name, number of sample documents and number of eval QnA items into
-	the matching EvalQnAArgs fields.
-	"""
-	eval_qna_args = EvalQnAArgs(
-		eval_qna_llm=parsed_args.eval_qna_llm,
-		eval_qna_model=parsed_args.eval_qna_model,
-		n_sample_documents=parsed_args.n_sample_documents,
-		n_sample_evals=parsed_args.n_sample_evals
-	)
-	return eval_qna_args
-
-
-def make_query_args(parsed_args):
-	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args().
-	Output: a QueryArgs object holding the query transformation settings.
-	What it does: copies the build's embedding model (model_name), the parsed
-	query LLM provider, its model and the number of multi-query phrasings into
-	the matching QueryArgs fields.
-	"""
-	query_args = QueryArgs(
-		embedding_model=parsed_args.model_name,
-		query_llm=parsed_args.query_llm,
-		query_llm_model=parsed_args.query_llm_model,
-		n_multi_qus=parsed_args.n_multi_qus
-	)
-	return query_args
-
-
-def make_retrieval_args(parsed_args):
-	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args().
-	Output: a RetrievalArgs object holding the retrieval settings.
-	What it does: copies the parsed framework, retrieval_types, top_k, reranking and rerank_top_k into the matching RetrievalArgs fields.
-	"""
-	retrieval_args = RetrievalArgs(
-		framework=parsed_args.framework,
-		retrieval_types=parsed_args.retrieval_types,
-		top_k=parsed_args.top_k,
-		reranking=parsed_args.reranking == "true",
-		rerank_top_k=parsed_args.rerank_top_k
-	)
-	return retrieval_args
-
-if __name__ == "__main__":
-	print("\n ------------- RAG Eval -------- \n")
-	start = time.time()
-
-	args = parse_args()
-	print(args)
-
 	ingest_args = make_ingest_args(args)
 	eval_qna_args = make_eval_qna_args(args)
 	query_args = make_query_args(args)
-	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
 
 	# 1. Load the l1 documents
 	# The same ingestion call as build.py; it returns the documents from the l1 cache
@@ -424,16 +74,18 @@ if __name__ == "__main__":
 	held_out_queries = shuffled_queries[args.tuning_queries_size:]
 	print(f"\n\nTuning queries : {len(tuning_queries)}, held-out queries : {len(held_out_queries)}")
 
-	doc_ids = []
-	for doc_id in documents:
-		doc_ids.append(doc_id)
+	return documents, eval_qna, tuning_queries, held_out_queries
 
+def run_retrieval(args, output_path: str, doc_ids: list[str], tuning_queries: list[Query], retrieval_evaluation: RetrievalEvaluation) -> list[tuple[Retrieved, RetrievalQuality]]:
+	"""
+	Input: args, the parsed eval arguments; output_path; doc_ids, the l1 document ids; tuning_queries; and
+	retrieval_evaluation, which scores each Retrieved.
+	Output: one (Retrieved, RetrievalQuality) per tuning query and setup, plain and reranked.
+	What it does: retrieves, reranks and scores, one chunk type and one index at a time.
+	"""
 	# Retrieval settings do not depend on the chunk type
 	retrieval_args = make_retrieval_args(args)
 
-	# Finds each Retrieved's eval question by its id
-	retrieval_evaluation = RetrievalEvaluation(eval_qna)
-	
 	# List of (retrieved, quality) tuples, one per Retrieved
 	retrieval_qualities = []
 	# One chunk type at a time, so only its chunks and indexes are in memory
@@ -531,13 +183,15 @@ if __name__ == "__main__":
 					for retrieved in reranked_hybrid_outputs:
 						retrieval_qualities.append((retrieved, retrieval_evaluation.compute_retrieval_quality(retrieved, chunks)))
 
-	# 19. Retrieval quality of every setup, averaged over the tuning queries
-	print_retrieval_summary(retrieval_qualities)
+	return retrieval_qualities
 
-	# 20. Keep the best n_retrieval_quality plain setups and the best n_retrieval_quality reranked setups
-	filtered_retrieval_qualities = retrieval_evaluation.get_filtered_retrieval_qualities(args.n_retrieval_quality, retrieval_qualities)
-	print_retrieval_summary(filtered_retrieval_qualities)
-
+def run_context(args, output_path: str, doc_ids: list[str], filtered_retrieval_qualities: list[tuple[Retrieved, RetrievalQuality]]) -> tuple[list[Retrieved], list[Context]]:
+	"""
+	Input: args, the parsed eval arguments; output_path; doc_ids, the l1 document ids; and the filtered
+	(Retrieved, RetrievalQuality).
+	Output: retrieved_list and context_list, in the same order, so context_list[i] belongs to retrieved_list[i].
+	What it does: builds the context of each filtered Retrieved, one chunk type at a time.
+	"""
 	# 21. Context, one chunk type at a time, so only its chunks are in memory
 	# retrieved_list and context_list are filled in the same loop, so context_list[i] belongs to
 	# retrieved_list[i]
@@ -567,6 +221,45 @@ if __name__ == "__main__":
 
 	print(f"Context list : {len(context_list)}")
 	print("\nContext time : ", time.time() - s21)
+
+	# retrieved_list is returned too, because it is regrouped by chunk type: its order can differ from
+	# filtered_retrieval_qualities when the kept setups use different chunk types
+	return retrieved_list, context_list
+
+if __name__ == "__main__":
+	print("\n ------------- RAG Eval -------- \n")
+	start = time.time()
+
+	args = parse_eval_args()
+	print(args)
+
+	ingest_args = make_ingest_args(args)
+	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
+
+	# 1. Documents, eval QnA and queries, split into tuning and held-out
+	documents, eval_qna, tuning_queries, held_out_queries = load_eval_inputs(args, output_path)
+
+	doc_ids = []
+	for doc_id in documents:
+		doc_ids.append(doc_id)
+
+	# Finds each Retrieved's eval question by its id
+	retrieval_evaluation = RetrievalEvaluation(eval_qna)
+
+	# 2. Retrieval, reranking and retrieval quality
+	retrieval_qualities = run_retrieval(args, output_path, doc_ids, tuning_queries, retrieval_evaluation)
+
+	# 3. Retrieval quality of every setup, averaged over the tuning queries
+	print_retrieval_summary(retrieval_qualities)
+
+	# 4. Keep the best n_retrieval_quality plain setups and the best n_retrieval_quality reranked setups
+	filtered_retrieval_qualities = retrieval_evaluation.get_filtered_retrieval_qualities(args.n_retrieval_quality, retrieval_qualities)
+	print_retrieval_summary(filtered_retrieval_qualities)
+
+	# 5. Context
+	# retrieved_list holds the filtered Retrieved regrouped by chunk type, in the order of context_list.
+	# Use it, not filtered_retrieval_qualities, from here on, so context_list[i] belongs to retrieved_list[i]
+	retrieved_list, context_list = run_context(args, output_path, doc_ids, filtered_retrieval_qualities)
 
 	# ---------
 	end = time.time()
