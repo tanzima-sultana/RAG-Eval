@@ -16,6 +16,7 @@ from l4_indexing import cache as index_cache
 from qna.qna import get_eval_qna
 from l5_query.query import get_queries
 from l6_retrieval.retrieval import Retrieval
+from l7_context.context import get_context_list
 from l10_evaluation.summary import print_retrieval_summary
 from l10_evaluation.retrieval_evaluation import RetrievalEvaluation
 
@@ -536,6 +537,36 @@ if __name__ == "__main__":
 	# 20. Keep the best n_retrieval_quality plain setups and the best n_retrieval_quality reranked setups
 	filtered_retrieval_qualities = retrieval_evaluation.get_filtered_retrieval_qualities(args.n_retrieval_quality, retrieval_qualities)
 	print_retrieval_summary(filtered_retrieval_qualities)
+
+	# 21. Context, one chunk type at a time, so only its chunks are in memory
+	# retrieved_list and context_list are filled in the same loop, so context_list[i] belongs to
+	# retrieved_list[i]
+	print("\n\nContext")
+	s21 = time.time()
+	retrieved_list = []
+	context_list = []
+	for chunk_type in args.chunk_types:
+
+		# Load retrieved for a specific chunk type
+		chunk_type_retrieved_list = []
+		for retrieved, retrieval_quality in filtered_retrieval_qualities:
+			if retrieved.chunk_type == chunk_type:
+				chunk_type_retrieved_list.append(retrieved)
+		if len(chunk_type_retrieved_list) == 0:
+			continue
+		
+		# Load chunks and get context list for a specific chunk type
+		chunking_args = make_chunking_args(args, chunk_type)
+		chunks = load_chunks(output_path, chunking_args, doc_ids)
+		chunk_type_context_list = get_context_list(chunk_type_retrieved_list, chunks)
+
+		# Update global retrieved list and context list
+		retrieved_list.extend(chunk_type_retrieved_list)
+		context_list.extend(chunk_type_context_list)
+		print(f"Contexts built for {chunk_type} : {len(chunk_type_context_list)}")
+
+	print(f"Context list : {len(context_list)}")
+	print("\nContext time : ", time.time() - s21)
 
 	# ---------
 	end = time.time()

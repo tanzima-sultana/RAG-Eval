@@ -522,6 +522,56 @@ The retrieved folder paths are built in `src/common/paths.py`. Retrieval quality
 - **Total: 1997.63s**, against 1868.99s for the built-in run with reranking.
 - **BM25 still takes most of the time.** The LangChain BM25 search scores the retriever's own rank_bm25 model the same way the built-in one does, so the times are close. Semantic has 7318 more LangChain chunks, which is part of why it is the slowest.
 
+## l7_context
+
+### Overview
+
+`l7_context` turns each filtered `Retrieved` into the text the LLM gets as context. It runs in `src/eval.py` right after the retrieval filter (see l10_evaluation), one chunk type at a time, so only that chunk type's chunks are in memory:
+
+1. For each chunk type in `--chunk_types`, `eval.py` collects the filtered `Retrieved` of that chunk type and skips the type if there are none.
+2. It loads that chunk type's l2 chunks with `load_chunks(output_path, chunking_args, doc_ids)`.
+3. It calls `get_context_list(retrieved_outputs, chunks)`, which returns one `Context` per `Retrieved`, in the same order.
+
+`eval.py` adds the records and their contexts to `filtered_retrieved_list` and `context_list` in the same loop, so `context_list[i]` always belongs to `filtered_retrieved_list[i]`. From l7 to l10 every layer keeps this rule: one output per input, in the same order. Where a layer has nothing to produce, it puts an empty placeholder in that place instead of dropping it, so the lists never shift.
+
+`Context` holds:
+- **`id`:** the eval question id. It is the one field kept from `Retrieved`. It lets the prompt layer find the question, and it can check that two lists line up.
+- **`context`:** the text sent to the LLM.
+- **`token_count`:** the sum of the chunks' l2 `size`. This is an estimate in embedding-model tokens (all-MiniLM-L6-v2), not the generation LLM's own count.
+
+The setup (chunk type, retrieval type, index, query type, reranking) is not copied. It is in the `Retrieved` at the same position.
+
+`get_context_list` joins the chunk texts in rank order, best first, with one blank line between chunks. It uses all of a `Retrieved`'s chunks: 20 for a plain one, 5 for a reranked one. A `Retrieved` with no chunks gets `Context(id, "", 0)`, so it keeps its place.
+
+- **Not cached.** Building a context only looks up chunk texts that are already loaded and joins strings, so it takes a fraction of a second. A cache would only add files that go stale when the format changes.
+- **Fixed-chunk overlap is not removed.** Fixed chunks overlap by `--fixed_chunk_overlap` (32) tokens with the next chunk of the same document. If both are retrieved, those tokens appear twice in the context. That is about 12% of one chunk, and the current filtered setups use sentence chunks, which have no overlap. Trimming the overlap or merging neighbouring chunks can be added if fixed setups are ever chosen.
+
+### Architecture
+
+- **`context.py`**: `get_context_list`, builds one `Context` per `Retrieved` from the chunk texts.
+- **`schema.py`**: defines `Context`.
+
+### Run results
+
+**5000 documents, built-in, filtered retrieval** (from `log/l7_context/log_5k_context.txt`). The run loads all retrieved outputs from the cache. The filter keeps the plain sentence hybrid faiss_flatip+bm25 setup and the reranked sentence hybrid qdrant+bm25 setup, both on the original question: 300 `Retrieved`.
+
+| | Value |
+|---|---|
+| Chunk types loaded | sentence (both kept setups) |
+| Contexts built | 300 |
+| Empty contexts | 0 |
+| Context time (loading the sentence chunks and building all 300) | 0.30s |
+| Total run time | 37.13s |
+
+`token_count` of the 150 contexts per setup:
+
+| Setup | Chunks | Mean | Min | Max |
+|---|---|---|---|---|
+| Plain (k=20) | 20 | 4412 | 2740 | 4997 |
+| Reranked (k=5) | 5 | 1107 | 391 | 1249 |
+
+A plain context is about 4 times the size of a reranked one, so each plain prompt will cost about 4 times as many input tokens in generation.
+
 ## l10_evaluation
 
 ### Overview
