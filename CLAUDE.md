@@ -122,6 +122,10 @@ src/
 		prompt.py            # Creates prompt list for L9 
 	
 	l9_generation/
+		schema.py            # Defines the Generated dataclass
+		validate.py		     # Validate given parameters
+		cache.py	         # Store and retrieve cached answers
+		generation.py        # Answer generation orchastrator
 	
 	l10_evaluation/
 		schema.py            			# Defines dataclass for eval results

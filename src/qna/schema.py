@@ -21,6 +21,9 @@ class EvalQnA:
 		doc_ids:   Ids of the l1 documents the context came from.
 		           A list, because a multi-hop question can span several documents.
 		doc_paths: Paths of those same documents, in the same order as doc_ids.
+		llm:       The LLM provider that wrote the question and answer, e.g. claude.
+		llm_model: The model that wrote the question and answer (CLAUDE_QUESTION_MODEL). The knowledge graph
+		           model (CLAUDE_TRANSFORMS_MODEL) is not recorded, since its output is not in the item.
 	"""
 	id: str
 	qus: str
@@ -29,3 +32,5 @@ class EvalQnA:
 	qus_type: str
 	doc_ids: list[str]
 	doc_paths: list[str]
+	llm: str
+	llm_model: str

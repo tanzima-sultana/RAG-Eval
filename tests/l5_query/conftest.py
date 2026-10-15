@@ -212,7 +212,9 @@ def make_eval_qna():
                 context=["a context"],
                 qus_type="single_hop",
                 doc_ids=["doc0"],
-                doc_paths=["doc0.pdf"]
+                doc_paths=["doc0.pdf"],
+                llm="claude",
+                llm_model="claude-sonnet-5-5"
             ))
         return eval_qna
 
@@ -245,6 +247,7 @@ def make_query():
             hyde_ans=Ans(hyde_text, fake_embed(hyde_text)),
             normalized=True,
             embedding_model="fake-model",
+            llm="ollama",
             llm_model="llama3.1:8b"
         )
 

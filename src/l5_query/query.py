@@ -130,6 +130,7 @@ def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs) -> list[Que
 			hyde_ans=hyde_ans,
 			normalized=True,
 			embedding_model=query_args.embedding_model,
+			llm=query_args.query_llm,
 			llm_model=query_args.query_llm_model
 		))
 

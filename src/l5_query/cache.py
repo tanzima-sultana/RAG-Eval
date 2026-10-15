@@ -85,6 +85,7 @@ def load_cached_queries(query_path: str) -> list[Query] | None:
 			hyde_ans=hyde_ans,
 			normalized=query_dict["normalized"],
 			embedding_model=query_dict["embedding_model"],
+			llm=query_dict["llm"],
 			llm_model=query_dict["llm_model"]
 		))
 
@@ -119,6 +120,7 @@ def save_queries(query_path: str, queries: list[Query]) -> None:
 			"hyde_ans": {"ans": query.hyde_ans.ans},
 			"normalized": query.normalized,
 			"embedding_model": query.embedding_model,
+			"llm": query.llm,
 			"llm_model": query.llm_model
 		})
 		query_ids.append(query.id)

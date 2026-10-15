@@ -40,7 +40,8 @@ class Query:
 		hyde_ans:        A hypothetical answer passage written by the LLM (HyDE). Its ans is I_DONT_KNOW if the LLM does not know.
 		normalized:      True if every embedding is normalized to length 1.
 		embedding_model: The embedding model that made the embeddings, the same as l3.
-		llm_model:       The LLM that wrote rewritten_qus, multi_qus and hyde_ans.
+		llm:             The LLM provider that wrote rewritten_qus, multi_qus and hyde_ans, e.g. ollama.
+		llm_model:       The model that wrote rewritten_qus, multi_qus and hyde_ans.
 	"""
 	id: str
 	original_qus: Qus
@@ -49,4 +50,5 @@ class Query:
 	hyde_ans: Ans
 	normalized: bool
 	embedding_model: str
+	llm: str
 	llm_model: str

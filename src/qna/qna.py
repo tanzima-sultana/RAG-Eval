@@ -208,7 +208,9 @@ def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna
 			context=context,
 			qus_type=testset_sample.synthesizer_name,
 			doc_ids=doc_ids,
-			doc_paths=doc_paths
+			doc_paths=doc_paths,
+			llm=eval_qna_args.eval_qna_llm,
+			llm_model=CLAUDE_QUESTION_MODEL
 		)
 		eval_qna.append(qna_item)
 		sample_number = sample_number + 1
