@@ -17,11 +17,13 @@ from qna.qna import get_eval_qna
 from l5_query.query import get_queries
 from l6_retrieval.retrieval import Retrieval
 from l7_context.context import get_context_list
+from l8_prompt.prompt import get_prompt_list
 from l10_evaluation.summary import print_retrieval_summary
 from l10_evaluation.retrieval_evaluation import RetrievalEvaluation
 from l5_query.schema import Query
 from l6_retrieval.schema import Retrieved
 from l7_context.schema import Context
+from l8_prompt.schema import Prompt
 from l10_evaluation.schema import RetrievalQuality
 
 def load_eval_inputs(args, output_path: str):
@@ -226,6 +228,22 @@ def run_context(args, output_path: str, doc_ids: list[str], filtered_retrieval_q
 	# filtered_retrieval_qualities when the kept setups use different chunk types
 	return retrieved_list, context_list
 
+def run_prompt(context_list: list[Context], tuning_queries: list[Query]) -> list[Prompt]:
+	"""
+	Input: context_list, the l7 contexts; tuning_queries, the l5 tuning queries.
+	Output: prompt_list, in the same order, so prompt_list[i] belongs to context_list[i] and retrieved_list[i].
+	What it does: builds the system prompt and user prompt of each context, with its original question.
+	"""
+	# 22. Prompt
+	print("\n\nPrompt")
+	s22 = time.time()
+	prompt_list = get_prompt_list(context_list, tuning_queries)
+
+	print(f"Prompt list : {len(prompt_list)}")
+	print("\nPrompt time : ", time.time() - s22)
+
+	return prompt_list
+
 if __name__ == "__main__":
 	print("\n ------------- RAG Eval -------- \n")
 	start = time.time()
@@ -258,8 +276,10 @@ if __name__ == "__main__":
 
 	# 5. Context
 	# retrieved_list holds the filtered Retrieved regrouped by chunk type, in the order of context_list.
-	# Use it, not filtered_retrieval_qualities, from here on, so context_list[i] belongs to retrieved_list[i]
 	retrieved_list, context_list = run_context(args, output_path, doc_ids, filtered_retrieval_qualities)
+
+	# 6. Prompt
+	prompt_list = run_prompt(context_list, tuning_queries)
 
 	# ---------
 	end = time.time()

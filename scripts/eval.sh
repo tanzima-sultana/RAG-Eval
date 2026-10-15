@@ -14,7 +14,7 @@ LOG="log/eval_log.txt"
 # Which build to evaluate. These must match the values scripts/run.sh was run with.
 
 # 1. Dataset
-DATASET_SIZE=100
+DATASET_SIZE=5000
 INPUT_PATH="pixparse/pdfa-eng-wds"
 OUTPUT_PATH="outputs"
 DOWNLOAD_WORKERS=1

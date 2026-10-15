@@ -38,73 +38,97 @@ All commands below assume current working directory is the repo root (`rag-eval/
 ## Project Structure
 
 src/
-   build.py                # CLI entry point for the RAG build pipeline
-   eval.py                 # CLI entry point for the RAG eval pipeline
+	build.py                # CLI entry point for the RAG build pipeline
+	eval.py                 # CLI entry point for the RAG eval pipeline
 
 	api/
 	llm/
-	  llm.py		        # LLM orchatrator, decides which llm to return
-	  ollama.py 			# Local llama
-	  claude.py		        # Anthropic models
-	  gemini.py		        # Gemini models
-	  chatgpt.py		    # OpenAI/Chatgpt models
+		llm.py		        # LLM orchatrator, decides which llm to return
+		ollama.py 			# Local llama
+		claude.py		    # Anthropic models
+		gemini.py		    # Gemini models
+		chatgpt.py		    # OpenAI/Chatgpt models
 	qna/
-	  schema.py             # Defines the EvalQnA dataclass
-	  validate.py		    # Validate given parameters
-	  qna.py		        # Generates QnA sets 
+		schema.py           # Defines the EvalQnA dataclass
+		validate.py		    # Validate given parameters
+		qna.py		        # Generates QnA sets 
 
 	common/
-	  constants.py          # Hardcoded project-wide constants
-	  args.py               # Layer related command line args
-	  chunk_config.py       # Chunk-related config.
-	  timing.py				# Time 
+		constants.py          # Hardcoded project-wide constants
+		args.py               # Layer related command line args
+		paths.py              # Output paths for each layer.
+		timing.py			  # Time 
 
-    l1_ingestion/
-      schema.py            # Defines the Document dataclass — the normalized record format every parsed document is converted into
-      ingestion.py         # Library for document ingestion
-   
-    l2_chunking/
-      schema.py            # Defines the Chunk dataclass — the normalized record format every created chunk is converted into
-	  chunker.py           # Abstract base class and common shared methods for chunking types classes
-	  chunkers/
-		fixed.py           # Fixed-size chunking strategy
-		sentence.py        # Sentence-aware chunking strategy
-		semantic.py        # Semantic chunking strategy
-	  chunking.py          # Chunking orchestrator
-	  validate.py		   # Validate given parameters
-	  cache.py	           # Store and retrieve cached chunks
-	  langchain.py		   # langchain chunking
-	  
+	l1_ingestion/
+		schema.py              # Defines the Document dataclass — the normalized record format every parsed document is converted into
+		ingestion.py           # Library for document ingestion
+
+	l2_chunking/
+		schema.py              # Defines the Chunk dataclass — the normalized record format every created chunk is converted into
+		chunker.py             # Abstract base class and common shared methods for chunking types classes
+		chunkers/
+			fixed.py           		# Fixed-size chunking strategy
+			sentence.py        		# Sentence-aware chunking strategy
+			semantic.py        		# Semantic chunking strategy
+		chunking.py            # Chunking orchestrator
+		validate.py		       # Validate given parameters
+		cache.py	           # Store and retrieve cached chunks
+		langchain.py		   # langchain chunking
+
 	l3_embedding/
-      schema.py            # Defines the Embedded dataclass — the normalized record format every created embedding is converted into
-	  embedding.py         # Embedding orchestrator
-	  cache.py	           # Store and retrieve cached embeddings
-	  langchain.py		   # langchain embeddings
-	  
+		schema.py              # Defines the Embedded dataclass — the normalized record format every created embedding is converted into
+		embedding.py           # Embedding orchestrator
+		cache.py	           # Store and retrieve cached embeddings
+		langchain.py		   # langchain embeddings
+
 	l4_indexing/
-      schema.py            # Defines the Index dataclass — the normalized record format every created index is converted into
-	  indexer.py           # Abstract base class and common shared methods for index types classes
-	  indexers/
-		faiss.py           # FAISS(flatip, ivf, hnsw) strategy
-		bm25.py            # BM25 strategy
-	  	qdrant.py          # Vector store qdrant strategy
-	  indexing.py          # Indexing orchestrator
-	  validate.py		   # Validate given parameters
-	  cache.py	           # Store and retrieve cached index
-	  langchain.py		   # langchain indexing
-	
+		schema.py            	# Defines the Index dataclass — the normalized record format every created index is converted into
+		indexer.py           	# Abstract base class and common shared methods for index types classes
+		indexers/
+			faiss.py           		# FAISS(flatip, ivf, hnsw) strategy
+			bm25.py            		# BM25 strategy
+			qdrant.py          		# Vector store qdrant strategy
+		indexing.py            # Indexing orchestrator
+		validate.py		   	   # Validate given parameters
+		cache.py	           # Store and retrieve cached index
+		langchain.py		   # langchain indexing
+
 	l5_query/
-	  schema.py            # Defines the Query dataclass
-	  validate.py		   # Validate given parameters
-	  cache.py	           # Store and retrieve cached index
-	  prompt.py            # Prompt template for query transform
-	  query.py             # Query orchestrator
-	  
+		schema.py            # Defines the Query dataclass
+		validate.py		   	 # Validate given parameters
+		cache.py	         # Store and retrieve cached index
+		prompt.py            # Prompt template for query transform
+		query.py             # Query orchestrator
+
 	l6_retrieval/
+		schema.py            # Defines the Retrieved dataclass 
+		retrievers/
+			dense.py           # Dense retrieval (on faiss and qdrant index)
+			bm25.py            # BM25 retrieval (on bm25 index)
+			hybrid.py          # On both Dense and BM25
+		rerank.py            # Reranking
+		retrieval.py         # Retrieval orchastrator
+		validate.py		     # Validate given parameters
+		cache.py	         # Store and retrieve cached index
+		langchain.py		 # langchain indexing
+	
 	l7_context/
+		schema.py            # Defines the Context dataclass
+		context.py           # Creates context list for L8 
+	
 	l8_prompt/
+		schema.py            # Defines the Prompt dataclass
+		prompt_template.py   # Prompt template
+		prompt.py            # Creates prompt list for L9 
+	
 	l9_generation/
+	
 	l10_evaluation/
+		schema.py            			# Defines dataclass for eval results
+		summary.py            			# Prints eval results
+		answer_evaluation.py            # Evaluates generated ans
+		retrieval_evaluation.py         # Evaluates retrieval quality and filters them before L7, L8 and L9
+
 
 tests/                  # Test suite
 

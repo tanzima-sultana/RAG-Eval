@@ -572,6 +572,60 @@ The setup (chunk type, retrieval type, index, query type, reranking) is not copi
 
 A plain context is about 4 times the size of a reranked one, so each plain prompt will cost about 4 times as many input tokens in generation.
 
+## l8_prompt
+
+### Overview
+
+`l8_prompt` turns each l7 `Context` into the prompt the generation LLM gets in l9. It runs in `src/eval.py` as `run_prompt(context_list, tuning_queries)`, right after l7, and calls `get_prompt_list(context_list, tuning_queries)`, which returns one `Prompt` per `Context`, in the same order, so `prompt_list[i]` belongs to `context_list[i]` and `retrieved_list[i]`.
+
+1. It stores each tuning query's original question by its id, in one loop over `tuning_queries`.
+2. For each `Context`, it finds its question by `context.id`. The l5 `original_qus` is used for every query type, because the rewritten, multi and HyDE forms are only for searching. The LLM answers the question as asked.
+3. It fills `USER_PROMPT_TEMPLATE` with the context text and the question, and builds the `Prompt`.
+
+The eval QnA is not used here. Its ground truth is only needed again in l10. The `Retrieved` is not needed either: `Context` already holds the id, and the setup stays in `retrieved_list` at the same position.
+
+`Prompt` holds:
+- **`id`:** the eval question id, the same as the `Retrieved`, `Context`, `Query` and `EvalQnA` id.
+- **`system_prompt`:** the instructions, the same for every prompt.
+- **`user_prompt`:** the context and the question.
+- **`token_count`:** the context's `token_count` plus the word count of the system prompt and the question. This is an estimate: the context part is in embedding-model tokens (all-MiniLM-L6-v2) and the rest in words, not the generation LLM's own count.
+
+The system and user prompts are kept apart because the chat APIs of Claude, OpenAI and Gemini take a system prompt separately from the user message.
+
+The system prompt tells the LLM to answer only from the context and to reply with exactly `I don't know` (`constants.I_DONT_KNOW`, the same constant l5 uses) when the context does not hold the answer, so l10 can find those answers by an exact match. The user prompt is:
+
+```
+Context:
+{context}
+
+Question: {question}
+```
+
+- **Every question appears twice.** The 300 prompts are the 150 tuning questions, once for each kept setup. The question is the same, but the context differs: 20 chunks for the plain setup, 5 for the reranked one.
+- **An empty context still gets a prompt.** A `Context` with no text still gets a `Prompt`, so the lists stay lined up. None of the current 300 are empty, because both kept setups are hybrid, and dense retrieval always returns `top_k` chunks.
+- **Not cached.** Building a prompt only fills a template, so it takes a few milliseconds for all 300.
+- **No provider prompt caching.** The only part that repeats across calls is the short system prompt, which is below the minimum cacheable size. The context, which is the long part, is different in every prompt.
+
+### Architecture
+
+- **`prompt.py`**: `get_prompt_list`, builds one `Prompt` per `Context` with its original question.
+- **`prompt_template.py`**: `SYSTEM_PROMPT` and `USER_PROMPT_TEMPLATE`.
+- **`schema.py`**: defines `Prompt`.
+
+### Run results
+
+**5000 documents, built-in, filtered retrieval** (from `log/l8_prompt/log_5k_prompt.txt`). The run loads all retrieved outputs from the cache. The filter keeps the same two sentence setups as in l7: 300 `Retrieved`, 0 duplicates skipped.
+
+| | Value |
+|---|---|
+| Tuning queries | 150 |
+| Contexts in | 300 |
+| Prompts built | 300 |
+| Prompt time | 0.0019s |
+| Total run time | 38.40s |
+
+Prompt time is about 2 ms for 300 prompts, because each prompt is one dict lookup and one template fill. The 38.40s total goes to the steps before l8. The largest timed ones are loading the l1 documents (9.37s) and loading the l2 chunks and l4 indexes for each chunk type (7.19s together). Retrieval from the cache takes 0.36s and l7 context takes 0.26s. The remaining time is not broken down in the log.
+
 ## l10_evaluation
 
 ### Overview
