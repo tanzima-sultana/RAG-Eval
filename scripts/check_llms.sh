@@ -4,8 +4,8 @@
 # Usage:
 #   bash scripts/check_llms.sh ollama                     # free, local
 #   ALLOW_PAID_API=1 bash scripts/check_llms.sh claude    # paid, a few cents
-#   ALLOW_PAID_API=1 bash scripts/check_llms.sh gemini    # paid, a few cents, QnA only; query stays on ollama
-#   ALLOW_PAID_API=1 bash scripts/check_llms.sh chatgpt   # paid, a few cents, QnA only; query stays on ollama
+#   ALLOW_PAID_API=1 bash scripts/check_llms.sh gemini    # paid, a few cents
+#   ALLOW_PAID_API=1 bash scripts/check_llms.sh chatgpt   # paid, a few cents
 #
 # Writes only under outputs/llm_check/{provider}/, never under the real outputs/{dataset}/ caches.
 
@@ -87,7 +87,6 @@ elif [ "$PROVIDER" == "$OLLAMA" ]; then
       QUERY_INPUT_PRICE="$LLAMA_INPUT_PRICE_PER_MIL"
       QUERY_OUTPUT_PRICE="$LLAMA_OUTPUT_PRICE_PER_MIL"
 elif [ "$PROVIDER" == "$GEMINI" ]; then
-      # Only QnA is checked with Gemini for now; query stays on ollama
       QNA_LLM="$GEMINI"
       QNA_LLM_MODEL="$FLASH_LITE_35"
       QNA_INPUT_PRICE="$FLASH_LITE_35_INPUT_PRICE_PER_MIL"
@@ -96,12 +95,11 @@ elif [ "$PROVIDER" == "$GEMINI" ]; then
       QNA_KG_LLM_MODEL="$FLASH_LITE_31"
       QNA_KG_INPUT_PRICE="$FLASH_LITE_31_INPUT_PRICE_PER_MIL"
       QNA_KG_OUTPUT_PRICE="$FLASH_LITE_31_OUTPUT_PRICE_PER_MIL"
-      QUERY_LLM="$OLLAMA"
-      QUERY_LLM_MODEL="$LLAMA"
-      QUERY_INPUT_PRICE="$LLAMA_INPUT_PRICE_PER_MIL"
-      QUERY_OUTPUT_PRICE="$LLAMA_OUTPUT_PRICE_PER_MIL"
+      QUERY_LLM="$GEMINI"
+      QUERY_LLM_MODEL="$FLASH_LITE_31"
+      QUERY_INPUT_PRICE="$FLASH_LITE_31_INPUT_PRICE_PER_MIL"
+      QUERY_OUTPUT_PRICE="$FLASH_LITE_31_OUTPUT_PRICE_PER_MIL"
 elif [ "$PROVIDER" == "$CHATGPT" ]; then
-      # Only QnA is checked with ChatGPT for now; query stays on ollama
       QNA_LLM="$CHATGPT"
       QNA_LLM_MODEL="$GPT_MINI"
       QNA_INPUT_PRICE="$GPT_MINI_INPUT_PRICE_PER_MIL"
@@ -110,10 +108,10 @@ elif [ "$PROVIDER" == "$CHATGPT" ]; then
       QNA_KG_LLM_MODEL="$GPT_NANO"
       QNA_KG_INPUT_PRICE="$GPT_NANO_INPUT_PRICE_PER_MIL"
       QNA_KG_OUTPUT_PRICE="$GPT_NANO_OUTPUT_PRICE_PER_MIL"
-      QUERY_LLM="$OLLAMA"
-      QUERY_LLM_MODEL="$LLAMA"
-      QUERY_INPUT_PRICE="$LLAMA_INPUT_PRICE_PER_MIL"
-      QUERY_OUTPUT_PRICE="$LLAMA_OUTPUT_PRICE_PER_MIL"
+      QUERY_LLM="$CHATGPT"
+      QUERY_LLM_MODEL="$GPT_NANO"
+      QUERY_INPUT_PRICE="$GPT_NANO_INPUT_PRICE_PER_MIL"
+      QUERY_OUTPUT_PRICE="$GPT_NANO_OUTPUT_PRICE_PER_MIL"
 else
       echo "Usage: bash scripts/check_llms.sh claude|ollama|gemini|chatgpt"
       exit 1
@@ -145,7 +143,7 @@ N_MULTI_QUS=3
 
 # run
 
-python3 scripts/check_llms.py \
+python3 -m llm.check_llms \
   --dataset_size "$DATASET_SIZE" \
   --input_path "$INPUT_PATH" \
   --output_path "$OUTPUT_PATH" \

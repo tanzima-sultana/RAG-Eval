@@ -2,7 +2,7 @@
 check_llms.py
 
 Checks the QnA and query layers end to end with the LLMs passed on the command line, on a few documents.
-Run through scripts/check_llms.sh, which picks the models of one provider.
+Run through scripts/check_llms.sh (python3 -m llm.check_llms), which picks the models of one provider.
 
 For each layer it deletes this check's cache, generates with the LLM, checks the records and the cache file, then
 runs again and checks the cache is loaded instead of generating. It only writes under --output_path, which must be
@@ -94,52 +94,54 @@ if __name__ == "__main__":
 			documents[doc_id] = all_documents[doc_id]
 	print(f"Documents : {len(documents)} of {len(all_documents)} have at most {args.max_document_tokens} tokens")
 
-	# 2. Delete this check's QnA, knowledge graph and query caches, so both layers really call their LLM
-	qna_path = paths.get_eval_qna_path(output_path, eval_qna_args, qna_llm_args.llm_model)
-	kg_path = paths.get_eval_kg_path(output_path, eval_qna_args, qna_kg_llm_args.llm_model)
-	query_path = paths.get_query_path(output_path, eval_qna_args, qna_llm_args.llm_model, query_args, query_llm_args.llm_model)
-	if os.path.exists(qna_path):
-		os.remove(qna_path)
-	if os.path.exists(kg_path):
-		os.remove(kg_path)
-	if os.path.exists(query_path):
-		shutil.rmtree(query_path)
+	# QnA and query passed with claude, chatgpt, gemini and ollama (see the README llm section and log/llm/),
+	# so they are off, to not pay for them again. Remove the # in front of steps 2 to 6 to check them again.
+	# # 2. Delete this check's QnA, knowledge graph and query caches, so both layers really call their LLM
+	# qna_path = paths.get_eval_qna_path(output_path, eval_qna_args, qna_llm_args.llm_model)
+	# kg_path = paths.get_eval_kg_path(output_path, eval_qna_args, qna_kg_llm_args.llm_model)
+	# query_path = paths.get_query_path(output_path, eval_qna_args, qna_llm_args.llm_model, query_args, query_llm_args.llm_model)
+	# if os.path.exists(qna_path):
+	# 	os.remove(qna_path)
+	# if os.path.exists(kg_path):
+	# 	os.remove(kg_path)
+	# if os.path.exists(query_path):
+	# 	shutil.rmtree(query_path)
 
-	# 3. QnA: generate with the LLMs
-	print(f"\n\n2. QnA with {qna_llm_args.llm_model} (questions) and {qna_kg_llm_args.llm_model} (knowledge graph)")
-	eval_qna = get_eval_qna(output_path, documents, eval_qna_args, qna_llm_args, qna_kg_llm_args)
-	check(len(eval_qna) > 0, f"QnA generated : {len(eval_qna)} items", failures)
-	check(os.path.exists(qna_path), f"QnA cache file written : {qna_path}", failures)
-	check(os.path.exists(kg_path), f"Knowledge graph cache file written : {kg_path}", failures)
-	for eval_qna_item in eval_qna:
-		check(eval_qna_item.qus.strip() != "" and eval_qna_item.ans.strip() != "", f"{eval_qna_item.id} has a question and an answer", failures)
-		check(eval_qna_item.llm == qna_llm_args.llm and eval_qna_item.llm_model == qna_llm_args.llm_model, f"{eval_qna_item.id} llm is {eval_qna_item.llm} / {eval_qna_item.llm_model}", failures)
-		print(f"   {eval_qna_item.id} : {eval_qna_item.qus[:120]}")
+	# # 3. QnA: generate with the LLMs
+	# print(f"\n\n2. QnA with {qna_llm_args.llm_model} (questions) and {qna_kg_llm_args.llm_model} (knowledge graph)")
+	# eval_qna = get_eval_qna(output_path, documents, eval_qna_args, qna_llm_args, qna_kg_llm_args)
+	# check(len(eval_qna) > 0, f"QnA generated : {len(eval_qna)} items", failures)
+	# check(os.path.exists(qna_path), f"QnA cache file written : {qna_path}", failures)
+	# check(os.path.exists(kg_path), f"Knowledge graph cache file written : {kg_path}", failures)
+	# for eval_qna_item in eval_qna:
+	# 	check(eval_qna_item.qus.strip() != "" and eval_qna_item.ans.strip() != "", f"{eval_qna_item.id} has a question and an answer", failures)
+	# 	check(eval_qna_item.llm == qna_llm_args.llm and eval_qna_item.llm_model == qna_llm_args.llm_model, f"{eval_qna_item.id} llm is {eval_qna_item.llm} / {eval_qna_item.llm_model}", failures)
+	# 	print(f"   {eval_qna_item.id} : {eval_qna_item.qus[:120]}")
 
-	# 4. QnA: the second run loads the cache, so the cache file is not written again
-	qna_modified_time = os.path.getmtime(qna_path)
-	cached_eval_qna = get_eval_qna(output_path, documents, eval_qna_args, qna_llm_args, qna_kg_llm_args)
-	check(len(cached_eval_qna) == len(eval_qna), f"QnA loaded from cache : {len(cached_eval_qna)} items", failures)
-	check(os.path.getmtime(qna_path) == qna_modified_time, "QnA cache file not written again", failures)
+	# # 4. QnA: the second run loads the cache, so the cache file is not written again
+	# qna_modified_time = os.path.getmtime(qna_path)
+	# cached_eval_qna = get_eval_qna(output_path, documents, eval_qna_args, qna_llm_args, qna_kg_llm_args)
+	# check(len(cached_eval_qna) == len(eval_qna), f"QnA loaded from cache : {len(cached_eval_qna)} items", failures)
+	# check(os.path.getmtime(qna_path) == qna_modified_time, "QnA cache file not written again", failures)
 
-	# 5. Query: generate with the LLM from the QnA above
-	print(f"\n\n3. Query with {query_llm_args.llm_model}")
-	queries = get_queries(output_path, eval_qna, eval_qna_args, query_args, query_llm_args)
-	check(len(queries) == len(eval_qna), f"Queries generated : {len(queries)} for {len(eval_qna)} questions", failures)
-	check(os.path.exists(os.path.join(query_path, "queries.json")), f"Query cache folder written : {query_path}", failures)
-	for query in queries:
-		check(query.rewritten_qus.qus.strip() != "", f"{query.id} has a rewritten question", failures)
-		check(query.hyde_ans.ans.strip() != "", f"{query.id} has a HyDE answer", failures)
-		check(query.llm == query_llm_args.llm and query.llm_model == query_llm_args.llm_model, f"{query.id} llm is {query.llm} / {query.llm_model}", failures)
-		print(f"   {query.id} rewritten : {query.rewritten_qus.qus[:120]}")
-		print(f"   {query.id} multi : {len(query.multi_qus)} phrasings")
+	# # 5. Query: generate with the LLM from the QnA above
+	# print(f"\n\n3. Query with {query_llm_args.llm_model}")
+	# queries = get_queries(output_path, eval_qna, eval_qna_args, query_args, query_llm_args)
+	# check(len(queries) == len(eval_qna), f"Queries generated : {len(queries)} for {len(eval_qna)} questions", failures)
+	# check(os.path.exists(os.path.join(query_path, "queries.json")), f"Query cache folder written : {query_path}", failures)
+	# for query in queries:
+	# 	check(query.rewritten_qus.qus.strip() != "", f"{query.id} has a rewritten question", failures)
+	# 	check(query.hyde_ans.ans.strip() != "", f"{query.id} has a HyDE answer", failures)
+	# 	check(query.llm == query_llm_args.llm and query.llm_model == query_llm_args.llm_model, f"{query.id} llm is {query.llm} / {query.llm_model}", failures)
+	# 	print(f"   {query.id} rewritten : {query.rewritten_qus.qus[:120]}")
+	# 	print(f"   {query.id} multi : {len(query.multi_qus)} phrasings")
 
-	# 6. Query: the second run loads the cache, so the cache file is not written again
-	queries_file = os.path.join(query_path, "queries.json")
-	queries_modified_time = os.path.getmtime(queries_file)
-	cached_queries = get_queries(output_path, eval_qna, eval_qna_args, query_args, query_llm_args)
-	check(len(cached_queries) == len(queries), f"Queries loaded from cache : {len(cached_queries)}", failures)
-	check(os.path.getmtime(queries_file) == queries_modified_time, "Query cache file not written again", failures)
+	# # 6. Query: the second run loads the cache, so the cache file is not written again
+	# queries_file = os.path.join(query_path, "queries.json")
+	# queries_modified_time = os.path.getmtime(queries_file)
+	# cached_queries = get_queries(output_path, eval_qna, eval_qna_args, query_args, query_llm_args)
+	# check(len(cached_queries) == len(queries), f"Queries loaded from cache : {len(cached_queries)}", failures)
+	# check(os.path.getmtime(queries_file) == queries_modified_time, "Query cache file not written again", failures)
 
 	# 7. Result
 	print("\n\n------------- Result --------")

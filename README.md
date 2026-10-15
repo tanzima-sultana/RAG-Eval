@@ -246,6 +246,95 @@ Index size on disk, built-in → LangChain (bytes):
 - **BM25 size.** `bm25_retriever.pkl` is about twice the built-in `bm25.pkl` because it holds the BM25 model plus every chunk as a LangChain `Document` with its text and metadata.
 - **Semantic.** LangChain semantic chunking has 7318 more chunks than the built-in one (see l2_chunking), so its indexes and times are larger for that reason as well.
 
+## llm
+
+### Overview
+
+`llm` gives every layer that calls an LLM the same interface, for four providers: `claude`, `chatgpt`, `gemini` and `ollama`. A layer's LLM settings come from the command line: `eval.sh` sets the provider, model and prices for each layer (`QNA_*`, `QNA_KG_*`, `QUERY_*`, `GENERATION_*`) from a models block at the top, plus one `LLM_MAX_TOKENS` and `LLM_TIMEOUT_SECONDS` shared by all layers. `eval.py` turns each layer's settings into an `LLM` object with `make_llm_args`, and passes that object to the layer. The layer calls `validate_llm(llm_args)` only when its cache is missing, and then calls `get_llm(llm_args)`, which returns the provider's LLM class: `ClaudeLLM`, `ChatGPTLLM`, `GeminiLLM` or `OllamaLLM`. Every class has the same four things: `chat_model` (a LangChain chat model), `json_chat_model` (the same model forced to reply in JSON), `generate(system_prompt, user_prompt)`, which returns the reply text, and `compute_cost()`, which prints and returns the cost of its calls. `qna` hands `json_chat_model` of its two LLMs to RAGAS. `l5_query` calls `generate("", prompt)`. No layer knows which provider or model it got.
+
+The models block in `eval.sh`, one model name and price pair per model:
+
+| Provider | Model | Price per million tokens (input / output) | Used for |
+|---|---|---|---|
+| `claude` | `claude-sonnet-5-5` | $2.00 / $10.00 | QnA questions and answers |
+| `claude` | `claude-haiku-5-5` | $0.10 / $0.50 | QnA knowledge graph |
+| `chatgpt` | `gpt-4.1-mini` | $0.40 / $1.60 | |
+| `chatgpt` | `gpt-4.1-nano` | $0.10 / $0.40 | |
+| `gemini` | `gemini-3.5-flash-lite` | $0.30 / $2.50 | |
+| `gemini` | `gemini-3.1-flash-lite` | $0.25 / $1.50 | |
+| `ollama` | `llama3.1:8b` | $0 / $0 | l5 query, l9 generation |
+
+Each provider has a cheaper model for the many knowledge graph calls, which send whole documents, and a stronger one for the few question and answer calls.
+
+Design choices and why:
+
+- **One `LLM` object per layer.** Its fields are `llm`, `llm_model`, `input_price`, `output_price`, `max_tokens` and `timeout_seconds`. Changing a layer's model is one line in `eval.sh`, with no code change. Cache names use the model name, not the provider (e.g. `eval_qna_100_200_claude-sonnet-5-5_…`), so a cache made by one model is never loaded for another.
+- **Prices come from the command line.** The providers' list-models APIs do not return prices, so a price table would have to be kept by hand in the code anyway. `compute_cost()` multiplies the counted tokens by `input_price` and `output_price`. A paid model must have both prices above 0, so the cost of every paid run is printed. A wrong price cannot be detected, only a missing one.
+- **General code in `llm.py`, `schema.py` and `validate.py`, provider code in the provider's own file.** Each provider file holds its settings, its `validate_<provider>()` and its LLM class, written out in full rather than sharing a base class, so each provider's flow reads top to bottom in one place, and a fix for one provider changes only its file. The only shared piece is `TokenCounter`, because LangChain reports token usage in the same `usage_metadata` for every provider.
+- **Checks run only when an LLM is needed.** `validate_llm` checks the settings every provider shares (model name, prices, `max_tokens`, `timeout_seconds`), then calls the provider's check: API key set and the model listed by the provider for the paid ones, server running and model pulled for Ollama. QnA and l5 run it only on a cache miss, so a cached run needs no API key, no `ALLOW_PAID_API` and no Ollama server. A listed model is not always usable: Google lists `gemini-2.5-flash` and `gemini-2.5-flash-lite`, but rejects them for new accounts (`404 NOT_FOUND: … no longer available to new users`), which only a real call shows. A failed call raises an error and stops the run.
+- **Paid calls need `ALLOW_PAID_API=1`.** Each paid provider's check tests it, and each paid LLM class tests it again when it is built, so a paid LLM cannot be built by a caller that skipped `validate_llm`.
+- **API keys are read from `CLAUDE_API_KEY`, `CHATGPT_API_KEY` and `GEMINI_API_KEY` in `.env`,** named after the providers, and each class passes its key to its LangChain client. LangChain's clients look for `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `GOOGLE_API_KEY` on their own, so passing the key keeps a key set under those names for something else from being used.
+- **One output limit and one timeout for every provider** (16000 tokens, 180s). The replies are short JSON (QnA), one question or passage (l5) or a few sentences (l9), so one value fits all of them.
+- **`json_chat_model`.** RAGAS parses every reply as JSON. Claude follows the JSON format RAGAS asks for, so its `json_chat_model` is its `chat_model`. ChatGPT uses OpenAI's JSON mode (`response_format`), Gemini its JSON output (`response_mime_type="application/json"`) and Ollama its JSON mode (`format="json"`).
+- **ChatGPT keep-alive is off.** RAGAS runs each step (knowledge graph, personas, scenarios, samples) in a new asyncio event loop. `ChatOpenAI` keeps its HTTPS connections open between calls, and a connection left from the previous step's closed loop failed the scenarios step with `RuntimeError: Event loop is closed` and `openai.APIConnectionError: Connection error.` `ChatGPTLLM` gives its chat models an `httpx.AsyncClient` with `max_keepalive_connections=0`, so every call opens its own connection. Google's client has the same reuse, but there it only prints `Fatal error on SSL transport … Event loop is closed` while closing old connections; every call succeeds, so `GeminiLLM` is left unchanged.
+- **Libraries:** `langchain-anthropic` (`ChatAnthropic`), `langchain-openai` (`ChatOpenAI`), `langchain-google-genai` 4.4.1 (`ChatGoogleGenerativeAI`; 4.4.2 needs `langchain-core` 1.6.10, and the project stays on 1.6.9) and `langchain-ollama` (`ChatOllama`).
+
+Ollama choices and limits:
+
+- **Ollama's own API through `ChatOllama`, not its OpenAI-compatible API.** Ollama's default context window is 4096 tokens, and a prompt longer than that is cut from the start, so RAGAS's instructions are lost. With 4096, llama3.1:8b answered the RAGAS headline prompt correctly for a 1,196-token prompt, but for a 15,347-token prompt it copied the document's table as JSON until the 180s timeout, and for a 77,084-token prompt it returned its input. The OpenAI-compatible API ignores a context setting, so the native API is used, where `num_ctx` is set on every call.
+- **Context window 32768 (`OLLAMA_CONTEXT_LENGTH` in `ollama.py`).** At 32768, llama3.1:8b uses 9.1 GB and stays fully on the 12 GB RTX 3060 of this machine. A larger window would not fit on the GPU.
+- **Temperature 0**, so the same prompt gives the same reply on every run.
+- **Ollama is used for l5 queries, not for eval QnA.** l5 prompts are one question plus an instruction, far below 32768 tokens. RAGAS sends whole documents, and this dataset has documents much longer than 32768 tokens (75,450 in the 20-document check set), which do not fit. Eval QnA uses Claude.
+
+`scripts/check_llms.sh <provider>` runs `src/llm/check_llms.py` (as `python3 -m llm.check_llms`, so `src/llm/llm.py` does not hide the `llm` package) to check the layers that use an LLM end to end with one provider. It is a developer check, not part of the pipeline: `eval.sh` and `build.sh` never run it. It builds a 20-document dataset under `outputs/llm_check/<provider>/`, keeps only documents of at most 8000 tokens so every provider gets the same documents and they fit in Ollama's context window, deletes its own QnA, knowledge graph and query caches, generates 2 QnA items from 3 documents and their queries, checks the records, the `llm` and `llm_model` fields and the cache files, and runs both layers again to check they load from the cache without writing it again. It never writes under the real `outputs/<dataset>/` caches. `ollama` is free; `claude`, `chatgpt` and `gemini` need `ALLOW_PAID_API=1`. Each provider uses its cheaper model for the knowledge graph and the queries, and its stronger one for the questions and answers. QnA and query passed with all four providers (below), so those steps are now commented out in `check_llms.py`, to not pay for them again; removing the `#` in front of steps 2 to 6 turns them back on.
+
+### Architecture
+
+- **`schema.py`**: defines `LLM`, the LLM settings of one layer.
+- **`validate.py`**: `validate_llm`, the checks every provider shares, then the provider's own check.
+- **`llm.py`**: `TokenCounter`, shared by every provider, and `get_llm`, which builds the LLM class of the provider.
+- **`claude.py`**: `validate_claude` and `ClaudeLLM`, built on `ChatAnthropic`.
+- **`chatgpt.py`**: `validate_chatgpt` and `ChatGPTLLM`, built on `ChatOpenAI`.
+- **`gemini.py`**: `validate_gemini` and `GeminiLLM`, built on `ChatGoogleGenerativeAI`.
+- **`ollama.py`**: Ollama's settings, `validate_ollama` and `OllamaLLM`, built on `ChatOllama`.
+
+### Run results
+
+**`check_llms.sh` for each provider** (from `log/llm/log_check_ollama.txt`, `log_check_claude.txt`, `log_check_gemini.txt` and `log_check_chatgpt.txt`). Every run: 17 of 20 documents have at most 8000 tokens, 12 of those have more than 500 tokens (RAGAS minimum), 3 are sampled, and 2 QnA items and 2 queries are generated, with 0 multi-query and 0 HyDE I don't know. Each run ends with `ALL CHECKS PASSED`.
+
+| Provider | Knowledge graph model | Calls | Input / output tokens | Questions model | Calls | Input / output tokens | QnA cost |
+|---|---|---|---|---|---|---|---|
+| Ollama | `llama3.1:8b` | 31 | 42581 / 2174 | `llama3.1:8b` | 7 | 5778 / 462 | $0.0000 |
+| Claude | `claude-haiku-5-5` | 31 | 72111 / 14223 | `claude-sonnet-5-5` | 7 | 8879 / 1870 | $0.0508 |
+| Gemini | `gemini-3.1-flash-lite` | 29 | 42504 / 1790 | `gemini-3.5-flash-lite` | 8 | 5284 / 450 | $0.0160 |
+| ChatGPT | `gpt-4.1-nano` | 25 | 36245 / 1665 | `gpt-4.1-mini` | 7 | 5259 / 617 | $0.0074 |
+
+Query, in the same runs:
+
+| Provider | Query model | Calls | Input / output tokens | Cost |
+|---|---|---|---|---|
+| Ollama | `llama3.1:8b` | 6 | 590 / 348 | $0.0000 |
+| Claude | `claude-haiku-5-5` | 6 | 1039 / 1847 | $0.0010 |
+| Gemini | `gemini-3.1-flash-lite` | 6 | 556 / 340 | $0.0006 |
+| ChatGPT | `gpt-4.1-nano` | 6 | 594 / 425 | $0.0003 |
+
+RAGAS step times:
+
+| Step | Ollama | Claude | Gemini | ChatGPT |
+|---|---|---|---|---|
+| HeadlinesExtractor (3 documents) | 00:08 | 00:06 | 00:04 | 00:04 |
+| SummaryExtractor (3) | 00:12 | 00:07 | 00:03 | 00:04 |
+| CustomNodeFilter (9) | 00:11 | 00:07 | 00:07 | 00:06 |
+| EmbeddingExtractor (3) | 00:01 | 00:02 | 00:01 | 00:01 |
+| ThemesExtractor | 00:15 (8) | 00:08 (8) | 00:05 (7) | 00:06 (5) |
+| NERExtractor | 00:11 (8) | 00:09 (8) | 00:05 (7) | 00:05 (5) |
+| Generating personas (3) | 00:04 | 00:05 | 00:04 | 00:03 |
+| Generating Scenarios | 00:05 (2) | 00:04 (2) | 00:05 (1) | 00:02 (2) |
+| Generating Samples (2) | 00:06 | 00:09 | 00:02 | 00:03 |
+
+The total run times are not in the logs.
+
+The knowledge graph steps make most of the calls (25 to 31 of 32 to 38) and send most of the input tokens, because each sends a whole document or one of its chunks to the model. The question steps send only short persona, scenario and chunk texts, and the query step sends one question per prompt. The number of chunks the themes and entities steps work on differs by provider (5, 7 or 8), because the CustomNodeFilter step, which keeps or drops chunks, is itself an LLM call. Claude writes the most output tokens for the same work (14223 for the knowledge graph against 1665 to 2174 for the others), so its run costs the most even though Haiku's input price ($0.10) is as low as `gpt-4.1-nano`'s. Ollama is the slowest per step, because llama3.1:8b runs on the local GPU, while the paid models run on the providers' servers.
 ## qna
 
 ### Overview
@@ -363,105 +452,16 @@ The two generated items are one `single_hop_specific_query_synthesizer` question
 - **Input tokens are most of the cost.** Each call sends a full document or chunk text (219268 input tokens in total) and gets back a short JSON answer (14055 output tokens). So input is $0.4385 of the $0.5791 even though input tokens cost a fifth as much as output tokens for `claude-sonnet-5-5` ($2 and $10 per million).
 - **Stages that make no Claude call are fast.** HeadlineSplitter, CosineSimilarityBuilder and OverlapScoreBuilder do only local text splitting and score calculations, so they show 00:00. EmbeddingExtractor runs `all-MiniLM-L6-v2` locally on the 14 summaries and took 00:07.
 
-## llm
-
-### Overview
-
-`llm` gives every layer that calls an LLM the same interface, for four providers: `claude`, `chatgpt`, `gemini` and `ollama`. A layer's LLM settings come from the command line: `eval.sh` sets the provider, model and prices for each layer (`QNA_*`, `QNA_KG_*`, `QUERY_*`, `GENERATION_*`) from a models block at the top, plus one `LLM_MAX_TOKENS` and `LLM_TIMEOUT_SECONDS` shared by all layers. `eval.py` turns each layer's settings into an `LLM` object with `make_llm_args`, and passes that object to the layer. The layer calls `validate_llm(llm_args)` only when its cache is missing, and then calls `get_llm(llm_args)`, which returns the provider's LLM class: `ClaudeLLM`, `ChatGPTLLM`, `GeminiLLM` or `OllamaLLM`. Every class has the same four things: `chat_model` (a LangChain chat model), `json_chat_model` (the same model forced to reply in JSON), `generate(system_prompt, user_prompt)`, which returns the reply text, and `compute_cost()`, which prints and returns the cost of its calls. `qna` hands `json_chat_model` of its two LLMs to RAGAS. `l5_query` calls `generate("", prompt)`. No layer knows which provider or model it got.
-
-The models block in `eval.sh`, one model name and price pair per model:
-
-| Provider | Model | Price per million tokens (input / output) | Used for |
-|---|---|---|---|
-| `claude` | `claude-sonnet-5-5` | $2.00 / $10.00 | QnA questions and answers |
-| `claude` | `claude-haiku-5-5` | $0.10 / $0.50 | QnA knowledge graph |
-| `chatgpt` | `gpt-4.1-mini` | $0.40 / $1.60 | |
-| `chatgpt` | `gpt-4.1-nano` | $0.10 / $0.40 | |
-| `gemini` | `gemini-3.5-flash-lite` | $0.30 / $2.50 | |
-| `gemini` | `gemini-3.1-flash-lite` | $0.25 / $1.50 | |
-| `ollama` | `llama3.1:8b` | $0 / $0 | l5 query, l9 generation |
-
-Each provider has a cheaper model for the many knowledge graph calls, which send whole documents, and a stronger one for the few question and answer calls.
-
-Design choices and why:
-
-- **One `LLM` object per layer.** Its fields are `llm`, `llm_model`, `input_price`, `output_price`, `max_tokens` and `timeout_seconds`. Changing a layer's model is one line in `eval.sh`, with no code change. Cache names use the model name, not the provider (e.g. `eval_qna_100_200_claude-sonnet-5-5_…`), so a cache made by one model is never loaded for another.
-- **Prices come from the command line.** The providers' list-models APIs do not return prices, so a price table would have to be kept by hand in the code anyway. `compute_cost()` multiplies the counted tokens by `input_price` and `output_price`. A paid model must have both prices above 0, so the cost of every paid run is printed. A wrong price cannot be detected, only a missing one.
-- **General code in `llm.py`, `schema.py` and `validate.py`, provider code in the provider's own file.** Each provider file holds its settings, its `validate_<provider>()` and its LLM class, written out in full rather than sharing a base class, so each provider's flow reads top to bottom in one place, and a fix for one provider changes only its file. The only shared piece is `TokenCounter`, because LangChain reports token usage in the same `usage_metadata` for every provider.
-- **Checks run only when an LLM is needed.** `validate_llm` checks the settings every provider shares (model name, prices, `max_tokens`, `timeout_seconds`), then calls the provider's check: API key set and the model listed by the provider for the paid ones, server running and model pulled for Ollama. QnA and l5 run it only on a cache miss, so a cached run needs no API key, no `ALLOW_PAID_API` and no Ollama server. A listed model is not always usable: Google lists `gemini-2.5-flash` and `gemini-2.5-flash-lite`, but rejects them for new accounts (`404 NOT_FOUND: … no longer available to new users`), which only a real call shows. A failed call raises an error and stops the run.
-- **Paid calls need `ALLOW_PAID_API=1`.** Each paid provider's check tests it, and each paid LLM class tests it again when it is built, so a paid LLM cannot be built by a caller that skipped `validate_llm`.
-- **API keys are read from `CLAUDE_API_KEY`, `CHATGPT_API_KEY` and `GEMINI_API_KEY` in `.env`,** named after the providers, and each class passes its key to its LangChain client. LangChain's clients look for `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `GOOGLE_API_KEY` on their own, so passing the key keeps a key set under those names for something else from being used.
-- **One output limit and one timeout for every provider** (16000 tokens, 180s). The replies are short JSON (QnA), one question or passage (l5) or a few sentences (l9), so one value fits all of them.
-- **`json_chat_model`.** RAGAS parses every reply as JSON. Claude follows the JSON format RAGAS asks for, so its `json_chat_model` is its `chat_model`. ChatGPT uses OpenAI's JSON mode (`response_format`), Gemini its JSON output (`response_mime_type="application/json"`) and Ollama its JSON mode (`format="json"`).
-- **ChatGPT keep-alive is off.** RAGAS runs each step (knowledge graph, personas, scenarios, samples) in a new asyncio event loop. `ChatOpenAI` keeps its HTTPS connections open between calls, and a connection left from the previous step's closed loop failed the scenarios step with `RuntimeError: Event loop is closed` and `openai.APIConnectionError: Connection error.` `ChatGPTLLM` gives its chat models an `httpx.AsyncClient` with `max_keepalive_connections=0`, so every call opens its own connection. Google's client has the same reuse, but there it only prints `Fatal error on SSL transport … Event loop is closed` while closing old connections; every call succeeds, so `GeminiLLM` is left unchanged.
-- **Libraries:** `langchain-anthropic` (`ChatAnthropic`), `langchain-openai` (`ChatOpenAI`), `langchain-google-genai` 4.4.1 (`ChatGoogleGenerativeAI`; 4.4.2 needs `langchain-core` 1.6.10, and the project stays on 1.6.9) and `langchain-ollama` (`ChatOllama`).
-
-Ollama choices and limits:
-
-- **Ollama's own API through `ChatOllama`, not its OpenAI-compatible API.** Ollama's default context window is 4096 tokens, and a prompt longer than that is cut from the start, so RAGAS's instructions are lost. With 4096, llama3.1:8b answered the RAGAS headline prompt correctly for a 1,196-token prompt, but for a 15,347-token prompt it copied the document's table as JSON until the 180s timeout, and for a 77,084-token prompt it returned its input. The OpenAI-compatible API ignores a context setting, so the native API is used, where `num_ctx` is set on every call.
-- **Context window 32768 (`OLLAMA_CONTEXT_LENGTH` in `ollama.py`).** At 32768, llama3.1:8b uses 9.1 GB and stays fully on the 12 GB RTX 3060 of this machine. A larger window would not fit on the GPU.
-- **Temperature 0**, so the same prompt gives the same reply on every run.
-- **Ollama is used for l5 queries, not for eval QnA.** l5 prompts are one question plus an instruction, far below 32768 tokens. RAGAS sends whole documents, and this dataset has documents much longer than 32768 tokens (75,450 in the 20-document check set), which do not fit. Eval QnA uses Claude.
-
-`scripts/check_llms.sh <provider>` checks the QnA and query layers end to end with one provider, and is run again for every provider whenever a provider is added or the LLM code changes. It builds a 20-document dataset under `outputs/llm_check/<provider>/`, keeps only documents of at most 8000 tokens so every provider gets the same documents and they fit in Ollama's context window, deletes its own QnA, knowledge graph and query caches, generates 2 QnA items from 3 documents and their queries, checks the records, the `llm` and `llm_model` fields and the cache files, and runs both layers again to check they load from the cache without writing it again. It never writes under the real `outputs/<dataset>/` caches. `ollama` is free; `claude`, `chatgpt` and `gemini` need `ALLOW_PAID_API=1`. For `chatgpt` and `gemini` only QnA uses that provider, and query stays on Ollama.
-
-### Architecture
-
-- **`schema.py`**: defines `LLM`, the LLM settings of one layer.
-- **`validate.py`**: `validate_llm`, the checks every provider shares, then the provider's own check.
-- **`llm.py`**: `TokenCounter`, shared by every provider, and `get_llm`, which builds the LLM class of the provider.
-- **`claude.py`**: `validate_claude` and `ClaudeLLM`, built on `ChatAnthropic`.
-- **`chatgpt.py`**: `validate_chatgpt` and `ChatGPTLLM`, built on `ChatOpenAI`.
-- **`gemini.py`**: `validate_gemini` and `GeminiLLM`, built on `ChatGoogleGenerativeAI`.
-- **`ollama.py`**: Ollama's settings, `validate_ollama` and `OllamaLLM`, built on `ChatOllama`.
-
-### Run results
-
-**`check_llms.sh` for each provider** (from `log/llm/log_check_ollama.txt`, `log_check_claude.txt`, `log_check_gemini.txt` and `log_check_chatgpt.txt`). Every run: 17 of 20 documents have at most 8000 tokens, 12 of those have more than 500 tokens (RAGAS minimum), 3 are sampled, and 2 QnA items and 2 queries are generated, with 0 multi-query and 0 HyDE I don't know. Each run ends with `ALL CHECKS PASSED`.
-
-| Provider | Knowledge graph model | Calls | Input / output tokens | Questions model | Calls | Input / output tokens | QnA cost |
-|---|---|---|---|---|---|---|---|
-| Ollama | `llama3.1:8b` | 31 | 42581 / 2174 | `llama3.1:8b` | 7 | 5778 / 462 | $0.0000 |
-| Claude | `claude-haiku-5-5` | 31 | 72111 / 14223 | `claude-sonnet-5-5` | 7 | 8879 / 1870 | $0.0508 |
-| Gemini | `gemini-3.1-flash-lite` | 33 | 47262 / 2025 | `gemini-3.5-flash-lite` | 7 | 5395 / 479 | $0.0177 |
-| ChatGPT | `gpt-4.1-nano` | 23 | 33798 / 1403 | `gpt-4.1-mini` | 7 | 5189 / 665 | $0.0071 |
-
-Query, in the same runs:
-
-| Provider run | Query model | Calls | Input / output tokens | Cost |
-|---|---|---|---|---|
-| Ollama | `llama3.1:8b` | 6 | 590 / 348 | $0.0000 |
-| Claude | `claude-haiku-5-5` | 6 | 1039 / 1847 | $0.0010 |
-| Gemini | `llama3.1:8b` | 6 | 590 / 275 | $0.0000 |
-| ChatGPT | `llama3.1:8b` | 6 | 623 / 392 | $0.0000 |
-
-RAGAS step times:
-
-| Step | Ollama | Claude | Gemini | ChatGPT |
-|---|---|---|---|---|
-| HeadlinesExtractor (3 documents) | 00:08 | 00:06 | 00:04 | 00:04 |
-| SummaryExtractor (3) | 00:12 | 00:07 | 00:03 | 00:04 |
-| CustomNodeFilter (9) | 00:11 | 00:07 | 00:08 | 00:07 |
-| EmbeddingExtractor (3) | 00:01 | 00:02 | 00:01 | 00:01 |
-| ThemesExtractor | 00:15 (8) | 00:08 (8) | 00:08 (9) | 00:05 (4) |
-| NERExtractor | 00:11 (8) | 00:09 (8) | 00:08 (9) | 00:05 (4) |
-| Generating personas (3) | 00:04 | 00:05 | 00:03 | 00:03 |
-| Generating Scenarios (2) | 00:05 | 00:04 | 00:03 | 00:02 |
-| Generating Samples (2) | 00:06 | 00:09 | 00:02 | 00:03 |
-
-The total run times are not in the logs.
-
-The knowledge graph steps make most of the calls (23 to 33 of 30 to 40) and send most of the input tokens, because each sends a whole document or one of its chunks to the model. The question steps send only short persona, scenario and chunk texts, and the query step sends one question per prompt. The number of chunks the themes and entities steps work on differs by provider (4, 8 or 9), because the CustomNodeFilter step, which keeps or drops chunks, is itself an LLM call. Claude writes the most output tokens for the same work (14223 for the knowledge graph against 1403 to 2174 for the others), so its run costs the most even though Haiku's input price ($0.10) is as low as `gpt-4.1-nano`'s. Ollama is the slowest per step, because llama3.1:8b runs on the local GPU, while the paid models run on the providers' servers.
 ## l5_query
 
 ### Overview
 
-`l5_query` turns each eval question into the queries the retrieval layer searches with. `src/eval.py` calls `get_queries(output_path, eval_qna, eval_qna_args, query_args)` after loading the eval QnA. `QueryArgs` holds the build's embedding model (`embedding_model`, taken from `--model_name` so it always matches the chunk embeddings), `--query_llm` (the LLM provider, default `ollama`), `--query_llm_model` (default `llama3.1:8b`) and `--n_multi_qus` (default 3). It returns one `Query` per eval question, with the same `id` as its `EvalQnA`, holding four ways of searching for it: the original question (`original_qus`), an LLM rewrite (`rewritten_qus`), `n_multi_qus` LLM phrasings (`multi_qus`) and a HyDE hypothetical answer passage (`hyde_ans`). Each question (`Qus`) has its text, its BM25 tokens (lowercased and split on whitespace, the same as the l4 BM25 chunks) and its embedding; the HyDE answer (`Ans`) has its text and embedding only, because it is searched by embedding alone.
+`l5_query` turns each eval question into the queries the retrieval layer searches with. `src/eval.py` calls `get_queries(output_path, eval_qna, eval_qna_args, query_args, query_llm_args)` after loading the eval QnA. `QueryArgs` holds the build's embedding model (`embedding_model`, taken from `--model_name` so it always matches the chunk embeddings) and `--n_multi_qus` (3). `query_llm_args` is an `LLM` object (see `llm`) made from `QUERY_LLM`, `QUERY_LLM_MODEL` and its prices in `eval.sh`; it can be any of the four providers, and the project uses `llama3.1:8b` on Ollama. It returns one `Query` per eval question, with the same `id` as its `EvalQnA` and the `llm` and `llm_model` that wrote it, holding four ways of searching for it: the original question (`original_qus`), an LLM rewrite (`rewritten_qus`), `n_multi_qus` LLM phrasings (`multi_qus`) and a HyDE hypothetical answer passage (`hyde_ans`). Each question (`Qus`) has its text, its BM25 tokens (lowercased and split on whitespace, the same as the l4 BM25 chunks) and its embedding; the HyDE answer (`Ans`) has its text and embedding only, because it is searched by embedding alone.
 
-`get_queries()` first validates `QueryArgs`. The cache folder is `{output folder}/queries/{n_sample_documents}_{n_sample_evals}_{eval_qna_llm}_{eval_qna_model}_{embedding_model}_{query_llm}_{query_llm_model}_{n_multi_qus}`, with `/` and `:` in model names replaced by `-`. It does not include the dataset size, so one set of queries is reused at every corpus size. If the folder holds both cache files they are loaded and returned. Otherwise `generate_queries()`:
+`get_queries()` first validates `QueryArgs`. The cache folder is `{output folder}/queries/{n_sample_documents}_{n_sample_evals}_{qna_llm_model}_{eval_qna_model}_{embedding_model}_{query_llm_model}_{n_multi_qus}`, with `/` and `:` in model names replaced by `-`. `qna_llm_model` is read from the eval QnA records, which hold the model that wrote them, so queries made for one eval set are never loaded for another. The name does not include the dataset size, so one set of queries is reused at every corpus size. If the folder holds both cache files they are loaded and returned, and no LLM is checked or built, so a cached run needs no Ollama server or API key. Otherwise `validate_llm` checks the query LLM and `generate_queries()`:
 
-1. Gets the query LLM with `llm.get_llm()`, which checks the Ollama server is running and the model is pulled. The LLM runs locally at temperature 0, with replies cut at `OLLAMA_MAX_TOKENS` (400) tokens, so the transformations cost nothing.
-2. Makes three LLM calls per question: the rewrite, the `n_multi_qus` phrasings (one per line) and the HyDE passage. If the phrasings reply does not have exactly `n_multi_qus` non-empty lines, the question gets no phrasings; if the HyDE reply still starts with "I don't know", it is stored as exactly `I don't know`. Both are printed and counted, and the run goes on. It prints the LLM cost ($0 for Ollama).
+1. Builds the query LLM with `llm.get_llm()`. With Ollama it runs locally at temperature 0, so the transformations cost nothing.
+2. Makes three LLM calls per question with `generate("", prompt)`: the rewrite, the `n_multi_qus` phrasings (one per line) and the HyDE passage. If the phrasings reply does not have exactly `n_multi_qus` non-empty lines, the question gets no phrasings; if the HyDE reply still starts with "I don't know", it is stored as exactly `I don't know`. Both are printed and counted, and the run goes on. It prints the LLM cost ($0 for Ollama).
 3. Embeds every question and answer with `embedding_model` (a SentenceTransformer, normalized to length 1 like the l3 chunk embeddings).
 4. Builds one `Query` per question.
 
@@ -473,15 +473,15 @@ The queries are then saved as `queries.json` (the texts and tokens, readable) an
 
 - **`query.py`** — Loads the cached queries, or transforms each eval question with the query LLM, embeds the results and saves them.
 - **`schema.py`** — Defines `Qus` (a searchable question), `Ans` (the HyDE answer) and `Query`, the layer's output record.
-- **`validate.py`** — Checks the query parameters and raises an error for the first invalid one, before any LLM call.
+- **`validate.py`** — Checks `embedding_model` and `n_multi_qus` and raises an error for the first invalid one, before any LLM call. The query LLM is checked by `llm.validate.validate_llm`.
 - **`cache.py`** — Saves and loads the queries of one run as `queries.json` and `embeddings.npz`.
 - **`prompt.py`** — The rewrite, multi-query and HyDE prompt templates.
 
-The query LLM comes from the `llm` module. The cache folder path is built in `src/common/paths.py`.
+The query LLM comes from the `llm` module. The cache folder path is built in `src/common/paths.py`. Query works with all four providers; `scripts/check_llms.sh` generated a small set of queries with each one (see `llm`).
 
 ### Run results
 
-**200 eval questions, llama3.1:8b, 3 phrasings each** (from `log/l5_query/query_5k_100_200_log.txt`). The input is the 200-question eval set made from the 5000 `pixparse/pdfa-eng-wds` documents (see qna), loaded from its cache file `eval_qna_100_200_claude_all-MiniLM-L6-v2.json`. Settings: `embedding_model` `all-MiniLM-L6-v2`, `query_llm` `ollama`, `query_llm_model` `llama3.1:8b`, `n_multi_qus` 3. There was no query cache, so the queries were generated.
+**200 eval questions, llama3.1:8b, 3 phrasings each** (from `log/l5_query/query_5k_100_200_log.txt`). The input is the 200-question eval set made from the 5000 `pixparse/pdfa-eng-wds` documents (see qna), loaded from its cache file `eval_qna_100_200_claude_all-MiniLM-L6-v2.json` (now `eval_qna_100_200_claude-sonnet-5-5_all-MiniLM-L6-v2.json`). Settings: `embedding_model` `all-MiniLM-L6-v2`, `query_llm` `ollama`, `query_llm_model` `llama3.1:8b`, `n_multi_qus` 3. There was no query cache, so the queries were generated. At the time, Ollama was called through its `/api/generate` endpoint with replies cut at 400 tokens; it now runs through `ChatOllama` with the shared 16000-token limit (see `llm`). These 200 queries are kept as they are and loaded from the cache, never generated again.
 
 | | Value |
 |---|---|
@@ -490,7 +490,7 @@ The query LLM comes from the `llm` module. The cache folder path is built in `sr
 | Multi-query I don't know | 0 of 200 |
 | HyDE I don't know | 0 of 200 |
 | LLM cost | $0.0000 |
-| Queries saved | 200, to `outputs/pdfa-eng-wds/queries/100_200_claude_all-MiniLM-L6-v2_all-MiniLM-L6-v2_ollama_llama3.1-8b_3` |
+| Queries saved | 200, to `outputs/pdfa-eng-wds/queries/100_200_claude_all-MiniLM-L6-v2_all-MiniLM-L6-v2_ollama_llama3.1-8b_3`, renamed to `100_200_claude-sonnet-5-5_all-MiniLM-L6-v2_all-MiniLM-L6-v2_llama3.1-8b_3` when cache names moved to the model name. The queries got `llm` `ollama` at the same time, added in place with no LLM call |
 | Query time | 763.0530879497528s |
 
 The log has no per-stage timing, only the total. Nearly all of it is the LLM: each question makes three calls to `llama3.1:8b`, one after another, so 600 calls in total, each generating its reply token by token on the GPU. Embedding the results is a single batched SentenceTransformer pass per query type over short texts, and loading the eval set and saving the two cache files are file reads and writes, so they are small next to the 600 generations.

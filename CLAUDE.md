@@ -44,6 +44,7 @@ src/
 	api/
 	llm/
 		llm.py		        # LLM orchatrator, decides which llm to return
+		check_llms.py		# Check llm and llm_models works or not (dev)
 		schema.py		    # LLM dataclass
 		validate.py		    # Validate LLM, model and prices
 		ollama.py 			# Local llama
