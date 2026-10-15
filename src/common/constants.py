@@ -49,26 +49,15 @@ QDRANT_URL="http://localhost:6333"
 
 # Eval
 
-# Number of eval QnA items, saved as {output_path}/eval_qna_{SAMPLE_DOCUMENTS}_{N_EVAL_SAMPLES}_{EVAL_QNA_LLM}_{EVAL_QNA_MODEL}.json
+# Number of eval QnA items, saved as {output_path}/eval_qna_{SAMPLE_DOCUMENTS}_{N_EVAL_SAMPLES}_{qna_llm_model}_{EVAL_QNA_MODEL}.json
 N_EVAL_SAMPLES=50
 
-# LLM provider RAGAS uses to generate the eval QnA. The models are picked in the code
-CLAUDE_LLM_GENERATOR="claude"
-EVAL_QNA_LLM=CLAUDE_LLM_GENERATOR
-# Claude model for the RAGAS knowledge graph steps (headlines, summaries, filter, themes, entities)
-CLAUDE_TRANSFORMS_MODEL="claude-haiku-5-5"
-# Claude model for writing the personas, scenarios, questions and answers
-CLAUDE_QUESTION_MODEL="claude-sonnet-5-5"
-# Maximum output tokens per eval LLM call. RAGAS prompts return short JSON, so 16000 leaves room for thinking
-EVAL_LLM_MAX_TOKENS=16000
-# Seconds before one eval LLM call times out, the same as RAGAS's own per-job timeout (RunConfig.timeout)
-EVAL_LLM_TIMEOUT_SECONDS=180
-# Claude API price in US dollars per million tokens (Anthropic API rates, 2026-10-06)
-CLAUDE_PRICES_PER_MILLION_TOKENS={
-	"claude-opus-5-5": {"input": 4.00, "output": 20.00},
-	"claude-sonnet-5-5": {"input": 2.00, "output": 10.00},
-	"claude-haiku-5-5": {"input": 0.10, "output": 0.50},
-}
+# Claude LLM provider name
+CLAUDE_LLM="claude"
+# ChatGPT (OpenAI) LLM provider name
+CHATGPT_LLM="chatgpt"
+# Gemini (Google) LLM provider name
+GEMINI_LLM="gemini"
 # Local HuggingFace SentenceTransformer model RAGAS uses to build its knowledge graph
 EVAL_QNA_MODEL="all-MiniLM-L6-v2"
 # Number of documents randomly picked from the dataset for RAGAS to generate the eval QnA from
@@ -84,17 +73,8 @@ EVAL_PASSAGE_MATCH_CHARS=80
 
 # 5. Query
 
-# Local LLM provider that rewrites the eval questions, writes the multi-query phrasings and the HyDE answers
+# Ollama (local) LLM provider name
 OLLAMA_LLM="ollama"
-# Ollama server, started by the Ollama install
-OLLAMA_URL="http://localhost:11434"
-# Seconds before one Ollama call times out. The first call after 5 idle minutes also reloads the model onto the GPU
-OLLAMA_TIMEOUT_SECONDS=120
-# Maximum output tokens per Ollama call. At temperature 0 a model can repeat a phrase forever, so the reply is cut here
-OLLAMA_MAX_TOKENS=400
-QUERY_LLM=OLLAMA_LLM
-# Local model the query LLM provider runs
-QUERY_LLM_MODEL="llama3.1:8b"
 # Number of phrasings the query LLM writes for each eval question
 N_MULTI_QUS=3
 # Stored as the HyDE answer when the query LLM still refuses to write one, so l6 skips it

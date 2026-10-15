@@ -9,12 +9,15 @@ class Prompt:
 
 	Fields:
 		id:            Same as the Retrieved, Context, Query and EvalQnA id, linking the prompt to its eval question.
+		qus:           The original question.
 		system_prompt: The instructions for the LLM, the same for every prompt.
-		user_prompt:   The context and the original question.
+		user_prompt:   The context and the original question. "" when the context is empty, so l9 skips the LLM call.
 		token_count:   The context token count plus an estimate for the system prompt and the question, in
 		               embedding-model tokens. An estimate of the prompt size, not the generation LLM's own count.
+		               0 when the context is empty.
 	"""
 	id: str
+	qus: str
 	system_prompt: str
 	user_prompt: str
 	token_count: int

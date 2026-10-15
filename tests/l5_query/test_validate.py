@@ -9,14 +9,13 @@ import pytest
 from l5_query.validate import validate_query_args
 
 
-@pytest.mark.parametrize("query_llm", ["ollama", "claude"])
-def test_valid_args_pass_for_each_query_llm(make_query_args, query_llm):
+def test_valid_args_pass(make_query_args):
     """
-    Input: valid QueryArgs for each supported query_llm.
+    Input: valid QueryArgs.
     Output: nothing raised.
-    What it does: checks valid args pass every check.
+    What it does: checks valid settings pass. The query LLM is checked by llm.validate.validate_llm.
     """
-    validate_query_args(make_query_args(query_llm=query_llm))
+    validate_query_args(make_query_args())
 
 
 @pytest.mark.parametrize("embedding_model", ["", "   "])
@@ -28,26 +27,6 @@ def test_empty_embedding_model_raises(make_query_args, embedding_model):
     """
     with pytest.raises(ValueError, match="embedding_model"):
         validate_query_args(make_query_args(embedding_model=embedding_model))
-
-
-def test_unknown_query_llm_raises(make_query_args):
-    """
-    Input: query_llm "gemini".
-    Output: ValueError mentioning query_llm.
-    What it does: checks only ollama and claude are accepted.
-    """
-    with pytest.raises(ValueError, match="query_llm"):
-        validate_query_args(make_query_args(query_llm="gemini"))
-
-
-def test_empty_query_llm_model_raises(make_query_args):
-    """
-    Input: a whitespace-only query_llm_model.
-    Output: ValueError mentioning query_llm_model.
-    What it does: checks a model name must be given.
-    """
-    with pytest.raises(ValueError, match="query_llm_model"):
-        validate_query_args(make_query_args(query_llm_model="  "))
 
 
 def test_n_multi_qus_zero_raises(make_query_args):

@@ -14,19 +14,21 @@ from l5_query.prompt import HYDE_PROMPT
 from l5_query import cache
 from l5_query import validate
 from llm.llm import get_llm
+from llm.schema import LLM
+from llm.validate import validate_llm
 from qna.schema import EvalQnA
 
-def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs) -> list[Query]:
+def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs, query_llm_args: LLM) -> list[Query]:
 	"""
-	Input: eval_qna, the eval questions; query_args, the query settings.
+	Input: eval_qna, the eval questions; query_args, the query settings; query_llm_args, the query LLM settings.
 	Output: one Query per eval question, in the same order.
 	What it does: asks the query LLM for a rewrite, n_multi_qus phrasings and a HyDE answer of each question,
 	splits every question into BM25 tokens, embeds every qus and ans with the build's embedding model and prints the LLM cost.
 	When the LLM does not return exactly n_multi_qus phrasings, multi_qus is empty; when it does not know the HyDE answer,
 	hyde_ans is I_DONT_KNOW. Both are counted and printed, and the run goes on.
 	"""
-	# 1. Get the query LLM. Checks the provider is usable, e.g. the Ollama server is running and the model is pulled
-	query_llm = get_llm(query_args.query_llm, query_args.query_llm_model)
+	# 1. Get the query LLM. It was checked by validate_llm in get_queries
+	query_llm = get_llm(query_llm_args)
 
 	# 2. Transform each question with the LLM
 	original_qus_list = []
@@ -39,11 +41,11 @@ def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs) -> list[Que
 		qna_item = eval_qna[qna_index]
 
 		# 1. Rewritten qus
-		rewritten_qus_str = query_llm.generate(REWRITE_PROMPT.format(qus=qna_item.qus)).strip()
+		rewritten_qus_str = query_llm.generate("", REWRITE_PROMPT.format(qus=qna_item.qus)).strip()
 
 		# Multi qus
 		# The phrasings come one per line, sometimes with blank lines between them
-		multi_reply = query_llm.generate(MULTI_QUERY_PROMPT.format(qus=qna_item.qus, n_multi_qus=query_args.n_multi_qus))
+		multi_reply = query_llm.generate("", MULTI_QUERY_PROMPT.format(qus=qna_item.qus, n_multi_qus=query_args.n_multi_qus))
 		multi_qus_str_list = []
 		for reply_line in multi_reply.split("\n"):
 			stripped_line = reply_line.strip()
@@ -60,7 +62,7 @@ def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs) -> list[Que
 			multi_dont_know_count = multi_dont_know_count + 1
 
 		# 3. Hypithetical ans
-		hyde_ans_str = query_llm.generate(HYDE_PROMPT.format(qus=qna_item.qus)).strip()
+		hyde_ans_str = query_llm.generate("", HYDE_PROMPT.format(qus=qna_item.qus)).strip()
 		# The prompt asks for a passage even when unsure, but if the LLM still refuses, the reply is stored as exactly
 		# I_DONT_KNOW, so l6 can skip it. The reply may add a full stop or a reason after it
 		hyde_ans_lower = hyde_ans_str.lower().replace("\u2019", "'")
@@ -130,32 +132,37 @@ def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs) -> list[Que
 			hyde_ans=hyde_ans,
 			normalized=True,
 			embedding_model=query_args.embedding_model,
-			llm=query_args.query_llm,
-			llm_model=query_args.query_llm_model
+			llm=query_llm_args.llm,
+			llm_model=query_llm_args.llm_model
 		))
 
 	return queries
 
-def get_queries(output_path: str, eval_qna: list[EvalQnA], eval_qna_args: EvalQnAArgs, query_args: QueryArgs) -> list[Query]:
+def get_queries(output_path: str, eval_qna: list[EvalQnA], eval_qna_args: EvalQnAArgs, query_args: QueryArgs, query_llm_args: LLM) -> list[Query]:
 	"""
 	Input: output_path, the dataset's output folder; eval_qna, the eval questions; eval_qna_args, the settings
-	that identify the eval set; query_args, the embedding model of the build, the query LLM provider,
-	its model and the number of multi-query phrasings.
+	that identify the eval set; query_args, the embedding model of the build and the number of multi-query phrasings;
+	query_llm_args, the query LLM settings.
 	Output: one Query per eval question.
 	What it does: validates query_args, then returns the cached queries if they exist,
-	otherwise generates them, saves them and returns them.
+	otherwise validates the query LLM, generates the queries, saves them and returns them.
 	"""
 	# 1. Validate the query settings
 	validate.validate_query_args(query_args)
 
-	# 2. Load cached queries, or generate and save them
-	query_path = paths.get_query_path(output_path, eval_qna_args, query_args)
+	# 2. Load cached queries
+	# The eval QnA records hold the model that wrote them
+	query_path = paths.get_query_path(output_path, eval_qna_args, eval_qna[0].llm_model, query_args, query_llm_args.llm_model)
 	queries = cache.load_cached_queries(query_path)
 	if queries is not None:
 		print(f"Queries loaded from cache : {query_path}")
 		return queries
 
-	queries = generate_queries(eval_qna, query_args)
+	# 3. Validate the LLM only when it is needed, so a cached run needs no API keys, ALLOW_PAID_API or Ollama server
+	validate_llm(query_llm_args)
+
+	# 4. Generate and save the queries
+	queries = generate_queries(eval_qna, query_args, query_llm_args)
 	cache.save_queries(query_path, queries)
 	print(f"Queries saved : {query_path}")
 	return queries

@@ -1,83 +1,97 @@
+import json
+import os
+import urllib.error
+import urllib.request
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.callbacks import BaseCallbackHandler
 
-from common.constants import CLAUDE_PRICES_PER_MILLION_TOKENS
-from common.constants import EVAL_LLM_MAX_TOKENS
-from common.constants import EVAL_LLM_TIMEOUT_SECONDS
+from llm.schema import LLM
 
-# 1. ClaudeTokenCounter: counts the tokens of one Claude model's calls
-# 2. ClaudeLLM:          one Claude model; generate(prompt) and compute_cost(). Returned by llm.get_llm()
+# 1. validate_claude: checks a Claude model can be used. Called by llm.validate.validate_llm
+# 2. ClaudeLLM:       one Claude model; chat_model, json_chat_model, generate() and compute_cost(). Returned by llm.get_llm()
 
-class ClaudeTokenCounter(BaseCallbackHandler):
+def validate_claude(llm_args: LLM) -> bool:
 	"""
-	Input: nothing when created.
-	Output: an object holding the input tokens, output tokens and number of Claude calls.
-	What it does: adds up the tokens of every Claude call it is attached to.
+	Input: llm_args, with llm claude.
+	Output: True. Raises ValueError for the first check that fails.
+	What it does: checks paid calls are allowed, CLAUDE_API_KEY is set and Anthropic lists the model.
 	"""
+	# 1. Claude calls cost money, so a run must opt in with ALLOW_PAID_API=1
+	if os.environ.get("ALLOW_PAID_API") != "1":
+		raise ValueError(f"Claude model ({llm_args.llm_model}) calls a paid API. Run again with ALLOW_PAID_API=1 set.")
 
-	# Run on_llm_end in the calling thread, so totals are never updated from two threads at once
-	run_inline = True
+	# 2. Check the API key
+	api_key = os.environ.get("CLAUDE_API_KEY", "")
+	if api_key == "":
+		raise ValueError("CLAUDE_API_KEY is not set. Add it to .env.")
 
-	def __init__(self):
-		"""
-		Input: nothing.
-		Output: nothing.
-		What it does: starts all counts at 0.
-		"""
-		super().__init__()
-		self.input_tokens = 0
-		self.output_tokens = 0
-		self.number_of_calls = 0
+	# 3. Check Anthropic lists the model. Listing models is free
+	request = urllib.request.Request(
+		"https://api.anthropic.com/v1/models?limit=1000",
+		headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+	)
+	try:
+		with urllib.request.urlopen(request, timeout=10) as response:
+			models_body = json.loads(response.read().decode("utf-8"))
+	except urllib.error.URLError as error:
+		raise ValueError(f"Could not list the Claude models: {error}") from error
 
-	def on_llm_end(self, response, **kwargs) -> None:
-		"""
-		Input: response, the LangChain result of one finished Claude call.
-		Output: nothing.
-		What it does: adds that call's input and output tokens to the totals.
-		"""
-		self.number_of_calls = self.number_of_calls + 1
-		for generation_list in response.generations:
-			for generation in generation_list:
-				message = getattr(generation, "message", None)
-				if message is None:
-					continue
-				usage_metadata = getattr(message, "usage_metadata", None)
-				if usage_metadata is None:
-					continue
-				self.input_tokens = self.input_tokens + usage_metadata["input_tokens"]
-				self.output_tokens = self.output_tokens + usage_metadata["output_tokens"]
+	model_names = []
+	for model in models_body["data"]:
+		model_names.append(model["id"])
+	if llm_args.llm_model not in model_names:
+		raise ValueError(f"Claude model ({llm_args.llm_model}) is not one of the Anthropic models: {model_names}")
+
+	# 4. Paid models need a price, so the cost of every run can be computed
+	if llm_args.input_price == 0 or llm_args.output_price == 0:
+		raise ValueError(f"Claude model ({llm_args.llm_model}) needs an input and output price above 0.")
+
+	return True
 
 class ClaudeLLM:
 	"""
-	Input: llm_model, a Claude model id, when created.
-	Output: an object that sends a prompt to that Claude model and returns its text.
+	Input: llm_args, the settings of one Claude model, and token_counter, when created.
+	Output: an object that sends prompts to that Claude model and returns its text.
 	What it does: calls one Claude model and counts its tokens, so the cost can be computed.
 	"""
 
-	def __init__(self, llm_model: str):
+	def __init__(self, llm_args: LLM, token_counter):
 		"""
-		Input: llm_model, a Claude model id that has a price in CLAUDE_PRICES_PER_MILLION_TOKENS.
+		Input: llm_args, the Claude model settings; token_counter, the llm.TokenCounter that counts its tokens.
 		Output: nothing.
-		What it does: builds a ChatAnthropic for that model with a token counter attached.
+		What it does: builds a ChatAnthropic for that model with the token counter attached.
 		"""
-		self.llm_model = llm_model
-		self.token_counter = ClaudeTokenCounter()
-		# Without these, ChatAnthropic allows 128000 output tokens and no timeout
-		self.claude_llm = ChatAnthropic(
-			model=llm_model,
-			max_tokens=EVAL_LLM_MAX_TOKENS,
-			timeout=EVAL_LLM_TIMEOUT_SECONDS,
-			callbacks=[self.token_counter]
-		)
+		# Claude calls cost money, so a Claude LLM is never built without ALLOW_PAID_API=1, even if
+		# validate_claude was not called first
+		if os.environ.get("ALLOW_PAID_API") != "1":
+			raise ValueError(f"Claude model ({llm_args.llm_model}) calls a paid API. Run again with ALLOW_PAID_API=1 set.")
 
-	def generate(self, prompt: str) -> str:
+		self.llm_args = llm_args
+		self.token_counter = token_counter
+		# The key is passed from CLAUDE_API_KEY, because ChatAnthropic only looks for ANTHROPIC_API_KEY by itself.
+		# Without max_tokens and timeout, ChatAnthropic allows 128000 output tokens and no timeout
+		self.chat_model = ChatAnthropic(
+			model=llm_args.llm_model,
+			api_key=os.environ.get("CLAUDE_API_KEY", ""),
+			max_tokens=llm_args.max_tokens,
+			timeout=llm_args.timeout_seconds,
+			callbacks=[token_counter]
+		)
+		# Claude follows the JSON format RAGAS's prompts ask for without a JSON mode, so it is the same chat model
+		self.json_chat_model = self.chat_model
+
+	def generate(self, system_prompt: str, user_prompt: str) -> str:
 		"""
-		Input: prompt, the text sent to Claude.
+		Input: system_prompt, the instructions ("" for none); user_prompt, the text sent to Claude.
 		Output: Claude's reply text.
-		What it does: sends the prompt to the Claude model and returns the text of its reply.
+		What it does: sends the system prompt and user prompt to the Claude model and returns the text of its reply.
 		"""
-		response = self.claude_llm.invoke(prompt)
+		messages = []
+		if system_prompt != "":
+			messages.append(("system", system_prompt))
+		messages.append(("user", user_prompt))
+
+		response = self.chat_model.invoke(messages)
 		return response.text
 
 	def compute_cost(self) -> float:
@@ -86,16 +100,13 @@ class ClaudeLLM:
 		Output: the cost of all calls made so far, in US dollars.
 		What it does: multiplies the counted tokens by the model's prices and prints the tokens and cost.
 		"""
-		if self.llm_model not in CLAUDE_PRICES_PER_MILLION_TOKENS:
-			raise ValueError(f"No price for Claude model {self.llm_model} in CLAUDE_PRICES_PER_MILLION_TOKENS")
-
-		model_prices = CLAUDE_PRICES_PER_MILLION_TOKENS[self.llm_model]
-		input_cost = self.token_counter.input_tokens * model_prices["input"] / 1000000
-		output_cost = self.token_counter.output_tokens * model_prices["output"] / 1000000
+		llm_model = self.llm_args.llm_model
+		input_cost = self.token_counter.input_tokens * self.llm_args.input_price / 1000000
+		output_cost = self.token_counter.output_tokens * self.llm_args.output_price / 1000000
 		total_cost = input_cost + output_cost
 
-		print(f"{self.llm_model} calls : {self.token_counter.number_of_calls}")
-		print(f"{self.llm_model} input tokens : {self.token_counter.input_tokens}, cost : ${input_cost:.4f}")
-		print(f"{self.llm_model} output tokens : {self.token_counter.output_tokens}, cost : ${output_cost:.4f}")
-		print(f"{self.llm_model} cost : ${total_cost:.4f}")
+		print(f"{llm_model} calls : {self.token_counter.number_of_calls}")
+		print(f"{llm_model} input tokens : {self.token_counter.input_tokens}, cost : ${input_cost:.4f}")
+		print(f"{llm_model} output tokens : {self.token_counter.output_tokens}, cost : ${output_cost:.4f}")
+		print(f"{llm_model} cost : ${total_cost:.4f}")
 		return total_cost

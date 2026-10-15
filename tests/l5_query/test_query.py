@@ -17,6 +17,10 @@ from common import paths
 from common.constants import I_DONT_KNOW
 from l5_query.query import generate_queries
 from l5_query.query import get_queries
+from common.args import make_llm_args
+
+# The query LLM settings every test uses. The LLM itself is faked, so no call is made
+QUERY_LLM_ARGS = make_llm_args("ollama", "llama3.1:8b", 0, 0, 16000, 180)
 
 
 def test_generate_queries_builds_one_query_per_question(fake_query_llm, make_query_args, make_eval_qna):
@@ -29,7 +33,7 @@ def test_generate_queries_builds_one_query_per_question(fake_query_llm, make_que
     created_llms, replies = fake_query_llm
     eval_qna = make_eval_qna(["What is FAISS?", "How does BM25 rank?"])
 
-    queries = generate_queries(eval_qna, make_query_args())
+    queries = generate_queries(eval_qna, make_query_args(), QUERY_LLM_ARGS)
 
     assert len(queries) == 2
     assert queries[0].id == "qna0"
@@ -52,7 +56,7 @@ def test_tokens_are_lowercase_words(fake_query_llm, make_query_args, make_eval_q
     Output: the tokens of the original, rewritten and multi qus.
     What it does: checks tokens are split the same way as the l4 BM25 chunks.
     """
-    queries = generate_queries(make_eval_qna(["What Is FAISS?"]), make_query_args())
+    queries = generate_queries(make_eval_qna(["What Is FAISS?"]), make_query_args(), QUERY_LLM_ARGS)
 
     assert queries[0].original_qus.tokens == ["what", "is", "faiss?"]
     assert queries[0].rewritten_qus.tokens == ["rewritten", "what", "is", "faiss?"]
@@ -69,7 +73,7 @@ def test_each_text_gets_its_own_embedding(fake_query_llm, make_query_args, make_
     replies["multi"]["Short?"] = "only one line"
     eval_qna = make_eval_qna(["Short?", "A much longer second question?"])
 
-    queries = generate_queries(eval_qna, make_query_args())
+    queries = generate_queries(eval_qna, make_query_args(), QUERY_LLM_ARGS)
 
     for query in queries:
         assert np.allclose(query.original_qus.embeddings, fake_embed_function(query.original_qus.qus))
@@ -90,7 +94,7 @@ def test_blank_lines_between_phrasings_are_skipped(fake_query_llm, make_query_ar
     created_llms, replies = fake_query_llm
     replies["multi"]["What is FAISS?"] = "\n  one  \n\n two\n   \nthree\n"
 
-    queries = generate_queries(make_eval_qna(["What is FAISS?"]), make_query_args())
+    queries = generate_queries(make_eval_qna(["What is FAISS?"]), make_query_args(), QUERY_LLM_ARGS)
 
     multi_texts = []
     for multi_qus in queries[0].multi_qus:
@@ -112,7 +116,7 @@ def test_wrong_number_of_phrasings_keeps_none(fake_query_llm, make_query_args, m
     created_llms, replies = fake_query_llm
     replies["multi"]["What is FAISS?"] = multi_reply
 
-    queries = generate_queries(make_eval_qna(["What is FAISS?"]), make_query_args())
+    queries = generate_queries(make_eval_qna(["What is FAISS?"]), make_query_args(), QUERY_LLM_ARGS)
 
     assert queries[0].multi_qus == []
     assert "Multi-query I don't know : 1 of 1" in capsys.readouterr().out
@@ -132,7 +136,7 @@ def test_hyde_refusal_is_stored_as_i_dont_know(fake_query_llm, make_query_args, 
     created_llms, replies = fake_query_llm
     replies["hyde"]["What is FAISS?"] = hyde_reply
 
-    queries = generate_queries(make_eval_qna(["What is FAISS?"]), make_query_args())
+    queries = generate_queries(make_eval_qna(["What is FAISS?"]), make_query_args(), QUERY_LLM_ARGS)
 
     assert queries[0].hyde_ans.ans == I_DONT_KNOW
     assert "HyDE I don't know : 1 of 1" in capsys.readouterr().out
@@ -148,7 +152,7 @@ def test_hyde_passage_mentioning_not_knowing_later_is_kept(fake_query_llm, make_
     passage = "FAISS is a library. Some say I don't know how it works."
     replies["hyde"]["What is FAISS?"] = passage
 
-    queries = generate_queries(make_eval_qna(["What is FAISS?"]), make_query_args())
+    queries = generate_queries(make_eval_qna(["What is FAISS?"]), make_query_args(), QUERY_LLM_ARGS)
 
     assert queries[0].hyde_ans.ans == passage
 
@@ -164,9 +168,9 @@ def test_get_queries_generates_and_saves_when_not_cached(tmp_path, fake_query_ll
     eval_qna_args = make_eval_qna_args()
     output_path = str(tmp_path / "myset")
 
-    queries = get_queries(output_path, make_eval_qna(["What is FAISS?"]), eval_qna_args, query_args)
+    queries = get_queries(output_path, make_eval_qna(["What is FAISS?"]), eval_qna_args, query_args, QUERY_LLM_ARGS)
 
-    query_path = paths.get_query_path(output_path, eval_qna_args, query_args)
+    query_path = paths.get_query_path(output_path, eval_qna_args, "claude-sonnet-5-5", query_args, "llama3.1:8b")
     assert len(queries) == 1
     assert len(created_llms) == 1
     assert os.path.exists(os.path.join(query_path, "queries.json"))
@@ -184,9 +188,9 @@ def test_get_queries_uses_the_cache_without_calling_the_llm(tmp_path, fake_query
     eval_qna_args = make_eval_qna_args()
     output_path = str(tmp_path / "myset")
     eval_qna = make_eval_qna(["What is FAISS?"])
-    get_queries(output_path, eval_qna, eval_qna_args, query_args)
+    get_queries(output_path, eval_qna, eval_qna_args, query_args, QUERY_LLM_ARGS)
 
-    cached_queries = get_queries(output_path, eval_qna, eval_qna_args, query_args)
+    cached_queries = get_queries(output_path, eval_qna, eval_qna_args, query_args, QUERY_LLM_ARGS)
 
     assert len(created_llms) == 1
     assert cached_queries[0].rewritten_qus.qus == "Rewritten What is FAISS?"
@@ -201,6 +205,6 @@ def test_get_queries_with_invalid_args_raises_before_the_llm(tmp_path, fake_quer
     created_llms, replies = fake_query_llm
 
     with pytest.raises(ValueError, match="n_multi_qus"):
-        get_queries(str(tmp_path), make_eval_qna(["What is FAISS?"]), make_eval_qna_args(), make_query_args(n_multi_qus=0))
+        get_queries(str(tmp_path), make_eval_qna(["What is FAISS?"]), make_eval_qna_args(), make_query_args(n_multi_qus=0), QUERY_LLM_ARGS)
 
     assert len(created_llms) == 0

@@ -1,49 +1,73 @@
-import json
-import os
-import urllib.error
-import urllib.request
+from langchain_core.callbacks import BaseCallbackHandler
 
-from common.constants import CLAUDE_LLM_GENERATOR
-from common.constants import CLAUDE_PRICES_PER_MILLION_TOKENS
+from common.constants import CHATGPT_LLM
+from common.constants import CLAUDE_LLM
+from common.constants import GEMINI_LLM
 from common.constants import OLLAMA_LLM
-from common.constants import OLLAMA_URL
+from llm.chatgpt import ChatGPTLLM
 from llm.claude import ClaudeLLM
+from llm.gemini import GeminiLLM
 from llm.ollama import OllamaLLM
+from llm.schema import LLM
 
-def get_llm(llm: str, llm_model: str) -> ClaudeLLM | OllamaLLM:
+# 1. TokenCounter: counts the tokens of one LLM's calls, for any provider
+# 2. get_llm:      builds the LLM of llm_args's provider
+
+class TokenCounter(BaseCallbackHandler):
 	"""
-	Input: llm, the LLM provider name ("claude" or "ollama"); llm_model, the model to run on that provider.
-	Output: a ClaudeLLM or OllamaLLM for that model, with a generate(prompt) method.
-	What it does: checks the provider is supported and the model can be used on it, then builds that provider's LLM.
-	A Claude LLM is only built when the environment variable ALLOW_PAID_API is 1.
-	Raises ValueError otherwise.
+	Input: nothing when created.
+	Output: an object holding the input tokens, output tokens and number of calls.
+	What it does: adds up the tokens of every LangChain chat model call it is attached to.
 	"""
-	if llm == CLAUDE_LLM_GENERATOR:
-		# Claude calls cost money, so a run must opt in with ALLOW_PAID_API=1. The Claude Code paid API guard hook
-		# asks the user before any command that sets it
-		if os.environ.get("ALLOW_PAID_API") != "1":
-			raise ValueError(
-				f"Claude model ({llm_model}) calls a paid API. Run again with ALLOW_PAID_API=1 set, "
-				"e.g. ALLOW_PAID_API=1 bash scripts/eval.sh"
-			)
-		# Only models with a price can be used, so the cost of every run can be computed
-		if llm_model not in CLAUDE_PRICES_PER_MILLION_TOKENS:
-			raise ValueError(f"Claude model ({llm_model}) has no price in CLAUDE_PRICES_PER_MILLION_TOKENS.")
-		return ClaudeLLM(llm_model)
 
-	if llm == OLLAMA_LLM:
-		# The Ollama server must be running and the model must already be pulled
-		try:
-			with urllib.request.urlopen(OLLAMA_URL + "/api/tags", timeout=10) as response:
-				tags_body = json.loads(response.read().decode("utf-8"))
-		except urllib.error.URLError as error:
-			raise ValueError(f"Ollama server is not reachable at {OLLAMA_URL}. Start it with: ollama serve") from error
+	# Run on_llm_end in the calling thread, so totals are never updated from two threads at once
+	run_inline = True
 
-		pulled_model_names = []
-		for pulled_model in tags_body["models"]:
-			pulled_model_names.append(pulled_model["name"])
-		if llm_model not in pulled_model_names:
-			raise ValueError(f"Ollama model ({llm_model}) is not pulled. Pull it with: ollama pull {llm_model}")
-		return OllamaLLM(llm_model)
+	def __init__(self):
+		"""
+		Input: nothing.
+		Output: nothing.
+		What it does: starts all counts at 0.
+		"""
+		super().__init__()
+		self.input_tokens = 0
+		self.output_tokens = 0
+		self.number_of_calls = 0
 
-	raise ValueError(f"llm ({llm}) is not supported. Use \"{CLAUDE_LLM_GENERATOR}\" or \"{OLLAMA_LLM}\".")
+	def on_llm_end(self, response, **kwargs) -> None:
+		"""
+		Input: response, the LangChain result of one finished call.
+		Output: nothing.
+		What it does: adds that call's input and output tokens to the totals.
+		"""
+		self.number_of_calls = self.number_of_calls + 1
+		for generation_list in response.generations:
+			for generation in generation_list:
+				message = getattr(generation, "message", None)
+				if message is None:
+					continue
+				usage_metadata = getattr(message, "usage_metadata", None)
+				if usage_metadata is None:
+					continue
+				self.input_tokens = self.input_tokens + usage_metadata["input_tokens"]
+				self.output_tokens = self.output_tokens + usage_metadata["output_tokens"]
+
+def get_llm(llm_args: LLM) -> ChatGPTLLM | ClaudeLLM | GeminiLLM | OllamaLLM:
+	"""
+	Input: llm_args, the LLM settings of one layer, already checked by llm.validate.validate_llm.
+	Output: a ChatGPTLLM, ClaudeLLM, GeminiLLM or OllamaLLM, with chat_model, json_chat_model, generate(system_prompt, user_prompt) and compute_cost().
+	What it does: builds the LLM of llm_args's provider with its own token counter. Raises ValueError for another provider.
+	"""
+	if llm_args.llm == CLAUDE_LLM:
+		return ClaudeLLM(llm_args, TokenCounter())
+
+	if llm_args.llm == CHATGPT_LLM:
+		return ChatGPTLLM(llm_args, TokenCounter())
+
+	if llm_args.llm == GEMINI_LLM:
+		return GeminiLLM(llm_args, TokenCounter())
+
+	if llm_args.llm == OLLAMA_LLM:
+		return OllamaLLM(llm_args, TokenCounter())
+
+	raise ValueError(f"llm ({llm_args.llm}) is not supported. Use {CLAUDE_LLM}, {CHATGPT_LLM}, {GEMINI_LLM} or {OLLAMA_LLM}.")

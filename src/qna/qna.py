@@ -20,23 +20,23 @@ from ragas.utils import num_tokens_from_string
 
 from common import paths
 from common.args import EvalQnAArgs
-from common.constants import CLAUDE_TRANSFORMS_MODEL
-from common.constants import CLAUDE_QUESTION_MODEL
 from common.constants import SAMPLE_DOCUMENTS_SEED
 from common.constants import EVAL_MIN_DOCUMENT_TOKENS
 from common.constants import EVAL_PASSAGE_MATCH_CHARS
 from l1_ingestion.schema import Document
 from llm.llm import get_llm
+from llm.schema import LLM
+from llm.validate import validate_llm
 from qna.schema import EvalQnA
 from qna import validate
 
-def load_cached_eval_qna(output_path: str, eval_qna_args: EvalQnAArgs) -> list[EvalQnA] | None:
+def load_cached_eval_qna(output_path: str, eval_qna_args: EvalQnAArgs, qna_llm_args: LLM) -> list[EvalQnA] | None:
 	"""
-	Input: output_path, the dataset's output folder; eval_qna_args, the eval QnA settings.
+	Input: output_path, the dataset's output folder; eval_qna_args, the eval QnA settings; qna_llm_args, the QnA LLM.
 	Output: the cached list of EvalQnA, or None if there is no cache file.
 	What it does: reads the eval QnA cache file from paths.get_eval_qna_path.
 	"""
-	cache_file = paths.get_eval_qna_path(output_path, eval_qna_args)
+	cache_file = paths.get_eval_qna_path(output_path, eval_qna_args, qna_llm_args.llm_model)
 	if not os.path.exists(cache_file):
 		return None
 
@@ -49,9 +49,10 @@ def load_cached_eval_qna(output_path: str, eval_qna_args: EvalQnAArgs) -> list[E
 
 	return eval_qna
 
-def save_eval_qna(output_path: str, eval_qna_args: EvalQnAArgs, eval_qna: list[EvalQnA]) -> None:
+def save_eval_qna(output_path: str, eval_qna_args: EvalQnAArgs, qna_llm_args: LLM, eval_qna: list[EvalQnA]) -> None:
 	"""
-	Input: output_path, the dataset's output folder; eval_qna_args, the eval QnA settings; eval_qna, the EvalQnA list.
+	Input: output_path, the dataset's output folder; eval_qna_args, the eval QnA settings; qna_llm_args, the QnA LLM;
+	eval_qna, the EvalQnA list.
 	Output: nothing.
 	What it does: writes eval_qna as JSON to the cache file from paths.get_eval_qna_path.
 	"""
@@ -61,15 +62,16 @@ def save_eval_qna(output_path: str, eval_qna_args: EvalQnAArgs, eval_qna: list[E
 	for qna_item in eval_qna:
 		eval_qna_dicts.append(dataclasses.asdict(qna_item))
 
-	cache_file = paths.get_eval_qna_path(output_path, eval_qna_args)
+	cache_file = paths.get_eval_qna_path(output_path, eval_qna_args, qna_llm_args.llm_model)
 	temporary_file = cache_file + ".tmp"
 	with open(temporary_file, "w", encoding="utf-8") as f:
 		json.dump(eval_qna_dicts, f, indent=2)
 	os.replace(temporary_file, cache_file)
 
-def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna_args: EvalQnAArgs) -> list[EvalQnA]:
+def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna_args: EvalQnAArgs, qna_llm_args: LLM, qna_kg_llm_args: LLM) -> list[EvalQnA]:
 	"""
-	Input: output_path, the dataset's output folder; documents, a dict of doc_id to l1 Document; eval_qna_args, the eval QnA settings.
+	Input: output_path, the dataset's output folder; documents, a dict of doc_id to l1 Document; eval_qna_args, the eval QnA settings;
+	qna_llm_args, the LLM that writes the questions and answers; qna_kg_llm_args, the LLM that builds the knowledge graph.
 	Output: a list of EvalQnA. Raises ValueError if RAGAS generates none.
 	What it does: samples documents long enough for RAGAS, builds or loads the RAGAS knowledge graph,
 	generates QnA from it with the LLM generator, prints the LLM cost, and links each QnA to its source documents.
@@ -108,13 +110,14 @@ def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna
 		)
 		langchain_documents.append(langchain_document)
 
-	# 4. Get the Claude LLMs
-	# A cheaper model builds the knowledge graph, a stronger one writes the questions
-	transforms_claude_llm = get_llm(eval_qna_args.eval_qna_llm, CLAUDE_TRANSFORMS_MODEL)
-	question_claude_llm = get_llm(eval_qna_args.eval_qna_llm, CLAUDE_QUESTION_MODEL)
-	# RAGAS sets temperature 0.01 by default, which the Claude 5.5 models reject
-	transforms_llm = LangchainLLMWrapper(transforms_claude_llm.claude_llm, bypass_temperature=True)
-	question_llm = LangchainLLMWrapper(question_claude_llm.claude_llm, bypass_temperature=True)
+	# 4. Get the LLMs
+	# One model builds the knowledge graph, another writes the questions. RAGAS parses every reply as JSON, so it
+	# uses each LLM's json_chat_model
+	kg_llm = get_llm(qna_kg_llm_args)
+	question_llm = get_llm(qna_llm_args)
+	# RAGAS sets temperature 0.01 by default, which the Claude 5.5 models reject, so the model's own temperature is kept
+	ragas_kg_llm = LangchainLLMWrapper(kg_llm.json_chat_model, bypass_temperature=True)
+	ragas_question_llm = LangchainLLMWrapper(question_llm.json_chat_model, bypass_temperature=True)
 
 	device = "cuda" if torch.cuda.is_available() else "cpu"
 	huggingface_embeddings = HuggingFaceEmbeddings(
@@ -126,7 +129,7 @@ def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna
 
 	# 5. Build or load the knowledge graph
 	# Saved after building, so a failed or repeated run does not pay to build it again
-	kg_path = paths.get_eval_kg_path(output_path, eval_qna_args)
+	kg_path = paths.get_eval_kg_path(output_path, eval_qna_args, qna_kg_llm_args.llm_model)
 	if os.path.exists(kg_path):
 		knowledge_graph = KnowledgeGraph.load(kg_path)
 		print(f"Knowledge graph loaded from cache : {kg_path}")
@@ -140,7 +143,7 @@ def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna
 			knowledge_graph.nodes.append(document_node)
 		transforms = default_transforms(
 			documents=langchain_documents,
-			llm=transforms_llm,
+			llm=ragas_kg_llm,
 			embedding_model=eval_embeddings
 		)
 		apply_transforms(knowledge_graph, transforms)
@@ -151,15 +154,15 @@ def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna
 
 	# 6. Generate test sets
 	testset_generator = TestsetGenerator(
-		llm=question_llm,
+		llm=ragas_question_llm,
 		embedding_model=eval_embeddings,
 		knowledge_graph=knowledge_graph
 	)
 	testset = testset_generator.generate(testset_size=eval_qna_args.n_sample_evals)
-	transforms_cost = transforms_claude_llm.compute_cost()
-	question_cost = question_claude_llm.compute_cost()
-	total_cost = transforms_cost + question_cost
-	print(f"Claude total cost : ${total_cost:.4f}")
+	kg_cost = kg_llm.compute_cost()
+	question_cost = question_llm.compute_cost()
+	total_cost = kg_cost + question_cost
+	print(f"QnA total cost : ${total_cost:.4f}")
 
 	if len(testset.samples) == 0:
 		raise ValueError(
@@ -209,8 +212,8 @@ def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna
 			qus_type=testset_sample.synthesizer_name,
 			doc_ids=doc_ids,
 			doc_paths=doc_paths,
-			llm=eval_qna_args.eval_qna_llm,
-			llm_model=CLAUDE_QUESTION_MODEL
+			llm=qna_llm_args.llm,
+			llm_model=qna_llm_args.llm_model
 		)
 		eval_qna.append(qna_item)
 		sample_number = sample_number + 1
@@ -220,23 +223,29 @@ def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna
 
 	return eval_qna
 
-def get_eval_qna(output_path: str, documents: dict[str, Document], eval_qna_args: EvalQnAArgs) -> list[EvalQnA]:
+def get_eval_qna(output_path: str, documents: dict[str, Document], eval_qna_args: EvalQnAArgs, qna_llm_args: LLM, qna_kg_llm_args: LLM) -> list[EvalQnA]:
 	"""
-	Input: output_path, the dataset's output folder; documents, a dict of doc_id to l1 Document; eval_qna_args, the eval QnA settings.
+	Input: output_path, the dataset's output folder; documents, a dict of doc_id to l1 Document; eval_qna_args, the eval QnA settings;
+	qna_llm_args, the LLM that writes the questions and answers; qna_kg_llm_args, the LLM that builds the knowledge graph.
 	Output: a list of EvalQnA.
 	What it does: validates eval_qna_args, then returns the cached eval QnA if it exists,
-	otherwise generates it, saves it and returns it.
+	otherwise validates the two LLMs, generates the eval QnA, saves it and returns it.
 	"""
 	# 1. Validate eval QnA args
 	validate.validate_eval_qna_args(eval_qna_args)
 
-	# 2. Load cached eval QnA, or generate and save it
-	eval_qna = load_cached_eval_qna(output_path, eval_qna_args)
+	# 2. Load cached eval QnA
+	eval_qna = load_cached_eval_qna(output_path, eval_qna_args, qna_llm_args)
 	if eval_qna is not None:
 		print(f"Eval QnA cache found : {len(eval_qna)} items")
 		return eval_qna
 
+	# 3. Validate the LLMs only when they are needed, so a cached run needs no API keys or ALLOW_PAID_API
+	validate_llm(qna_llm_args)
+	validate_llm(qna_kg_llm_args)
+
+	# 4. Generate and save the eval QnA
 	print(f"No eval QnA cache, generating {eval_qna_args.n_sample_evals} items with RAGAS")
-	eval_qna = generate_eval_qna(output_path, documents, eval_qna_args)
-	save_eval_qna(output_path, eval_qna_args, eval_qna)
+	eval_qna = generate_eval_qna(output_path, documents, eval_qna_args, qna_llm_args, qna_kg_llm_args)
+	save_eval_qna(output_path, eval_qna_args, qna_llm_args, eval_qna)
 	return eval_qna

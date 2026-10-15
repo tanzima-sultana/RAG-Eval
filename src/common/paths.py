@@ -159,51 +159,57 @@ def get_qdrant_collection_name(output_path:str, chunking_args: ChunkingArgs) -> 
 	)
 
 # ------ Eval QnA
-def get_eval_qna_path(output_path:str, eval_qna_args: EvalQnAArgs) -> str:
+def get_eval_qna_path(output_path:str, eval_qna_args: EvalQnAArgs, qna_llm_model: str) -> str:
 	"""
-	Input: output_path, the dataset's output folder; eval_qna_args, the eval QnA settings.
+	Input: output_path, the dataset's output folder; eval_qna_args, the eval QnA settings; qna_llm_model, the model
+	that writes the questions and answers.
 	Output: the eval QnA cache file path as a string.
-	What it does: builds {output_path}/eval_qna_{n_sample_documents}_{n_sample_evals}_{eval_qna_llm}_{eval_qna_model}.json,
-	with any "/" in the model name replaced by "-".
+	What it does: builds {output_path}/eval_qna_{n_sample_documents}_{n_sample_evals}_{qna_llm_model}_{eval_qna_model}.json,
+	with any "/" or ":" in the model names replaced by "-".
 	"""
+	qna_llm_model = qna_llm_model.replace("/", "-").replace(":", "-")
 	eval_qna_model = eval_qna_args.eval_qna_model.replace("/", "-")
 
 	return (
 		f"{output_path}/eval_qna_{eval_qna_args.n_sample_documents}_"
-		f"{eval_qna_args.n_sample_evals}_{eval_qna_args.eval_qna_llm}_{eval_qna_model}.json"
+		f"{eval_qna_args.n_sample_evals}_{qna_llm_model}_{eval_qna_model}.json"
 	)
 
-def get_eval_kg_path(output_path:str, eval_qna_args: EvalQnAArgs) -> str:
+def get_eval_kg_path(output_path:str, eval_qna_args: EvalQnAArgs, qna_kg_llm_model: str) -> str:
 	"""
-	Input: output_path, the dataset's output folder; eval_qna_args, the eval QnA settings.
+	Input: output_path, the dataset's output folder; eval_qna_args, the eval QnA settings; qna_kg_llm_model, the model
+	that builds the knowledge graph.
 	Output: the RAGAS knowledge graph cache file path as a string.
-	What it does: builds {output_path}/eval_kg_{n_sample_documents}_{eval_qna_llm}_{eval_qna_model}.json,
-	with any "/" in the model name replaced by "-".
+	What it does: builds {output_path}/eval_kg_{n_sample_documents}_{qna_kg_llm_model}_{eval_qna_model}.json,
+	with any "/" or ":" in the model names replaced by "-".
 	"""
+	qna_kg_llm_model = qna_kg_llm_model.replace("/", "-").replace(":", "-")
 	eval_qna_model = eval_qna_args.eval_qna_model.replace("/", "-")
 
 	return (
 		f"{output_path}/eval_kg_{eval_qna_args.n_sample_documents}_"
-		f"{eval_qna_args.eval_qna_llm}_{eval_qna_model}.json"
+		f"{qna_kg_llm_model}_{eval_qna_model}.json"
 	)
 
 # ------ Query
-def get_query_path(output_path:str, eval_qna_args: EvalQnAArgs, query_args: QueryArgs) -> str:
+def get_query_path(output_path:str, eval_qna_args: EvalQnAArgs, qna_llm_model: str, query_args: QueryArgs, query_llm_model: str) -> str:
 	"""
 	Input: output_path, the dataset's output folder; eval_qna_args, the settings of the eval set the queries are made from;
-	query_args, the query settings.
+	qna_llm_model, the model that wrote the eval questions; query_args, the query settings; query_llm_model, the model
+	that transforms the questions.
 	Output: the query cache folder path as a string.
-	What it does: builds {output_path}/queries/{n_sample_documents}_{n_sample_evals}_{eval_qna_llm}_{eval_qna_model}_
-	{embedding_model}_{query_llm}_{query_llm_model}_{n_multi_qus}, with any "/" or ":" in the model names replaced by "-".
+	What it does: builds {output_path}/queries/{n_sample_documents}_{n_sample_evals}_{qna_llm_model}_{eval_qna_model}_
+	{embedding_model}_{query_llm_model}_{n_multi_qus}, with any "/" or ":" in the model names replaced by "-".
 	"""
+	qna_llm_model = qna_llm_model.replace("/", "-").replace(":", "-")
 	eval_qna_model = eval_qna_args.eval_qna_model.replace("/", "-")
 	embedding_model = query_args.embedding_model.replace("/", "-")
-	query_llm_model = query_args.query_llm_model.replace("/", "-").replace(":", "-")
+	query_llm_model = query_llm_model.replace("/", "-").replace(":", "-")
 
 	return (
 		f"{output_path}/queries/{eval_qna_args.n_sample_documents}_{eval_qna_args.n_sample_evals}_"
-		f"{eval_qna_args.eval_qna_llm}_{eval_qna_model}_{embedding_model}_"
-		f"{query_args.query_llm}_{query_llm_model}_{query_args.n_multi_qus}"
+		f"{qna_llm_model}_{eval_qna_model}_{embedding_model}_"
+		f"{query_llm_model}_{query_args.n_multi_qus}"
 	)
 
 # ------ Retrieval

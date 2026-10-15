@@ -9,6 +9,7 @@ def get_prompt_list(context_list: list[Context], tuning_queries: list[Query]) ->
 	Input: context_list, the l7 contexts; tuning_queries, the l5 tuning queries.
 	Output: one Prompt per Context, in the same order, so prompt_list[i] belongs to context_list[i].
 	What it does: fills the user prompt template with each context and its original question.
+	An empty context gets an empty user prompt.
 	"""
 	prompt_list = []
 
@@ -25,6 +26,11 @@ def get_prompt_list(context_list: list[Context], tuning_queries: list[Query]) ->
 		# because the rewritten, multi and hyde forms were only for searching
 		question = question_by_id[context.id]
 
+		# An empty context cannot hold the answer, so its user prompt stays empty and l9 skips the LLM call
+		if context.context == "":
+			prompt_list.append(Prompt(id=context.id, qus=question, system_prompt=SYSTEM_PROMPT, user_prompt="", token_count=0))
+			continue
+
 		# 3. Fill the user prompt template with the context and the question
 		user_prompt = USER_PROMPT_TEMPLATE.format(context=context.context, question=question)
 
@@ -35,6 +41,7 @@ def get_prompt_list(context_list: list[Context], tuning_queries: list[Query]) ->
 		# 5. Keep the Prompt in the same place as its Context
 		prompt = Prompt(
 			id=context.id,
+			qus=question,
 			system_prompt=SYSTEM_PROMPT,
 			user_prompt=user_prompt,
 			token_count=token_count,

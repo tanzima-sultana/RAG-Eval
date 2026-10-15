@@ -8,6 +8,7 @@ import argparse
 import dataclasses
 
 from common import constants
+from llm.schema import LLM
 
 @dataclasses.dataclass
 class IngestArgs:
@@ -46,7 +47,6 @@ class IndexArgs:
 
 @dataclasses.dataclass
 class EvalQnAArgs:
-	eval_qna_llm: str
 	eval_qna_model: str
 	n_sample_documents: int
 	n_sample_evals: int
@@ -54,8 +54,6 @@ class EvalQnAArgs:
 @dataclasses.dataclass
 class QueryArgs:
 	embedding_model: str
-	query_llm: str
-	query_llm_model: str
 	n_multi_qus: int
 
 @dataclasses.dataclass
@@ -270,11 +268,45 @@ def parse_eval_args():
 		default=constants.N_EVAL_SAMPLES,
 		help="Number of eval QnA items to load or generate")
 	parser.add_argument(
-		"--eval_qna_llm",
+		"--qna_llm",
 		type=str,
-		required=False,
-		default=constants.EVAL_QNA_LLM,
-		help="LLM provider RAGAS uses to generate the eval QnA: claude")
+		required=True,
+		help="LLM provider RAGAS uses to write the eval questions and answers: claude, chatgpt, gemini or ollama")
+	parser.add_argument(
+		"--qna_llm_model",
+		type=str,
+		required=True,
+		help="Model the QnA LLM provider runs")
+	parser.add_argument(
+		"--qna_input_price",
+		type=float,
+		required=True,
+		help="QnA model price in US dollars per million input tokens, 0 for ollama")
+	parser.add_argument(
+		"--qna_output_price",
+		type=float,
+		required=True,
+		help="QnA model price in US dollars per million output tokens, 0 for ollama")
+	parser.add_argument(
+		"--qna_kg_llm",
+		type=str,
+		required=True,
+		help="LLM provider RAGAS uses to build its knowledge graph: claude, chatgpt, gemini or ollama")
+	parser.add_argument(
+		"--qna_kg_llm_model",
+		type=str,
+		required=True,
+		help="Model the knowledge graph LLM provider runs")
+	parser.add_argument(
+		"--qna_kg_input_price",
+		type=float,
+		required=True,
+		help="Knowledge graph model price in US dollars per million input tokens, 0 for ollama")
+	parser.add_argument(
+		"--qna_kg_output_price",
+		type=float,
+		required=True,
+		help="Knowledge graph model price in US dollars per million output tokens, 0 for ollama")
 	parser.add_argument(
 		"--eval_qna_model",
 		type=str,
@@ -290,15 +322,23 @@ def parse_eval_args():
 	parser.add_argument(
 		"--query_llm",
 		type=str,
-		required=False,
-		default=constants.QUERY_LLM,
-		help="Local LLM provider that transforms the eval questions: ollama")
+		required=True,
+		help="LLM provider that transforms the eval questions: claude, chatgpt, gemini or ollama")
 	parser.add_argument(
 		"--query_llm_model",
 		type=str,
-		required=False,
-		default=constants.QUERY_LLM_MODEL,
-		help="Local model the query LLM provider runs, e.g. llama3.1:8b")
+		required=True,
+		help="Model the query LLM provider runs")
+	parser.add_argument(
+		"--query_input_price",
+		type=float,
+		required=True,
+		help="Query model price in US dollars per million input tokens, 0 for ollama")
+	parser.add_argument(
+		"--query_output_price",
+		type=float,
+		required=True,
+		help="Query model price in US dollars per million output tokens, 0 for ollama")
 	parser.add_argument(
 		"--n_multi_qus",
 		type=int,
@@ -342,6 +382,36 @@ def parse_eval_args():
 		required=False,
 		default=constants.N_RETRIEVAL_QUALITY,
 		help="Number of best plain setups and of best reranked setups whose retrieved outputs go on to the next layers")
+	parser.add_argument(
+		"--generation_llm",
+		type=str,
+		required=True,
+		help="LLM provider that answers the prompts: claude, chatgpt, gemini or ollama")
+	parser.add_argument(
+		"--generation_llm_model",
+		type=str,
+		required=True,
+		help="Model the generation LLM provider runs")
+	parser.add_argument(
+		"--generation_input_price",
+		type=float,
+		required=True,
+		help="Generation model price in US dollars per million input tokens, 0 for ollama")
+	parser.add_argument(
+		"--generation_output_price",
+		type=float,
+		required=True,
+		help="Generation model price in US dollars per million output tokens, 0 for ollama")
+	parser.add_argument(
+		"--llm_max_tokens",
+		type=int,
+		required=True,
+		help="Maximum output tokens per LLM call, the same for every layer")
+	parser.add_argument(
+		"--llm_timeout_seconds",
+		type=int,
+		required=True,
+		help="Seconds before one LLM call times out, the same for every layer")
 
 	return parser.parse_args()
 
@@ -411,12 +481,10 @@ def make_eval_qna_args(parsed_args):
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args().
 	Output: an EvalQnAArgs object holding the QnA generator settings.
-	What it does: copies the parsed LLM generator, eval embedding
-	model name, number of sample documents and number of eval QnA items into
-	the matching EvalQnAArgs fields.
+	What it does: copies the parsed eval embedding model name, number of sample documents and
+	number of eval QnA items into the matching EvalQnAArgs fields. The QnA LLMs are made with make_llm_args.
 	"""
 	eval_qna_args = EvalQnAArgs(
-		eval_qna_llm=parsed_args.eval_qna_llm,
 		eval_qna_model=parsed_args.eval_qna_model,
 		n_sample_documents=parsed_args.n_sample_documents,
 		n_sample_evals=parsed_args.n_sample_evals
@@ -428,14 +496,11 @@ def make_query_args(parsed_args):
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args().
 	Output: a QueryArgs object holding the query transformation settings.
-	What it does: copies the build's embedding model (model_name), the parsed
-	query LLM provider, its model and the number of multi-query phrasings into
-	the matching QueryArgs fields.
+	What it does: copies the build's embedding model (model_name) and the number of multi-query phrasings into
+	the matching QueryArgs fields. The query LLM is made with make_llm_args.
 	"""
 	query_args = QueryArgs(
 		embedding_model=parsed_args.model_name,
-		query_llm=parsed_args.query_llm,
-		query_llm_model=parsed_args.query_llm_model,
 		n_multi_qus=parsed_args.n_multi_qus
 	)
 	return query_args
@@ -455,3 +520,20 @@ def make_retrieval_args(parsed_args):
 		rerank_top_k=parsed_args.rerank_top_k
 	)
 	return retrieval_args
+
+def make_llm_args(llm: str, llm_model: str, input_price: float, output_price: float, max_tokens: int, timeout_seconds: int) -> LLM:
+	"""
+	Input: llm, the LLM provider; llm_model, its model; input_price and output_price, in US dollars per million tokens;
+	max_tokens, the maximum output tokens per call; timeout_seconds, the seconds before one call times out.
+	Output: an LLM object holding these settings.
+	What it does: copies the LLM settings of one layer into an LLM object.
+	"""
+	llm_args = LLM(
+		llm=llm,
+		llm_model=llm_model,
+		input_price=input_price,
+		output_price=output_price,
+		max_tokens=max_tokens,
+		timeout_seconds=timeout_seconds
+	)
+	return llm_args

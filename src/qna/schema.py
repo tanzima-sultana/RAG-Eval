@@ -22,8 +22,8 @@ class EvalQnA:
 		           A list, because a multi-hop question can span several documents.
 		doc_paths: Paths of those same documents, in the same order as doc_ids.
 		llm:       The LLM provider that wrote the question and answer, e.g. claude.
-		llm_model: The model that wrote the question and answer (CLAUDE_QUESTION_MODEL). The knowledge graph
-		           model (CLAUDE_TRANSFORMS_MODEL) is not recorded, since its output is not in the item.
+		llm_model: The model that wrote the question and answer (--qna_llm_model). The knowledge graph
+		           model (--qna_kg_llm_model) is not recorded, since its output is not in the item.
 	"""
 	id: str
 	qus: str

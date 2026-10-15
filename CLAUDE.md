@@ -44,6 +44,8 @@ src/
 	api/
 	llm/
 		llm.py		        # LLM orchatrator, decides which llm to return
+		schema.py		    # LLM dataclass
+		validate.py		    # Validate LLM, model and prices
 		ollama.py 			# Local llama
 		claude.py		    # Anthropic models
 		gemini.py		    # Gemini models

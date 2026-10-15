@@ -10,6 +10,7 @@ from common.args import make_index_args
 from common.args import make_eval_qna_args
 from common.args import make_query_args
 from common.args import make_retrieval_args
+from common.args import make_llm_args
 from l1_ingestion.ingestion import ingestion
 from l2_chunking.cache import load_chunks
 from l4_indexing import cache as index_cache
@@ -18,12 +19,14 @@ from l5_query.query import get_queries
 from l6_retrieval.retrieval import Retrieval
 from l7_context.context import get_context_list
 from l8_prompt.prompt import get_prompt_list
+from l9_generation.generation import get_generated_list
 from l10_evaluation.summary import print_retrieval_summary
 from l10_evaluation.retrieval_evaluation import RetrievalEvaluation
 from l5_query.schema import Query
 from l6_retrieval.schema import Retrieved
 from l7_context.schema import Context
 from l8_prompt.schema import Prompt
+from l9_generation.schema import Generated
 from l10_evaluation.schema import RetrievalQuality
 
 def load_eval_inputs(args, output_path: str):
@@ -34,7 +37,10 @@ def load_eval_inputs(args, output_path: str):
 	"""
 	ingest_args = make_ingest_args(args)
 	eval_qna_args = make_eval_qna_args(args)
+	qna_llm_args = make_llm_args(args.qna_llm, args.qna_llm_model, args.qna_input_price, args.qna_output_price, args.llm_max_tokens, args.llm_timeout_seconds)
+	qna_kg_llm_args = make_llm_args(args.qna_kg_llm, args.qna_kg_llm_model, args.qna_kg_input_price, args.qna_kg_output_price, args.llm_max_tokens, args.llm_timeout_seconds)
 	query_args = make_query_args(args)
+	query_llm_args = make_llm_args(args.query_llm, args.query_llm_model, args.query_input_price, args.query_output_price, args.llm_max_tokens, args.llm_timeout_seconds)
 
 	# 1. Load the l1 documents
 	# The same ingestion call as build.py; it returns the documents from the l1 cache
@@ -45,10 +51,10 @@ def load_eval_inputs(args, output_path: str):
 	print("\nLoading documents time : ", e1)
 
 	# 2. Load eval QnA
-	# Reuses {output_path}/eval_qna_{n_sample_documents}_{n_sample_evals}_{eval_qna_llm}_{eval_qna_model}.json if it exists
+	# Reuses {output_path}/eval_qna_{n_sample_documents}_{n_sample_evals}_{qna_llm_model}_{eval_qna_model}.json if it exists
 	print("\n\nLoading eval QnA")
 	s2 = time.time()
-	eval_qna = get_eval_qna(output_path, documents, eval_qna_args)
+	eval_qna = get_eval_qna(output_path, documents, eval_qna_args, qna_llm_args, qna_kg_llm_args)
 	e2 = time.time() - s2
 	print(f"Eval QnA loaded : {len(eval_qna)}")
 	print("\nLoading eval QnA time : ", e2)
@@ -56,7 +62,7 @@ def load_eval_inputs(args, output_path: str):
 	# 3. Query
 	print("\n\nLoading Query")
 	s3 = time.time()
-	queries = get_queries(output_path, eval_qna, eval_qna_args, query_args)
+	queries = get_queries(output_path, eval_qna, eval_qna_args, query_args, query_llm_args)
 	e3 = time.time() - s3
 	print(f"Query loaded : {len(queries)}")
 	print("\nLoading Query time : ", e3)
@@ -244,6 +250,24 @@ def run_prompt(context_list: list[Context], tuning_queries: list[Query]) -> list
 
 	return prompt_list
 
+def run_generation(args, output_path: str, prompt_list: list[Prompt]) -> list[Generated]:
+	"""
+	Input: args, the parsed eval arguments; output_path; prompt_list, the l8 prompts.
+	Output: generated_list, in the same order, so generated_list[i] belongs to prompt_list[i], context_list[i]
+	and retrieved_list[i].
+	What it does: gets the LLM answer of each prompt, from the cache or from the generation LLM.
+	"""
+	# 23. Generation
+	print("\n\nGeneration")
+	s23 = time.time()
+	generation_llm_args = make_llm_args(args.generation_llm, args.generation_llm_model, args.generation_input_price, args.generation_output_price, args.llm_max_tokens, args.llm_timeout_seconds)
+	generated_list = get_generated_list(output_path, prompt_list, generation_llm_args)
+
+	print(f"Generated list : {len(generated_list)}")
+	print("\nGeneration time : ", time.time() - s23)
+
+	return generated_list
+
 if __name__ == "__main__":
 	print("\n ------------- RAG Eval -------- \n")
 	start = time.time()
@@ -280,6 +304,10 @@ if __name__ == "__main__":
 
 	# 6. Prompt
 	prompt_list = run_prompt(context_list, tuning_queries)
+
+	# 7. Generation
+	# Off until l9 is finished
+	# generated_list = run_generation(args, output_path, prompt_list)
 
 	# ---------
 	end = time.time()

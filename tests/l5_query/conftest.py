@@ -46,12 +46,13 @@ class FakeQueryLLM:
         self.prompts = []
         self.cost_computed = False
 
-    def generate(self, prompt):
+    def generate(self, system_prompt, user_prompt):
         """
-        Input: prompt, a filled rewrite, multi-query or HyDE prompt.
+        Input: system_prompt ("" for l5); user_prompt, a filled rewrite, multi-query or HyDE prompt.
         Output: the reply for that prompt and question.
         What it does: records the prompt and picks the reply by the prompt's first words.
         """
+        prompt = user_prompt
         self.prompts.append(prompt)
         question = get_prompt_question(prompt)
 
@@ -132,9 +133,9 @@ def fake_query_llm(monkeypatch):
     created_llms = []
     replies = {"multi": {}, "hyde": {}}
 
-    def get_fake_llm(llm_name, llm_model):
+    def get_fake_llm(llm_args):
         """
-        Input: llm_name and llm_model, as get_llm takes them.
+        Input: llm_args, the LLM settings, as get_llm takes them.
         Output: a new FakeQueryLLM.
         What it does: stands in for llm.llm.get_llm.
         """
@@ -142,7 +143,16 @@ def fake_query_llm(monkeypatch):
         created_llms.append(fake_llm)
         return fake_llm
 
+    def validate_fake_llm(llm_args):
+        """
+        Input: llm_args, the LLM settings.
+        Output: True.
+        What it does: stands in for llm.validate.validate_llm, so no Ollama server is needed.
+        """
+        return True
+
     monkeypatch.setattr(query_module, "get_llm", get_fake_llm)
+    monkeypatch.setattr(query_module, "validate_llm", validate_fake_llm)
     monkeypatch.setattr(query_module, "SentenceTransformer", FakeSentenceTransformer)
     return created_llms, replies
 
@@ -162,8 +172,6 @@ def make_query_args():
         """
         field_values = {}
         field_values["embedding_model"] = "fake-model"
-        field_values["query_llm"] = "ollama"
-        field_values["query_llm_model"] = "llama3.1:8b"
         field_values["n_multi_qus"] = 3
         for field_name in overrides:
             field_values[field_name] = overrides[field_name]
@@ -185,7 +193,7 @@ def make_eval_qna_args():
         Output: an EvalQnAArgs.
         What it does: builds the eval set settings the query folder is named by.
         """
-        return EvalQnAArgs(eval_qna_llm="claude", eval_qna_model="claude-model", n_sample_documents=2, n_sample_evals=2)
+        return EvalQnAArgs(eval_qna_model="claude-model", n_sample_documents=2, n_sample_evals=2)
 
     return build_eval_qna_args
 
