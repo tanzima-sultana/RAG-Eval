@@ -9,6 +9,7 @@ The scores of one framework and judge model are cached in one JSON file (see com
 answer_evaluation.json: {answer_key: {"correctness": ..., "faithfulness": ..., "relevance": ...}}, where answer_key is
                         the sha256 of the question, answer, context and reference answer. Two setups that gave the same
                         answer from the same context share one entry, and a changed answer or context gets a new key.
+                        A score the judge could not give is stored as null (None), see evaluate_answers_ragas.
 """
 
 import hashlib
@@ -82,7 +83,8 @@ def evaluate_answers_ragas(eval_qna_by_id: dict[str, EvalQnA], context_list: lis
 	Input: eval_qna_by_id, the eval questions by id; context_list and generated_list, in the same order;
 	answer_eval_args, the framework, judge LLM and embedding model; answer_evaluation_cache, the cached
 	{answer_key: {"correctness", "faithfulness", "relevance"}} dict.
-	Output: the number of answers RAGAS could not score. The new scores are added to answer_evaluation_cache.
+	Output: the number of answers with at least one score RAGAS could not give. The new scores are added to
+	answer_evaluation_cache.
 	What it does: scores every answer not in the cache with the RAGAS answer_correctness, faithfulness and
 	answer_relevancy metrics. I_DONT_KNOW answers are skipped, since they get 0 without a judge call.
 	"""
@@ -143,25 +145,27 @@ def evaluate_answers_ragas(eval_qna_by_id: dict[str, EvalQnA], context_list: lis
 	)
 	judge_llm.compute_cost()
 
-	# 5. Add each fully scored sample to the cache. A sample with a NaN score is not cached, so a run again
-	# scores only those
-	failed_count = 0
+	# 5. Add every sample to the cache. RAGAS already retries a failed judge call (RunConfig max_retries), so a score
+	# that is still NaN cannot be given, e.g. the provider's content filter blocked the judge's reply. It is stored as
+	# None, so the run goes on and a run again does not pay for it again
+	unscored_count = 0
 	for index in range(len(answer_keys_to_score)):
 		answer_key = answer_keys_to_score[index]
 		sample_scores = evaluation_result.scores[index]
-		correctness = sample_scores["answer_correctness"]
-		faithfulness = sample_scores["faithfulness"]
-		relevance = sample_scores["answer_relevancy"]
-		if math.isnan(correctness) or math.isnan(faithfulness) or math.isnan(relevance):
-			failed_count = failed_count + 1
-			continue
-		answer_evaluation_cache[answer_key] = {
-			"correctness": correctness,
-			"faithfulness": faithfulness,
-			"relevance": relevance
-		}
+		scores = {}
+		has_unscored = False
+		for score_name, metric_name in (("correctness", "answer_correctness"), ("faithfulness", "faithfulness"), ("relevance", "answer_relevancy")):
+			score = sample_scores[metric_name]
+			if math.isnan(score):
+				scores[score_name] = None
+				has_unscored = True
+			else:
+				scores[score_name] = score
+		if has_unscored:
+			unscored_count = unscored_count + 1
+		answer_evaluation_cache[answer_key] = scores
 
-	return failed_count
+	return unscored_count
 
 def get_answer_evaluations(output_path: str, eval_qna: list[EvalQnA], context_list: list[Context], generated_list: list[Generated], answer_eval_args: AnswerEvalArgs) -> list[AnswerEvaluation]:
 	"""
@@ -184,14 +188,13 @@ def get_answer_evaluations(output_path: str, eval_qna: list[EvalQnA], context_li
 
 	# 3. Score the answers not in the cache with the chosen framework, then save the cache
 	if answer_eval_args.framework == constants.RAGAS_FRAMEWORK:
-		failed_count = evaluate_answers_ragas(eval_qna_by_id, context_list, generated_list, answer_eval_args, answer_evaluation_cache)
+		unscored_count = evaluate_answers_ragas(eval_qna_by_id, context_list, generated_list, answer_eval_args, answer_evaluation_cache)
 	else:
 		raise ValueError(f"ans_eval_framework ({answer_eval_args.framework}) is not supported. Use {constants.RAGAS_FRAMEWORK}.")
 	save_answer_evaluation_cache(answer_evaluation_file, answer_evaluation_cache)
 
-	# 4. An answer the framework could not score has no entry. Stop, so a run again scores only those
-	if failed_count > 0:
-		raise ValueError(f"{failed_count} answers could not be scored. The other scores are cached; run again to score only the failed ones.")
+	# 4. Answers with a score the judge could not give keep None for it and are left out of that score's averages
+	print(f"Newly scored answers with a score the judge could not give : {unscored_count}")
 
 	# 5. Build one AnswerEvaluation per Generated, in order: all 0 for an I_DONT_KNOW answer, otherwise from the cache
 	answer_evaluations = []

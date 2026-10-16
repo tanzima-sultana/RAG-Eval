@@ -713,7 +713,11 @@ The eval QnA is not used here. Its ground truth is only needed again in l10. The
 
 The system and user prompts are kept apart because the chat APIs of Claude, OpenAI and Gemini take a system prompt separately from the user message.
 
-The system prompt tells the LLM to answer only from the context and to reply with exactly `I don't know` (`constants.I_DONT_KNOW`, the same constant l5 uses) when the context does not hold the answer, so l10 can find those answers by an exact match. The user prompt is:
+The system prompts are numbered in `prompt_template.py`, so earlier ones stay in the code for comparison, and `SYSTEM_PROMPT` names the one l8 sends (`SYSTEM_PROMPT = SYSTEM_PROMPT_1`). Switching back to an earlier prompt gives the same prompt hashes as before, so its l9 answers and l10 scores load from the caches.
+- **`SYSTEM_PROMPT_0`**, the first: answer only from the context, in a few sentences, and reply with exactly `I don't know` (`constants.I_DONT_KNOW`, the same constant l5 uses) when the context does not hold the answer, so l10 can find those answers by an exact match.
+- **`SYSTEM_PROMPT_1`**, in use: still only from the context, but give a complete answer with every name, number and date the question asks for; answer each part of a question, combining parts of the context; when the context holds different answers for different cases, such as years or versions, give each and say which case it is; when the context answers only part of the question, answer that part and say which part is not covered, without starting with "I don't know"; and reply with exactly `I don't know` only when nothing in the context is relevant. Why it was changed and what it did is in the analysis section.
+
+The user prompt is:
 
 ```
 Context:
@@ -730,7 +734,7 @@ Question: {question}
 ### Architecture
 
 - **`prompt.py`**: `get_prompt_list`, builds one `Prompt` per `Context` with its original question.
-- **`prompt_template.py`**: `SYSTEM_PROMPT` and `USER_PROMPT_TEMPLATE`.
+- **`prompt_template.py`**: the numbered system prompts, `SYSTEM_PROMPT` (the one in use) and `USER_PROMPT_TEMPLATE`.
 - **`schema.py`**: defines `Prompt`.
 
 ### Run results
@@ -844,7 +848,7 @@ Each `Evaluation` has these fields:
 
 The settings are in the `answer_evaluation` section of `configs/input_args.yaml` and reach the layer as `AnswerEvalArgs`: `ans_eval_framework` (`ragas`), the judge LLM and its four prices, and `ans_eval_embedding_model`, the local embedding model RAGAS uses for relevance and correctness. The judge is built with `get_llm()` and handed to RAGAS as its `json_chat_model`, so any of the four providers works with no code change. RAGAS sends normal calls, not a batch, so the judge uses normal prices. The judge and the generation LLM should be different providers, so the judge does not grade its own model's answers.
 
-The scores are cached per framework and judge model in `{output_path}/answer_evaluation/{framework}/{llm_model}/answer_evaluation.json`, keyed by the sha256 of the question, answer, context and reference answer. An answer whose judge reply fails gets NaN from RAGAS, is not cached, and stops the run after the other scores are saved, so a run again scores only those. The cache is saved once, after RAGAS finishes.
+The scores are cached per framework and judge model in `{output_path}/answer_evaluation/{framework}/{llm_model}/answer_evaluation.json`, keyed by the sha256 of the question, answer, context and reference answer. RAGAS retries a failed judge call (`RunConfig` `max_retries`), so a score that is still NaN after that cannot be given, for example when the provider's content filter blocks the judge's reply. It is stored as `None` (null in the cache), only for that score, and the run goes on: the analysis leaves it out of that score's averages and counts the answer as unscored, and a run again does not pay for it again. The cache is saved once, after RAGAS finishes.
 
 ### Architecture
 
@@ -1352,14 +1356,14 @@ The plain setup gives the LLM 20 chunks and the reranked one 5, so the reranked 
 
 ### Overview
 
-`analysis` runs after l10, as the last step of `src/eval.py`. `run_analysis` passes it every `(Retrieved, RetrievalEvaluation)`, and `retrieved_list`, `retrieval_evaluation_list`, `generated_list` and `answer_evaluations` in the same order (`run_context` returns `retrieval_evaluation_list` next to `retrieved_list`, so each answer has its own retrieval evaluation), the eval QnA, `AnalysisArgs` and a snapshot of every setting (`vars(args)`). It calls no LLM. `analyze_run` averages the evaluations per setup, diagnoses where answers lose points, lists the worst answers, compares the run with earlier runs, writes everything to a Markdown report, saves the run and prints the report.
+`analysis` runs after l10, as the last step of `src/eval.py`. `run_analysis` passes it every `(Retrieved, RetrievalEvaluation)`, and `retrieved_list`, `retrieval_evaluation_list`, `generated_list` and `answer_evaluations` in the same order (`run_context` returns `retrieval_evaluation_list` next to `retrieved_list`, so each answer has its own retrieval evaluation), the eval QnA, `AnalysisArgs` and a snapshot of every setting: a copy of `vars(args)` plus `system_prompt` and `user_prompt_template`, since the prompts are not in the config but change the answers. It calls no LLM. `analyze_run` averages the evaluations per setup, diagnoses where answers lose points, lists the worst answers, compares the run with earlier runs, writes everything to a Markdown report, saves the run and prints the report.
 
 The settings are in the `analysis` section of `configs/input_args.yaml`: `n_compare_runs` (5), the most recent runs compared, the current run included, and `n_worst_answers` (10).
 
 Each run is saved to `{output_path}/analysis/runs/{run_id}/` as `run.json`, the `AnalysisRun`, and `report.md`. `run_id` is the run's start time. `AnalysisRun` holds the run id, time, settings, `settings_hash` (the sha256 of the settings), the judge, one `RetrievalSummary` per retrieval setup and one `AnswerSummary` per kept setup. Both summaries name their setup with a `Setup`: chunk type, retrieval type, index type, query type, reranking and k. A run with the same `settings_hash` as a saved one replaces it, so the history holds only runs with different settings.
 
 The report has these sections, in order:
-- **Answer evaluation** per kept setup: n, the share of I don't know answers (`idk`), and mean correctness, faithfulness and relevance, with I don't know answers counted as 0.
+- **Answer evaluation** per kept setup: n, the answers with a score the judge could not give (`unscored`), the share of I don't know answers (`idk`), and mean correctness, faithfulness and relevance, with I don't know answers counted as 0 and missing scores left out.
 - **Retrieval evaluation of the kept setups**: the chunk-level and doc-level means.
 - **Comparison with earlier runs**: the best setup of this run and of up to `n_compare_runs - 1` earlier runs, newest first, by correctness then faithfulness (chunk recall then MRR for a run without answers). A run judged by another model is marked, and each earlier run lists the settings that differ from this one.
 - **Diagnosis**: the answer scores per kept setup split by whether retrieval hit the source passage (chunk-level hit), and per question type.
@@ -1406,6 +1410,41 @@ Both setups are sentence chunks, hybrid retrieval and original queries: `faiss_f
 - **Reranking to 5 chunks loses the source more often**: 22 misses against 9, and lower scores on hits too.
 - **Multi-hop questions score lower**: 0.506 against 0.588 correctness in the plain setup, and 0.374 against 0.557 with 5 chunks, since a multi-hop question needs passages from several places.
 - **Many of the lowest correctness answers are faithful to their context.** 9 of the 10 worst answers have faithfulness 1.000, with correctness from 0.214 to 0.269. Some questions have more than one valid answer in the documents, while the reference answer comes from one passage: for a Calicut University PG schedule the answer gives the 2020 dates and the reference the 2019 dates, since the question names no year; for the bills sponsored by the Child Care Resource Center the answer names AB 393 and SB 246 and the reference AB 92. Such answers are counted as wrong though the documents support them, so correctness has a ceiling below 1 on this eval set.
+
+**Experiment 1: `SYSTEM_PROMPT_1` and no reranking** (5000 documents, 150 tuning queries, same judge, from `log/l10_evaluation/log_5k_answer_eval_gpt-4.1-mini_prompt1.txt` and `log/analysis/log_5k_analysis_20261016-135638.txt`; report in `outputs/pdfa-eng-wds/analysis/runs/20261016-135638/report.md`).
+
+What changed, each aimed at one baseline observation:
+- **`reranking: false`** in `configs/input_args.yaml`: the reranked setup lost the source passage more often (22 misses against 9), so only plain setups are built and the best one is kept: 1 setup, 150 answers.
+- **`SYSTEM_PROMPT_1`** in place of `SYSTEM_PROMPT_0` (see l8_prompt): complete answers for claim coverage, each part of multi-hop questions, each case when the context holds several (the year ambiguity), and partial answers instead of I don't know when the source is in the context.
+- Retrieval, the generation model (`gemini-3.1-flash-lite`) and the judge (`gpt-4.1-mini`) stayed the same, so the change in scores comes from the prompt.
+
+The run cost $2.5593. l9 sent 150 new prompts as one Gemini batch: 150 succeeded in 247.90s, 777,080 input and 19,305 output tokens, $0.1098, and 10 answered I don't know. l10 scored 138 answers with 827 judge calls, 2,095,697 input and 998,377 output tokens, $2.4357, but one judge job failed with `ContentFilterFinishReasonError(Could not parse response content as the request was rejected by the content filter)`, and the code of that time stopped the run before the analysis after caching the 137 other scores. This is why a score the judge cannot give is now stored as `None` instead (see l10_evaluation). The run again sent only that answer: 6 calls, $0.0138, and the content filter let it through, so every answer is scored.
+
+| Run | Prompt | idk | correct | faithful | relevant |
+|---|---|---|---|---|---|
+| Baseline `20261016-124503` | `SYSTEM_PROMPT_0` | 0.127 | 0.546 | 0.853 | 0.561 |
+| Experiment 1 `20261016-135638` | `SYSTEM_PROMPT_1` | 0.067 | 0.612 | 0.894 | 0.573 |
+
+Both rows are the same setup: sentence chunks, hybrid `faiss_flatip+bm25`, original queries, k=20.
+
+| Source | Baseline n | Baseline idk | Baseline correct | Experiment 1 n | Experiment 1 idk | Experiment 1 correct | Experiment 1 faithful |
+|---|---|---|---|---|---|---|---|
+| hit | 141 | 0.106 | 0.559 | 141 | 0.043 | 0.626 | 0.916 |
+| miss | 9 | 0.444 | 0.342 | 9 | 0.444 | 0.391 | 0.556 |
+
+| Question type | Baseline correct | Experiment 1 idk | Experiment 1 correct | Experiment 1 faithful |
+|---|---|---|---|---|
+| multi_hop_specific_query_synthesizer | 0.506 | 0.065 | 0.583 | 0.896 |
+| single_hop_specific_query_synthesizer | 0.588 | 0.068 | 0.643 | 0.892 |
+
+**How the changes affected the scores.**
+- **I don't know when the source was in the context fell from 10.6% to 4.3%** of hits, and from 12.7% to 6.7% overall: the model now answers what the context covers instead of giving up.
+- **Correctness rose from 0.546 to 0.612**, and on hits from 0.559 to 0.626, as answers now cover more of the reference's claims.
+- **Multi-hop questions gained the most**, from 0.506 to 0.583 correctness; single-hop rose from 0.588 to 0.643.
+- **Faithfulness rose from 0.853 to 0.894**, though the answers are longer, so being complete did not make the model add unsupported claims.
+- **Relevance barely moved, from 0.561 to 0.573.** RAGAS scores an answer that says the context does not cover something as noncommittal, which gets relevance 0. Four of the 10 worst answers say the context does not cover all or part of the question, and all four have relevance 0.000, for example: "The provided text does not contain information regarding Grace Institute's connection to SB 61 by Hurtado ...", where the reference says the legislation list names Grace Institute as the bill's sponsor.
+- **Some no-answer replies are no longer I don't know.** One of those four, "The provided text does not contain information on how to set up a PayPal Key.", says the context covers nothing, which the prompt asks to answer with exactly I don't know. It is not counted in idk; it is scored as an answer, with correctness 0.344 and faithfulness 0.000.
+- **The Calicut University schedule answer is still among the worst** (correctness 0.214): the answer still gives only the 2020 dates and the reference the 2019 dates.
 
 ## Dependency notes
 

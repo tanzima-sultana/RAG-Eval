@@ -57,11 +57,13 @@ class RetrievalSummary:
 class AnswerSummary:
 	"""
 	The answer evaluation of one setup, averaged over its eval questions. One row of the answer summary table.
-	I_DONT_KNOW answers count as 0 on the three scores.
+	I_DONT_KNOW answers count as 0 on the three scores. A score the judge could not give (None) is left out of that
+	score's mean.
 
 	Fields:
 		setup:        The retrieval setup the answers were generated from.
 		n:            Number of eval questions averaged.
+		unscored:     Number of answers with at least one score the judge could not give.
 		i_dont_know:  Share of I_DONT_KNOW answers.
 		correctness:  Mean correctness.
 		faithfulness: Mean faithfulness.
@@ -69,6 +71,7 @@ class AnswerSummary:
 	"""
 	setup: Setup
 	n: int
+	unscored: int
 	i_dont_know: float
 	correctness: float
 	faithfulness: float

@@ -44,6 +44,9 @@ def load_analysis_runs(analysis_runs_path: str) -> list[AnalysisRun]:
 		answer_summaries = []
 		for answer_summary_data in run_data["answer_summaries"]:
 			answer_summary_data["setup"] = Setup(**answer_summary_data["setup"])
+			# Runs saved before unscored existed had every answer scored
+			if "unscored" not in answer_summary_data:
+				answer_summary_data["unscored"] = 0
 			answer_summaries.append(AnswerSummary(**answer_summary_data))
 
 		analysis_run = AnalysisRun(

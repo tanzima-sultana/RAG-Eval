@@ -59,15 +59,15 @@ def get_answer_summary_table(answer_summaries: list[AnswerSummary], judge: str) 
 	lines = []
 	lines.append(f"## Answer evaluation, judged by {judge}")
 	lines.append("")
-	lines.append("Means over the eval questions. idk is the share of I don't know answers, which count as 0 on the three scores.")
+	lines.append("Means over the eval questions. idk is the share of I don't know answers, which count as 0 on the three scores. unscored counts the answers with a score the judge could not give, e.g. when the provider's content filter blocked its reply; that score is left out of its mean.")
 	lines.append("")
-	lines.append("| Chunk | Retrieval | Index | Query | Rerank | k | n | idk | correct | faithful | relevant |")
-	lines.append("|---|---|---|---|---|---|---|---|---|---|---|")
+	lines.append("| Chunk | Retrieval | Index | Query | Rerank | k | n | unscored | idk | correct | faithful | relevant |")
+	lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
 	for answer_summary in answer_summaries:
 		setup = answer_summary.setup
 		setup_key = (setup.chunk_type, setup.retrieval_type, setup.index_type, setup.query_type, setup.reranking, setup.k)
 		row = (
-			get_setup_cells(setup_key) + f" {answer_summary.n} |"
+			get_setup_cells(setup_key) + f" {answer_summary.n} | {answer_summary.unscored} |"
 			f" {answer_summary.i_dont_know:.3f} | {answer_summary.correctness:.3f} |"
 			f" {answer_summary.faithfulness:.3f} | {answer_summary.relevance:.3f} |"
 		)

@@ -22,6 +22,8 @@ from l5_query.query import get_queries
 from l6_retrieval.retrieval import Retrieval
 from l7_context.context import get_context_list
 from l8_prompt.prompt import get_prompt_list
+from l8_prompt.prompt_template import SYSTEM_PROMPT
+from l8_prompt.prompt_template import USER_PROMPT_TEMPLATE
 from l9_generation.generation import get_generated_list
 from l10_evaluation.retrieval_evaluation import RetrievalEvaluator
 from l10_evaluation.answer_evaluation import get_answer_evaluations
@@ -311,8 +313,11 @@ def run_analysis(args, output_path: str, retrieval_evaluations: list[tuple[Retri
 	print("\n\nAnalysis")
 	s25 = time.time()
 	analysis_args = make_analysis_args(args)
-	# Every setting of the run, saved with it so later runs can show which settings changed
-	settings = vars(args)
+	# Every setting of the run, saved with it so later runs can show which settings changed. The prompts are not
+	# settings in the config, so they are added, and a run with another prompt counts as a different experiment
+	settings = dict(vars(args))
+	settings["system_prompt"] = SYSTEM_PROMPT
+	settings["user_prompt_template"] = USER_PROMPT_TEMPLATE
 	analysis_run = analyze_run(output_path, analysis_args, settings, retrieval_evaluations, retrieved_list, retrieval_evaluation_list, generated_list, answer_evaluations, eval_qna)
 
 	print("\nAnalysis time : ", time.time() - s25)

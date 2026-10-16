@@ -147,7 +147,7 @@ eval:
   retrieval:
     retrieval_types: [dense, bm25, hybrid]   # any of dense, bm25, hybrid
     top_k: 20                   # Chunks each retriever returns for a query
-    reranking: true             # true to also rerank the top_k chunks with the cross-encoder, false not to
+    reranking: false            # true to also rerank the top_k chunks with the cross-encoder, false not to
     rerank_top_k: 5             # Chunks kept after the cross-encoder reranks the top_k chunks
     tuning_queries_size: 150    # Eval questions used for tuning; the rest are held out for one final check
     n_retrieval_evaluation: 1      # Best plain setups and best reranked setups whose retrieved outputs go on to the next layers

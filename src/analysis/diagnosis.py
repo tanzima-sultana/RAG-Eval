@@ -18,22 +18,42 @@ def get_answer_score_cells(answer_evaluation_list: list[AnswerEvaluation]) -> st
 	"""
 	Input: answer_evaluation_list, the answer evaluations of one table row.
 	Output: the row's last cells, " n | idk | correct | faithful | relevant |", as Markdown.
-	What it does: counts the answers and averages the I_DONT_KNOW share and the three scores.
+	What it does: counts the answers and averages the I_DONT_KNOW share and the three scores. A score the judge
+	could not give (None) is left out of that score's mean; with no score at all the cell is "-".
 	"""
 	answer_count = len(answer_evaluation_list)
 	i_dont_know_sum = 0.0
 	correctness_sum = 0.0
+	correctness_count = 0
 	faithfulness_sum = 0.0
+	faithfulness_count = 0
 	relevance_sum = 0.0
+	relevance_count = 0
 	for answer_evaluation in answer_evaluation_list:
 		i_dont_know_sum = i_dont_know_sum + answer_evaluation.i_dont_know
-		correctness_sum = correctness_sum + answer_evaluation.correctness
-		faithfulness_sum = faithfulness_sum + answer_evaluation.faithfulness
-		relevance_sum = relevance_sum + answer_evaluation.relevance
+		if answer_evaluation.correctness is not None:
+			correctness_sum = correctness_sum + answer_evaluation.correctness
+			correctness_count = correctness_count + 1
+		if answer_evaluation.faithfulness is not None:
+			faithfulness_sum = faithfulness_sum + answer_evaluation.faithfulness
+			faithfulness_count = faithfulness_count + 1
+		if answer_evaluation.relevance is not None:
+			relevance_sum = relevance_sum + answer_evaluation.relevance
+			relevance_count = relevance_count + 1
+
+	correctness_text = "-"
+	if correctness_count > 0:
+		correctness_text = f"{correctness_sum / correctness_count:.3f}"
+	faithfulness_text = "-"
+	if faithfulness_count > 0:
+		faithfulness_text = f"{faithfulness_sum / faithfulness_count:.3f}"
+	relevance_text = "-"
+	if relevance_count > 0:
+		relevance_text = f"{relevance_sum / relevance_count:.3f}"
 
 	answer_score_cells = (
-		f" {answer_count} | {i_dont_know_sum / answer_count:.3f} | {correctness_sum / answer_count:.3f} |"
-		f" {faithfulness_sum / answer_count:.3f} | {relevance_sum / answer_count:.3f} |"
+		f" {answer_count} | {i_dont_know_sum / answer_count:.3f} | {correctness_text} |"
+		f" {faithfulness_text} | {relevance_text} |"
 	)
 	return answer_score_cells
 
@@ -108,7 +128,7 @@ def get_worst_answers(retrieved_list: list[Retrieved], generated_list: list[Gene
 	Output: the worst answers section of the report, as Markdown text.
 	What it does: lists the n_worst_answers answers with the lowest correctness, then faithfulness, each with its setup,
 	question, answer, reference answer and scores. I_DONT_KNOW answers are left out, since the idk column already
-	counts them and they would fill the list with 0 scores.
+	counts them and they would fill the list with 0 scores, and so are answers with a score the judge could not give.
 	"""
 	eval_qna_by_id = {}
 	for eval_qna_item in eval_qna:
@@ -120,6 +140,8 @@ def get_worst_answers(retrieved_list: list[Retrieved], generated_list: list[Gene
 		if generated_list[index].answer == constants.I_DONT_KNOW:
 			continue
 		answer_evaluation = answer_evaluations[index]
+		if answer_evaluation.correctness is None or answer_evaluation.faithfulness is None or answer_evaluation.relevance is None:
+			continue
 		scored_answers.append((answer_evaluation.correctness, answer_evaluation.faithfulness, index))
 	worst_scored_answers = sorted(scored_answers)[:n_worst_answers]
 
@@ -127,7 +149,7 @@ def get_worst_answers(retrieved_list: list[Retrieved], generated_list: list[Gene
 	lines = []
 	lines.append("## Worst answers")
 	lines.append("")
-	lines.append(f"The {len(worst_scored_answers)} answers with the lowest correctness, then faithfulness. I don't know answers are left out.")
+	lines.append(f"The {len(worst_scored_answers)} answers with the lowest correctness, then faithfulness. I don't know answers and answers the judge could not fully score are left out.")
 	rank = 0
 	for correctness, faithfulness, index in worst_scored_answers:
 		rank = rank + 1

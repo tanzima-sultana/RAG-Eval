@@ -49,14 +49,16 @@ class AnswerEvaluation:
 		correctness:  How well the answer matches the EvalQnA reference answer, from 0 to 1.
 		faithfulness: Share of the answer's claims that the context supports, from 0 to 1.
 		relevance:    How well the answer addresses the question, from 0 to 1.
+		              Each of the three is None when the judge could not give it, e.g. when the provider's content
+		              filter blocked the judge's reply. A None score is left out of the averages.
 		framework:    The framework that scored the answer, e.g. ragas.
 		llm:          The LLM provider that judged the answer, e.g. claude.
 		llm_model:    The model that judged the answer.
 	"""
 	i_dont_know: int
-	correctness: float
-	faithfulness: float
-	relevance: float
+	correctness: float | None
+	faithfulness: float | None
+	relevance: float | None
 	framework: str
 	llm: str
 	llm_model: str

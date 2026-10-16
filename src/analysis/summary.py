@@ -111,22 +111,46 @@ def get_answer_summaries(retrieved_list: list[Retrieved], answer_evaluations: li
 			evaluations_by_setup[setup_key] = []
 		evaluations_by_setup[setup_key].append(answer_evaluations[index])
 
-	# 2. Average each field per setup, in setup order. I_DONT_KNOW answers already hold 0 on the three scores
+	# 2. Average each field per setup, in setup order. I_DONT_KNOW answers already hold 0 on the three scores.
+	# A score the judge could not give (None) is left out of that score's mean
 	answer_summaries = []
 	for setup_key in sorted(evaluations_by_setup):
 		chunk_type, retrieval_type, index_type, query_type, reranking, k = setup_key
 		setup_answer_evaluations = evaluations_by_setup[setup_key]
 		question_count = len(setup_answer_evaluations)
 
+		unscored_count = 0
 		i_dont_know_sum = 0.0
 		correctness_sum = 0.0
+		correctness_count = 0
 		faithfulness_sum = 0.0
+		faithfulness_count = 0
 		relevance_sum = 0.0
+		relevance_count = 0
 		for answer_evaluation in setup_answer_evaluations:
 			i_dont_know_sum = i_dont_know_sum + answer_evaluation.i_dont_know
-			correctness_sum = correctness_sum + answer_evaluation.correctness
-			faithfulness_sum = faithfulness_sum + answer_evaluation.faithfulness
-			relevance_sum = relevance_sum + answer_evaluation.relevance
+			if answer_evaluation.correctness is None or answer_evaluation.faithfulness is None or answer_evaluation.relevance is None:
+				unscored_count = unscored_count + 1
+			if answer_evaluation.correctness is not None:
+				correctness_sum = correctness_sum + answer_evaluation.correctness
+				correctness_count = correctness_count + 1
+			if answer_evaluation.faithfulness is not None:
+				faithfulness_sum = faithfulness_sum + answer_evaluation.faithfulness
+				faithfulness_count = faithfulness_count + 1
+			if answer_evaluation.relevance is not None:
+				relevance_sum = relevance_sum + answer_evaluation.relevance
+				relevance_count = relevance_count + 1
+
+		# A setup whose every answer lacks a score gets 0 for it; its unscored count shows why
+		correctness_mean = 0.0
+		if correctness_count > 0:
+			correctness_mean = correctness_sum / correctness_count
+		faithfulness_mean = 0.0
+		if faithfulness_count > 0:
+			faithfulness_mean = faithfulness_sum / faithfulness_count
+		relevance_mean = 0.0
+		if relevance_count > 0:
+			relevance_mean = relevance_sum / relevance_count
 
 		setup = Setup(
 			chunk_type=chunk_type,
@@ -139,10 +163,11 @@ def get_answer_summaries(retrieved_list: list[Retrieved], answer_evaluations: li
 		answer_summary = AnswerSummary(
 			setup=setup,
 			n=question_count,
+			unscored=unscored_count,
 			i_dont_know=i_dont_know_sum / question_count,
-			correctness=correctness_sum / question_count,
-			faithfulness=faithfulness_sum / question_count,
-			relevance=relevance_sum / question_count
+			correctness=correctness_mean,
+			faithfulness=faithfulness_mean,
+			relevance=relevance_mean
 		)
 		answer_summaries.append(answer_summary)
 

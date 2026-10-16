@@ -83,7 +83,10 @@ def get_comparison(analysis_runs: list[AnalysisRun]) -> str:
 				current_value = current_run.settings.get(setting_name, "(not set)")
 				earlier_value = analysis_run.settings.get(setting_name, "(not set)")
 				if current_value != earlier_value:
-					differences.append(f"`{setting_name}`: {earlier_value} → {current_value}")
+					# A prompt spans several lines, which would break the Markdown list, so its lines are joined with " / "
+					earlier_text = str(earlier_value).replace("\n", " / ")
+					current_text = str(current_value).replace("\n", " / ")
+					differences.append(f"`{setting_name}`: {earlier_text} → {current_text}")
 
 			lines.append("")
 			if len(differences) == 0:
