@@ -6,9 +6,9 @@ from llm.chatgpt import validate_chatgpt
 from llm.claude import validate_claude
 from llm.gemini import validate_gemini
 from llm.ollama import validate_ollama
-from llm.schema import LLM
+from common.args import LLMArgs
 
-def validate_llm(llm_args: LLM) -> bool:
+def validate_llm(llm_args: LLMArgs) -> bool:
 	"""
 	Input: llm_args, the LLM settings of one layer.
 	Output: True. Raises ValueError for the first check that fails.

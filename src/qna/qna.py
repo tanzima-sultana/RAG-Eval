@@ -20,17 +20,17 @@ from ragas.utils import num_tokens_from_string
 
 from common import paths
 from common.args import EvalQnAArgs
+from common.args import LLMArgs
 from common.constants import SAMPLE_DOCUMENTS_SEED
 from common.constants import EVAL_MIN_DOCUMENT_TOKENS
 from common.constants import EVAL_PASSAGE_MATCH_CHARS
 from l1_ingestion.schema import Document
 from llm.llm import get_llm
-from llm.schema import LLM
 from llm.validate import validate_llm
 from qna.schema import EvalQnA
 from qna import validate
 
-def load_cached_eval_qna(output_path: str, eval_qna_args: EvalQnAArgs, qna_llm_args: LLM) -> list[EvalQnA] | None:
+def load_cached_eval_qna(output_path: str, eval_qna_args: EvalQnAArgs, qna_llm_args: LLMArgs) -> list[EvalQnA] | None:
 	"""
 	Input: output_path, the dataset's output folder; eval_qna_args, the eval QnA settings; qna_llm_args, the QnA LLM.
 	Output: the cached list of EvalQnA, or None if there is no cache file.
@@ -49,7 +49,7 @@ def load_cached_eval_qna(output_path: str, eval_qna_args: EvalQnAArgs, qna_llm_a
 
 	return eval_qna
 
-def save_eval_qna(output_path: str, eval_qna_args: EvalQnAArgs, qna_llm_args: LLM, eval_qna: list[EvalQnA]) -> None:
+def save_eval_qna(output_path: str, eval_qna_args: EvalQnAArgs, qna_llm_args: LLMArgs, eval_qna: list[EvalQnA]) -> None:
 	"""
 	Input: output_path, the dataset's output folder; eval_qna_args, the eval QnA settings; qna_llm_args, the QnA LLM;
 	eval_qna, the EvalQnA list.
@@ -68,7 +68,7 @@ def save_eval_qna(output_path: str, eval_qna_args: EvalQnAArgs, qna_llm_args: LL
 		json.dump(eval_qna_dicts, f, indent=2)
 	os.replace(temporary_file, cache_file)
 
-def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna_args: EvalQnAArgs, qna_llm_args: LLM, qna_kg_llm_args: LLM) -> list[EvalQnA]:
+def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna_args: EvalQnAArgs, qna_llm_args: LLMArgs, qna_kg_llm_args: LLMArgs) -> list[EvalQnA]:
 	"""
 	Input: output_path, the dataset's output folder; documents, a dict of doc_id to l1 Document; eval_qna_args, the eval QnA settings;
 	qna_llm_args, the LLM that writes the questions and answers; qna_kg_llm_args, the LLM that builds the knowledge graph.
@@ -161,7 +161,7 @@ def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna
 	testset = testset_generator.generate(testset_size=eval_qna_args.n_sample_evals)
 	kg_cost = kg_llm.compute_cost()
 	question_cost = question_llm.compute_cost()
-	total_cost = kg_cost + question_cost
+	total_cost = kg_cost.total_cost + question_cost.total_cost
 	print(f"QnA total cost : ${total_cost:.4f}")
 
 	if len(testset.samples) == 0:
@@ -223,7 +223,7 @@ def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna
 
 	return eval_qna
 
-def get_eval_qna(output_path: str, documents: dict[str, Document], eval_qna_args: EvalQnAArgs, qna_llm_args: LLM, qna_kg_llm_args: LLM) -> list[EvalQnA]:
+def get_eval_qna(output_path: str, documents: dict[str, Document], eval_qna_args: EvalQnAArgs, qna_llm_args: LLMArgs, qna_kg_llm_args: LLMArgs) -> list[EvalQnA]:
 	"""
 	Input: output_path, the dataset's output folder; documents, a dict of doc_id to l1 Document; eval_qna_args, the eval QnA settings;
 	qna_llm_args, the LLM that writes the questions and answers; qna_kg_llm_args, the LLM that builds the knowledge graph.

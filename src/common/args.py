@@ -8,7 +8,6 @@ import argparse
 import dataclasses
 
 from common import constants
-from llm.schema import LLM
 
 @dataclasses.dataclass
 class IngestArgs:
@@ -63,6 +62,32 @@ class RetrievalArgs:
 	top_k: int
 	reranking: bool
 	rerank_top_k: int
+
+@dataclasses.dataclass
+class LLMArgs:
+	"""
+	The LLM settings of one layer, from the command line.
+
+	Fields:
+		llm:             The LLM provider: claude, chatgpt, gemini or ollama.
+		llm_model:       The model the provider runs, e.g. claude-sonnet-5-5 or llama3.1:8b.
+		input_price:     US dollars per million input tokens. 0 for ollama.
+		output_price:    US dollars per million output tokens. 0 for ollama.
+		max_tokens:      Maximum output tokens per call.
+		timeout_seconds: Seconds before one call times out.
+	"""
+	llm: str
+	llm_model: str
+	input_price: float
+	output_price: float
+	max_tokens: int
+	timeout_seconds: int
+
+@dataclasses.dataclass
+class GenerationArgs:
+	llm_args: LLMArgs
+	batch_poll_seconds: int
+	batch_timeout_seconds: int
 
 # ------ Command line arguments
 def add_ingest_arguments(parser: argparse.ArgumentParser) -> None:
@@ -412,6 +437,16 @@ def parse_eval_args():
 		type=int,
 		required=True,
 		help="Seconds before one LLM call times out, the same for every layer")
+	parser.add_argument(
+		"--batch_poll_seconds",
+		type=int,
+		required=True,
+		help="Seconds between status checks of a generation batch")
+	parser.add_argument(
+		"--batch_timeout_seconds",
+		type=int,
+		required=True,
+		help="Seconds to wait for a generation batch before stopping; a later run resumes the same batch")
 
 	return parser.parse_args()
 
@@ -521,14 +556,14 @@ def make_retrieval_args(parsed_args):
 	)
 	return retrieval_args
 
-def make_llm_args(llm: str, llm_model: str, input_price: float, output_price: float, max_tokens: int, timeout_seconds: int) -> LLM:
+def make_llm_args(llm: str, llm_model: str, input_price: float, output_price: float, max_tokens: int, timeout_seconds: int) -> LLMArgs:
 	"""
 	Input: llm, the LLM provider; llm_model, its model; input_price and output_price, in US dollars per million tokens;
 	max_tokens, the maximum output tokens per call; timeout_seconds, the seconds before one call times out.
-	Output: an LLM object holding these settings.
-	What it does: copies the LLM settings of one layer into an LLM object.
+	Output: an LLMArgs object holding these settings.
+	What it does: copies the LLM settings of one layer into an LLMArgs object.
 	"""
-	llm_args = LLM(
+	llm_args = LLMArgs(
 		llm=llm,
 		llm_model=llm_model,
 		input_price=input_price,
@@ -537,3 +572,24 @@ def make_llm_args(llm: str, llm_model: str, input_price: float, output_price: fl
 		timeout_seconds=timeout_seconds
 	)
 	return llm_args
+
+def make_generation_args(parsed_args) -> GenerationArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args().
+	Output: a GenerationArgs object holding the generation LLM and the batch settings.
+	What it does: makes the generation LLM with make_llm_args and copies batch_poll_seconds and batch_timeout_seconds.
+	"""
+	generation_llm_args = make_llm_args(
+		parsed_args.generation_llm,
+		parsed_args.generation_llm_model,
+		parsed_args.generation_input_price,
+		parsed_args.generation_output_price,
+		parsed_args.llm_max_tokens,
+		parsed_args.llm_timeout_seconds
+	)
+	generation_args = GenerationArgs(
+		llm_args=generation_llm_args,
+		batch_poll_seconds=parsed_args.batch_poll_seconds,
+		batch_timeout_seconds=parsed_args.batch_timeout_seconds
+	)
+	return generation_args

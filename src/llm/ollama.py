@@ -4,10 +4,13 @@ import urllib.request
 
 from langchain_ollama import ChatOllama
 
-from llm.schema import LLM
+from common.args import LLMArgs
+from llm.schema import LLMCost
+from llm.schema import LLMResponse
 
 # 1. validate_ollama: checks an Ollama model can be used. Called by llm.validate.validate_llm
-# 2. OllamaLLM:       one local Ollama model; chat_model, json_chat_model, generate() and compute_cost(). Returned by llm.get_llm()
+# 2. OllamaLLM:       one local Ollama model; chat_model, json_chat_model, generate(), generate_batch() and compute_cost().
+#                     Returned by llm.get_llm()
 
 # Ollama server, started by the Ollama install
 OLLAMA_URL = "http://localhost:11434"
@@ -15,7 +18,7 @@ OLLAMA_URL = "http://localhost:11434"
 # RAGAS prompts, so the instructions at their start are lost. 32768 keeps llama3.1:8b fully on a 12 GB GPU
 OLLAMA_CONTEXT_LENGTH = 32768
 
-def validate_ollama(llm_args: LLM) -> bool:
+def validate_ollama(llm_args: LLMArgs) -> bool:
 	"""
 	Input: llm_args, with llm ollama.
 	Output: True. Raises ValueError for the first check that fails.
@@ -49,7 +52,7 @@ class OllamaLLM:
 	this machine and are free, so the cost is 0.
 	"""
 
-	def __init__(self, llm_args: LLM, token_counter):
+	def __init__(self, llm_args: LLMArgs, token_counter):
 		"""
 		Input: llm_args, the Ollama model settings; token_counter, the llm.TokenCounter that counts its tokens.
 		Output: nothing.
@@ -82,10 +85,10 @@ class OllamaLLM:
 			callbacks=[token_counter]
 		)
 
-	def generate(self, system_prompt: str, user_prompt: str) -> str:
+	def generate(self, system_prompt: str, user_prompt: str) -> LLMResponse:
 		"""
 		Input: system_prompt, the instructions ("" for none); user_prompt, the text sent to the model.
-		Output: the model's reply text.
+		Output: an LLMResponse with the reply text and the tokens of this call. Its request_id is "".
 		What it does: sends the system prompt and user prompt to the local model and returns the text of its reply.
 		"""
 		messages = []
@@ -94,12 +97,47 @@ class OllamaLLM:
 		messages.append(("user", user_prompt))
 
 		response = self.chat_model.invoke(messages)
-		return response.text
 
-	def compute_cost(self) -> float:
+		# The provider reports the tokens of the call in usage_metadata, or None when it does not
+		input_tokens = 0
+		output_tokens = 0
+		if response.usage_metadata is not None:
+			input_tokens = response.usage_metadata["input_tokens"]
+			output_tokens = response.usage_metadata["output_tokens"]
+
+		llm_response = LLMResponse(
+			llm=self.llm_args.llm,
+			llm_model=self.llm_args.llm_model,
+			request_id="",
+			text=response.text,
+			input_tokens=input_tokens,
+			output_tokens=output_tokens
+		)
+		return llm_response
+
+	def generate_batch(self, requests: dict, batch_id_file: str, batch_poll_seconds: int, batch_timeout_seconds: int) -> dict:
+		"""
+		Input: requests, {request_id: {"system_prompt", "user_prompt"}}; batch_id_file, batch_poll_seconds and
+		batch_timeout_seconds, not used.
+		Output: {request_id: LLMResponse} for every request.
+		What it does: Ollama has no batch API and is free, so it sends the requests one at a time. It takes the same
+		inputs as the paid providers' generate_batch, so l9 calls every provider the same way.
+		"""
+		replies = {}
+		for request_id in requests:
+			request = requests[request_id]
+			llm_response = self.generate(request["system_prompt"], request["user_prompt"])
+			llm_response.request_id = request_id
+			replies[request_id] = llm_response
+			if len(replies) % 20 == 0:
+				print(f"Ollama replies : {len(replies)} of {len(requests)}")
+
+		return replies
+
+	def compute_cost(self) -> LLMCost:
 		"""
 		Input: nothing.
-		Output: the cost of all calls made so far, in US dollars. 0 with the ollama prices of 0.
+		Output: an LLMCost with the calls, tokens and cost of all calls made so far. The cost is 0 with the ollama prices of 0.
 		What it does: multiplies the counted tokens by the model's prices and prints the tokens and cost.
 		"""
 		llm_model = self.llm_args.llm_model
@@ -111,4 +149,15 @@ class OllamaLLM:
 		print(f"{llm_model} input tokens : {self.token_counter.input_tokens}, cost : ${input_cost:.4f}")
 		print(f"{llm_model} output tokens : {self.token_counter.output_tokens}, cost : ${output_cost:.4f}")
 		print(f"{llm_model} cost : ${total_cost:.4f}")
-		return total_cost
+
+		llm_cost = LLMCost(
+			llm=self.llm_args.llm,
+			llm_model=llm_model,
+			number_of_calls=self.token_counter.number_of_calls,
+			input_tokens=self.token_counter.input_tokens,
+			output_tokens=self.token_counter.output_tokens,
+			input_cost=input_cost,
+			output_cost=output_cost,
+			total_cost=total_cost
+		)
+		return llm_cost

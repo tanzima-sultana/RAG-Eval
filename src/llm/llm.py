@@ -8,7 +8,7 @@ from llm.chatgpt import ChatGPTLLM
 from llm.claude import ClaudeLLM
 from llm.gemini import GeminiLLM
 from llm.ollama import OllamaLLM
-from llm.schema import LLM
+from common.args import LLMArgs
 
 # 1. TokenCounter: counts the tokens of one LLM's calls, for any provider
 # 2. get_llm:      builds the LLM of llm_args's provider
@@ -52,10 +52,10 @@ class TokenCounter(BaseCallbackHandler):
 				self.input_tokens = self.input_tokens + usage_metadata["input_tokens"]
 				self.output_tokens = self.output_tokens + usage_metadata["output_tokens"]
 
-def get_llm(llm_args: LLM) -> ChatGPTLLM | ClaudeLLM | GeminiLLM | OllamaLLM:
+def get_llm(llm_args: LLMArgs) -> ChatGPTLLM | ClaudeLLM | GeminiLLM | OllamaLLM:
 	"""
 	Input: llm_args, the LLM settings of one layer, already checked by llm.validate.validate_llm.
-	Output: a ChatGPTLLM, ClaudeLLM, GeminiLLM or OllamaLLM, with chat_model, json_chat_model, generate(system_prompt, user_prompt) and compute_cost().
+	Output: a ChatGPTLLM, ClaudeLLM, GeminiLLM or OllamaLLM, with chat_model, json_chat_model, generate(system_prompt, user_prompt), generate_batch() and compute_cost().
 	What it does: builds the LLM of llm_args's provider with its own token counter. Raises ValueError for another provider.
 	"""
 	if llm_args.llm == CLAUDE_LLM:

@@ -1,3 +1,5 @@
+import hashlib
+
 from l5_query.schema import Query
 from l7_context.schema import Context
 from l8_prompt.schema import Prompt
@@ -28,7 +30,7 @@ def get_prompt_list(context_list: list[Context], tuning_queries: list[Query]) ->
 
 		# An empty context cannot hold the answer, so its user prompt stays empty and l9 skips the LLM call
 		if context.context == "":
-			prompt_list.append(Prompt(id=context.id, qus=question, system_prompt=SYSTEM_PROMPT, user_prompt="", token_count=0))
+			prompt_list.append(Prompt(id=context.id, qus=question, system_prompt=SYSTEM_PROMPT, user_prompt="", token_count=0, prompt_hash=""))
 			continue
 
 		# 3. Fill the user prompt template with the context and the question
@@ -38,13 +40,18 @@ def get_prompt_list(context_list: list[Context], tuning_queries: list[Query]) ->
 		question_word_count = len(question.split())
 		token_count = context.token_count + system_prompt_word_count + question_word_count
 
-		# 5. Keep the Prompt in the same place as its Context
+		# 5. Hash the system prompt and user prompt, so l9 can find the answer of the same prompt in its cache
+		prompt_text = SYSTEM_PROMPT + "\n\n" + user_prompt
+		prompt_hash = hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()
+
+		# 6. Keep the Prompt in the same place as its Context
 		prompt = Prompt(
 			id=context.id,
 			qus=question,
 			system_prompt=SYSTEM_PROMPT,
 			user_prompt=user_prompt,
 			token_count=token_count,
+			prompt_hash=prompt_hash,
 		)
 		prompt_list.append(prompt)
 

@@ -11,6 +11,7 @@ from common.args import make_eval_qna_args
 from common.args import make_query_args
 from common.args import make_retrieval_args
 from common.args import make_llm_args
+from common.args import make_generation_args
 from l1_ingestion.ingestion import ingestion
 from l2_chunking.cache import load_chunks
 from l4_indexing import cache as index_cache
@@ -260,8 +261,8 @@ def run_generation(args, output_path: str, prompt_list: list[Prompt]) -> list[Ge
 	# 23. Generation
 	print("\n\nGeneration")
 	s23 = time.time()
-	generation_llm_args = make_llm_args(args.generation_llm, args.generation_llm_model, args.generation_input_price, args.generation_output_price, args.llm_max_tokens, args.llm_timeout_seconds)
-	generated_list = get_generated_list(output_path, prompt_list, generation_llm_args)
+	generation_args = make_generation_args(args)
+	generated_list = get_generated_list(output_path, prompt_list, generation_args)
 
 	print(f"Generated list : {len(generated_list)}")
 	print("\nGeneration time : ", time.time() - s23)
@@ -306,8 +307,7 @@ if __name__ == "__main__":
 	prompt_list = run_prompt(context_list, tuning_queries)
 
 	# 7. Generation
-	# Off until l9 is finished
-	# generated_list = run_generation(args, output_path, prompt_list)
+	generated_list = run_generation(args, output_path, prompt_list)
 
 	# ---------
 	end = time.time()

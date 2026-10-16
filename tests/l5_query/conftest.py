@@ -18,6 +18,7 @@ from l5_query import query as query_module
 from l5_query.schema import Ans
 from l5_query.schema import Qus
 from l5_query.schema import Query
+from llm.schema import LLMResponse
 from qna.schema import EvalQnA
 
 
@@ -49,7 +50,7 @@ class FakeQueryLLM:
     def generate(self, system_prompt, user_prompt):
         """
         Input: system_prompt ("" for l5); user_prompt, a filled rewrite, multi-query or HyDE prompt.
-        Output: the reply for that prompt and question.
+        Output: an LLMResponse with the reply for that prompt and question, like the real LLMs return.
         What it does: records the prompt and picks the reply by the prompt's first words.
         """
         prompt = user_prompt
@@ -57,16 +58,18 @@ class FakeQueryLLM:
         question = get_prompt_question(prompt)
 
         if prompt.startswith("Rewrite"):
-            return f"  Rewritten {question}  "
-
-        if prompt.startswith("Write exactly"):
+            reply_text = f"  Rewritten {question}  "
+        elif prompt.startswith("Write exactly"):
             if question in self.multi_replies:
-                return self.multi_replies[question]
-            return f"First {question}\nSecond phrasing of {question}\nThird and longest phrasing of {question}"
+                reply_text = self.multi_replies[question]
+            else:
+                reply_text = f"First {question}\nSecond phrasing of {question}\nThird and longest phrasing of {question}"
+        elif question in self.hyde_replies:
+            reply_text = self.hyde_replies[question]
+        else:
+            reply_text = f"A passage answering {question}"
 
-        if question in self.hyde_replies:
-            return self.hyde_replies[question]
-        return f"A passage answering {question}"
+        return LLMResponse(llm="ollama", llm_model="llama3.1:8b", request_id="", text=reply_text, input_tokens=0, output_tokens=0)
 
     def compute_cost(self):
         """

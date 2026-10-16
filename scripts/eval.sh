@@ -11,14 +11,19 @@ fi
 mkdir -p log
 LOG="log/eval_log.txt"
 
-# Models: LLM provider, model name and price in US dollars per million tokens. Each layer below picks one
+# Models: LLM provider, model name and price in US dollars per million tokens. Each layer below picks one.
+# BATCH prices are the batch API prices, 50% of the normal ones, used by generation, which always sends a batch
 CLAUDE="claude"
 SONNET="claude-sonnet-5-5"
 SONNET_INPUT_PRICE_PER_MIL=2.00
 SONNET_OUTPUT_PRICE_PER_MIL=10.00
+SONNET_BATCH_INPUT_PRICE_PER_MIL=1.00
+SONNET_BATCH_OUTPUT_PRICE_PER_MIL=5.00
 HAIKU="claude-haiku-5-5"
 HAIKU_INPUT_PRICE_PER_MIL=0.10
 HAIKU_OUTPUT_PRICE_PER_MIL=0.50
+HAIKU_BATCH_INPUT_PRICE_PER_MIL=0.05
+HAIKU_BATCH_OUTPUT_PRICE_PER_MIL=0.25
 
 OLLAMA="ollama"
 LLAMA="llama3.1:8b"
@@ -29,17 +34,25 @@ GEMINI="gemini"
 FLASH_LITE_35="gemini-3.5-flash-lite"
 FLASH_LITE_35_INPUT_PRICE_PER_MIL=0.30
 FLASH_LITE_35_OUTPUT_PRICE_PER_MIL=2.50
+FLASH_LITE_35_BATCH_INPUT_PRICE_PER_MIL=0.15
+FLASH_LITE_35_BATCH_OUTPUT_PRICE_PER_MIL=1.25
 FLASH_LITE_31="gemini-3.1-flash-lite"
 FLASH_LITE_31_INPUT_PRICE_PER_MIL=0.25
 FLASH_LITE_31_OUTPUT_PRICE_PER_MIL=1.50
+FLASH_LITE_31_BATCH_INPUT_PRICE_PER_MIL=0.125
+FLASH_LITE_31_BATCH_OUTPUT_PRICE_PER_MIL=0.75
 
 CHATGPT="chatgpt"
 GPT_MINI="gpt-4.1-mini"
 GPT_MINI_INPUT_PRICE_PER_MIL=0.40
 GPT_MINI_OUTPUT_PRICE_PER_MIL=1.60
+GPT_MINI_BATCH_INPUT_PRICE_PER_MIL=0.20
+GPT_MINI_BATCH_OUTPUT_PRICE_PER_MIL=0.80
 GPT_NANO="gpt-4.1-nano"
 GPT_NANO_INPUT_PRICE_PER_MIL=0.10
 GPT_NANO_OUTPUT_PRICE_PER_MIL=0.40
+GPT_NANO_BATCH_INPUT_PRICE_PER_MIL=0.05
+GPT_NANO_BATCH_OUTPUT_PRICE_PER_MIL=0.20
 
 # Settings of every LLM call, the same for every layer
 LLM_MAX_TOKENS=16000 # Maximum output tokens per call
@@ -106,10 +119,13 @@ TUNING_QUERIES_SIZE=150 # Eval questions used for tuning; the rest are held out 
 N_RETRIEVAL_QUALITY=1 # Best plain setups and best reranked setups whose retrieved outputs go on to the next layers
 
 # 8. Generation
+# Always sent as one batch, so a paid model uses its BATCH prices. Ollama has no batch API and answers one at a time
 GENERATION_LLM="$OLLAMA" # LLM that answers the prompts
 GENERATION_LLM_MODEL="$LLAMA"
 GENERATION_INPUT_PRICE="$LLAMA_INPUT_PRICE_PER_MIL"
 GENERATION_OUTPUT_PRICE="$LLAMA_OUTPUT_PRICE_PER_MIL"
+BATCH_POLL_SECONDS=60 # Seconds between status checks of a generation batch
+BATCH_TIMEOUT_SECONDS=86400 # Seconds to wait for a batch before stopping; a later run resumes the same batch
 
 # run
 
@@ -166,4 +182,6 @@ python3 src/eval.py \
   --generation_output_price "$GENERATION_OUTPUT_PRICE" \
   --llm_max_tokens "$LLM_MAX_TOKENS" \
   --llm_timeout_seconds "$LLM_TIMEOUT_SECONDS" \
+  --batch_poll_seconds "$BATCH_POLL_SECONDS" \
+  --batch_timeout_seconds "$BATCH_TIMEOUT_SECONDS" \
   2>&1 | tee "$LOG"

@@ -1,16 +1,21 @@
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 
+import anthropic
 from langchain_anthropic import ChatAnthropic
 
-from llm.schema import LLM
+from common.args import LLMArgs
+from llm.schema import LLMCost
+from llm.schema import LLMResponse
 
 # 1. validate_claude: checks a Claude model can be used. Called by llm.validate.validate_llm
-# 2. ClaudeLLM:       one Claude model; chat_model, json_chat_model, generate() and compute_cost(). Returned by llm.get_llm()
+# 2. ClaudeLLM:       one Claude model; chat_model, json_chat_model, generate(), generate_batch() and compute_cost().
+#                     Returned by llm.get_llm()
 
-def validate_claude(llm_args: LLM) -> bool:
+def validate_claude(llm_args: LLMArgs) -> bool:
 	"""
 	Input: llm_args, with llm claude.
 	Output: True. Raises ValueError for the first check that fails.
@@ -55,7 +60,7 @@ class ClaudeLLM:
 	What it does: calls one Claude model and counts its tokens, so the cost can be computed.
 	"""
 
-	def __init__(self, llm_args: LLM, token_counter):
+	def __init__(self, llm_args: LLMArgs, token_counter):
 		"""
 		Input: llm_args, the Claude model settings; token_counter, the llm.TokenCounter that counts its tokens.
 		Output: nothing.
@@ -80,10 +85,10 @@ class ClaudeLLM:
 		# Claude follows the JSON format RAGAS's prompts ask for without a JSON mode, so it is the same chat model
 		self.json_chat_model = self.chat_model
 
-	def generate(self, system_prompt: str, user_prompt: str) -> str:
+	def generate(self, system_prompt: str, user_prompt: str) -> LLMResponse:
 		"""
 		Input: system_prompt, the instructions ("" for none); user_prompt, the text sent to Claude.
-		Output: Claude's reply text.
+		Output: an LLMResponse with the reply text and the tokens of this call. Its request_id is "".
 		What it does: sends the system prompt and user prompt to the Claude model and returns the text of its reply.
 		"""
 		messages = []
@@ -92,12 +97,105 @@ class ClaudeLLM:
 		messages.append(("user", user_prompt))
 
 		response = self.chat_model.invoke(messages)
-		return response.text
 
-	def compute_cost(self) -> float:
+		# The provider reports the tokens of the call in usage_metadata, or None when it does not
+		input_tokens = 0
+		output_tokens = 0
+		if response.usage_metadata is not None:
+			input_tokens = response.usage_metadata["input_tokens"]
+			output_tokens = response.usage_metadata["output_tokens"]
+
+		llm_response = LLMResponse(
+			llm=self.llm_args.llm,
+			llm_model=self.llm_args.llm_model,
+			request_id="",
+			text=response.text,
+			input_tokens=input_tokens,
+			output_tokens=output_tokens
+		)
+		return llm_response
+
+	def generate_batch(self, requests: dict, batch_id_file: str, batch_poll_seconds: int, batch_timeout_seconds: int) -> dict:
+		"""
+		Input: requests, {request_id: {"system_prompt", "user_prompt"}}; batch_id_file, where the batch id is kept;
+		batch_poll_seconds, the seconds between status checks; batch_timeout_seconds, the seconds to wait in all.
+		Output: {request_id: LLMResponse} for every request that succeeded.
+		What it does: sends all requests as one Message Batch at the batch price, waits for it to end and collects
+		the replies by request id. If batch_id_file exists, it waits for that batch instead of sending a new one.
+		"""
+		client = anthropic.Anthropic(api_key=os.environ.get("CLAUDE_API_KEY", ""), timeout=self.llm_args.timeout_seconds)
+
+		# 1. Resume the batch of an earlier run, so the same requests are never paid twice
+		if os.path.exists(batch_id_file):
+			with open(batch_id_file, encoding="utf-8") as f:
+				batch_id = f.read().strip()
+			print(f"Resuming Claude batch : {batch_id}")
+		else:
+			# 2. Send all requests as one batch, each with its request id as custom_id
+			batch_requests = []
+			for request_id in requests:
+				request = requests[request_id]
+				batch_requests.append({
+					"custom_id": request_id,
+					"params": {
+						"model": self.llm_args.llm_model,
+						"max_tokens": self.llm_args.max_tokens,
+						"system": request["system_prompt"],
+						"messages": [{"role": "user", "content": request["user_prompt"]}]
+					}
+				})
+			batch = client.messages.batches.create(requests=batch_requests)
+			batch_id = batch.id
+
+			# 3. Save the batch id at once, so a run that stops while waiting can resume it
+			os.makedirs(os.path.dirname(batch_id_file), exist_ok=True)
+			with open(batch_id_file, "w", encoding="utf-8") as f:
+				f.write(batch_id)
+			print(f"Claude batch sent : {batch_id}, {len(batch_requests)} requests")
+
+		# 4. Check the status until the batch has ended
+		start_time = time.time()
+		while True:
+			batch = client.messages.batches.retrieve(batch_id)
+			if batch.processing_status == "ended":
+				break
+			if time.time() - start_time > batch_timeout_seconds:
+				raise TimeoutError(f"Claude batch {batch_id} did not end in {batch_timeout_seconds}s. Run again to resume it.")
+			print(f"Claude batch {batch_id} : {batch.processing_status}, {batch.request_counts.succeeded} done")
+			time.sleep(batch_poll_seconds)
+
+		# 5. Collect the reply text and tokens of every succeeded request
+		replies = {}
+		failed_count = 0
+		for entry in client.messages.batches.results(batch_id):
+			if entry.result.type != "succeeded":
+				failed_count = failed_count + 1
+				continue
+			reply_text = ""
+			for content_block in entry.result.message.content:
+				if content_block.type == "text":
+					reply_text = reply_text + content_block.text
+			input_tokens = entry.result.message.usage.input_tokens
+			output_tokens = entry.result.message.usage.output_tokens
+			replies[entry.custom_id] = LLMResponse(
+				llm=self.llm_args.llm,
+				llm_model=self.llm_args.llm_model,
+				request_id=entry.custom_id,
+				text=reply_text,
+				input_tokens=input_tokens,
+				output_tokens=output_tokens
+			)
+			self.token_counter.number_of_calls = self.token_counter.number_of_calls + 1
+			self.token_counter.input_tokens = self.token_counter.input_tokens + input_tokens
+			self.token_counter.output_tokens = self.token_counter.output_tokens + output_tokens
+
+		print(f"Claude batch {batch_id} : {len(replies)} succeeded, {failed_count} failed")
+		return replies
+
+	def compute_cost(self) -> LLMCost:
 		"""
 		Input: nothing.
-		Output: the cost of all calls made so far, in US dollars.
+		Output: an LLMCost with the calls, tokens and cost of all calls made so far, in US dollars.
 		What it does: multiplies the counted tokens by the model's prices and prints the tokens and cost.
 		"""
 		llm_model = self.llm_args.llm_model
@@ -109,4 +207,15 @@ class ClaudeLLM:
 		print(f"{llm_model} input tokens : {self.token_counter.input_tokens}, cost : ${input_cost:.4f}")
 		print(f"{llm_model} output tokens : {self.token_counter.output_tokens}, cost : ${output_cost:.4f}")
 		print(f"{llm_model} cost : ${total_cost:.4f}")
-		return total_cost
+
+		llm_cost = LLMCost(
+			llm=self.llm_args.llm,
+			llm_model=llm_model,
+			number_of_calls=self.token_counter.number_of_calls,
+			input_tokens=self.token_counter.input_tokens,
+			output_tokens=self.token_counter.output_tokens,
+			input_cost=input_cost,
+			output_cost=output_cost,
+			total_cost=total_cost
+		)
+		return llm_cost

@@ -15,9 +15,12 @@ class Prompt:
 		token_count:   The context token count plus an estimate for the system prompt and the question, in
 		               embedding-model tokens. An estimate of the prompt size, not the generation LLM's own count.
 		               0 when the context is empty.
+		prompt_hash:   The sha256 of the system prompt and user prompt, so the same prompt always has the same hash.
+		               l9 uses it as the answer cache key and the batch request id. "" when the context is empty.
 	"""
 	id: str
 	qus: str
 	system_prompt: str
 	user_prompt: str
 	token_count: int
+	prompt_hash: str

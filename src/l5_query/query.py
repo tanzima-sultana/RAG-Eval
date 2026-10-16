@@ -4,6 +4,7 @@ from sentence_transformers import SentenceTransformer
 from common import paths
 from common.args import EvalQnAArgs
 from common.args import QueryArgs
+from common.args import LLMArgs
 from common.constants import I_DONT_KNOW
 from l5_query.schema import Ans
 from l5_query.schema import Qus
@@ -14,11 +15,10 @@ from l5_query.prompt import HYDE_PROMPT
 from l5_query import cache
 from l5_query import validate
 from llm.llm import get_llm
-from llm.schema import LLM
 from llm.validate import validate_llm
 from qna.schema import EvalQnA
 
-def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs, query_llm_args: LLM) -> list[Query]:
+def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs, query_llm_args: LLMArgs) -> list[Query]:
 	"""
 	Input: eval_qna, the eval questions; query_args, the query settings; query_llm_args, the query LLM settings.
 	Output: one Query per eval question, in the same order.
@@ -41,11 +41,11 @@ def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs, query_llm_a
 		qna_item = eval_qna[qna_index]
 
 		# 1. Rewritten qus
-		rewritten_qus_str = query_llm.generate("", REWRITE_PROMPT.format(qus=qna_item.qus)).strip()
+		rewritten_qus_str = query_llm.generate("", REWRITE_PROMPT.format(qus=qna_item.qus)).text.strip()
 
 		# Multi qus
 		# The phrasings come one per line, sometimes with blank lines between them
-		multi_reply = query_llm.generate("", MULTI_QUERY_PROMPT.format(qus=qna_item.qus, n_multi_qus=query_args.n_multi_qus))
+		multi_reply = query_llm.generate("", MULTI_QUERY_PROMPT.format(qus=qna_item.qus, n_multi_qus=query_args.n_multi_qus)).text
 		multi_qus_str_list = []
 		for reply_line in multi_reply.split("\n"):
 			stripped_line = reply_line.strip()
@@ -62,7 +62,7 @@ def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs, query_llm_a
 			multi_dont_know_count = multi_dont_know_count + 1
 
 		# 3. Hypithetical ans
-		hyde_ans_str = query_llm.generate("", HYDE_PROMPT.format(qus=qna_item.qus)).strip()
+		hyde_ans_str = query_llm.generate("", HYDE_PROMPT.format(qus=qna_item.qus)).text.strip()
 		# The prompt asks for a passage even when unsure, but if the LLM still refuses, the reply is stored as exactly
 		# I_DONT_KNOW, so l6 can skip it. The reply may add a full stop or a reason after it
 		hyde_ans_lower = hyde_ans_str.lower().replace("\u2019", "'")
@@ -138,7 +138,7 @@ def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs, query_llm_a
 
 	return queries
 
-def get_queries(output_path: str, eval_qna: list[EvalQnA], eval_qna_args: EvalQnAArgs, query_args: QueryArgs, query_llm_args: LLM) -> list[Query]:
+def get_queries(output_path: str, eval_qna: list[EvalQnA], eval_qna_args: EvalQnAArgs, query_args: QueryArgs, query_llm_args: LLMArgs) -> list[Query]:
 	"""
 	Input: output_path, the dataset's output folder; eval_qna, the eval questions; eval_qna_args, the settings
 	that identify the eval set; query_args, the embedding model of the build and the number of multi-query phrasings;

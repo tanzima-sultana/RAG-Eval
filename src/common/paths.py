@@ -277,3 +277,26 @@ def get_hybrid_retrieved_path(output_path:str, chunking_args: ChunkingArgs, dens
 		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}/"
 		f"{dense_index_folder}+{bm25_index_folder}/{tuning_queries_size}/"
 	)
+
+# ------ Generation
+def get_generated_path(output_path:str, generation_llm_model: str) -> str:
+	"""
+	Input: output_path, the dataset's output folder; generation_llm_model, the model that answers the prompts.
+	Output: the generation cache file path as a string.
+	What it does: builds {output_path}/generated/{generation_llm_model}/generated.json, with any "/" or ":" in the
+	model name replaced by "-".
+	"""
+	generation_llm_model = generation_llm_model.replace("/", "-").replace(":", "-")
+
+	return f"{output_path}/generated/{generation_llm_model}/generated.json"
+
+def get_generated_batch_id_path(output_path:str, generation_llm_model: str) -> str:
+	"""
+	Input: output_path, the dataset's output folder; generation_llm_model, the model that answers the prompts.
+	Output: the batch id file path as a string.
+	What it does: builds {output_path}/generated/{generation_llm_model}/batch_id.txt, next to generated.json, with any
+	"/" or ":" in the model name replaced by "-".
+	"""
+	generation_llm_model = generation_llm_model.replace("/", "-").replace(":", "-")
+
+	return f"{output_path}/generated/{generation_llm_model}/batch_id.txt"
