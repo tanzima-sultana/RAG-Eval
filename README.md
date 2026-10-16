@@ -316,6 +316,7 @@ The `models` part of `configs/input_args.yaml`, one model name and price pair pe
 | `chatgpt` | `gpt-4.1-nano` | $0.10 / $0.40 | |
 | `gemini` | `gemini-3.5-flash-lite` | $0.30 / $2.50 | |
 | `gemini` | `gemini-3.1-flash-lite` | $0.25 / $1.50 | |
+| `gemini` | `gemini-3.8-flash` | $0.75 / $3.75 | l9 generation, experiment 2 |
 | `ollama` | `llama3.1:8b` | $0 / $0 | l5 query, l9 generation |
 
 Each provider has a cheaper model for the many knowledge graph calls, which send whole documents, and a stronger one for the few question and answer calls.
@@ -713,9 +714,10 @@ The eval QnA is not used here. Its ground truth is only needed again in l10. The
 
 The system and user prompts are kept apart because the chat APIs of Claude, OpenAI and Gemini take a system prompt separately from the user message.
 
-The system prompts are numbered in `prompt_template.py`, so earlier ones stay in the code for comparison, and `SYSTEM_PROMPT` names the one l8 sends (`SYSTEM_PROMPT = SYSTEM_PROMPT_1`). Switching back to an earlier prompt gives the same prompt hashes as before, so its l9 answers and l10 scores load from the caches.
+The system prompts are numbered in `prompt_template.py`, so earlier ones stay in the code for comparison, and `SYSTEM_PROMPT` names the one l8 sends (`SYSTEM_PROMPT = SYSTEM_PROMPT_2`). Switching back to an earlier prompt gives the same prompt hashes as before, so its l9 answers and l10 scores load from the caches.
 - **`SYSTEM_PROMPT_0`**, the first: answer only from the context, in a few sentences, and reply with exactly `I don't know` (`constants.I_DONT_KNOW`, the same constant l5 uses) when the context does not hold the answer, so l10 can find those answers by an exact match.
-- **`SYSTEM_PROMPT_1`**, in use: still only from the context, but give a complete answer with every name, number and date the question asks for; answer each part of a question, combining parts of the context; when the context holds different answers for different cases, such as years or versions, give each and say which case it is; when the context answers only part of the question, answer that part and say which part is not covered, without starting with "I don't know"; and reply with exactly `I don't know` only when nothing in the context is relevant. Why it was changed and what it did is in the analysis section.
+- **`SYSTEM_PROMPT_1`**: still only from the context, but give a complete answer with every name, number and date the question asks for; answer each part of a question, combining parts of the context; when the context holds different answers for different cases, such as years or versions, give each and say which case it is; when the context answers only part of the question, answer that part and say which part is not covered, without starting with "I don't know"; and reply with exactly `I don't know` only when nothing in the context is relevant. Why it was changed and what it did is in the analysis section.
+- **`SYSTEM_PROMPT_2`**, in use: `SYSTEM_PROMPT_1` with its last line replaced by two: reply with exactly `I don't know` when the context holds nothing that answers any part of the question, and never reply only that the context does not contain the answer, but with exactly `I don't know` instead. It is aimed at replies such as "The provided text does not contain information on how to set up a PayPal Key.", which are not counted as I don't know. Its effect is in the analysis section (experiment 2).
 
 The user prompt is:
 
@@ -777,6 +779,7 @@ Design choices and why:
 - **"I don't know" is stored as exactly `I_DONT_KNOW`.** The system prompt asks for that exact phrase, but models add a full stop or a reason after it. Any reply that starts with "I don't know" or "I do not know" is stored as `I_DONT_KNOW`, so l10 can find every refusal by an exact match.
 - **An empty context is answered `I_DONT_KNOW` without a call** and stays in `generated_list`, so l10 scores it as a failure. It is not stored in the cache.
 - **Prompt caching.** Claude batches mark the system prompt with `cache_control` (lifetime from `llm_cache_ttl`). ChatGPT and Gemini cache long repeated prompts on their own. The cost counts cache writes and reads at their own prices.
+- **Thinking tokens.** A thinking Gemini model, such as `gemini-3.8-flash`, reports its thinking tokens apart from the answer tokens, in `thoughts_token_count`, but bills them as output. The batch cost adds them to the output tokens.
 
 ### Architecture
 
@@ -1445,6 +1448,40 @@ Both rows are the same setup: sentence chunks, hybrid `faiss_flatip+bm25`, origi
 - **Relevance barely moved, from 0.561 to 0.573.** RAGAS scores an answer that says the context does not cover something as noncommittal, which gets relevance 0. Four of the 10 worst answers say the context does not cover all or part of the question, and all four have relevance 0.000, for example: "The provided text does not contain information regarding Grace Institute's connection to SB 61 by Hurtado ...", where the reference says the legislation list names Grace Institute as the bill's sponsor.
 - **Some no-answer replies are no longer I don't know.** One of those four, "The provided text does not contain information on how to set up a PayPal Key.", says the context covers nothing, which the prompt asks to answer with exactly I don't know. It is not counted in idk; it is scored as an answer, with correctness 0.344 and faithfulness 0.000.
 - **The Calicut University schedule answer is still among the worst** (correctness 0.214): the answer still gives only the 2020 dates and the reference the 2019 dates.
+
+**Experiment 2: `SYSTEM_PROMPT_2` and `gemini-3.8-flash`** (5000 documents, 150 tuning queries, same judge, from `log/analysis/log_5k_analysis_20261016-142734.txt`; report in `outputs/pdfa-eng-wds/analysis/runs/20261016-142734/report.md`).
+
+What changed:
+- **`SYSTEM_PROMPT_2`** in place of `SYSTEM_PROMPT_1` (see l8_prompt): a reply that only says the context does not contain the answer must be exactly I don't know.
+- **The generation model** went from `gemini-3.1-flash-lite` to `gemini-3.8-flash`, a stronger thinking model, at its batch prices ($0.375 input, $1.875 output, $0.0375 cache read per million tokens), to see whether a better model gives better answers from the same context.
+- Retrieval (the same setup, k=20, no reranking) and the judge (`gpt-4.1-mini`) stayed the same. Both changes were made in one run, so their effects cannot be told apart.
+
+The run cost $2.9898 and took 1366.04s. l9 sent 150 new prompts as one Gemini batch: 150 succeeded in 247.16s, 781,580 input tokens ($0.2931) and 184,531 output tokens ($0.3460), $0.6391, and 11 answered I don't know. Most of the output is thinking: experiment 1's `gemini-3.1-flash-lite` wrote 19,305 output tokens for the same 150 prompts. l10 scored 136 answers with 816 judge calls, 2,060,131 input (1,019,776 of them cache reads) and 1,145,349 output tokens, $2.3507, in 1103.66s, and every answer was scored.
+
+| Run | Generator | Prompt | idk | correct | faithful | relevant | l9 cost |
+|---|---|---|---|---|---|---|---|
+| Baseline `20261016-124503` | `gemini-3.1-flash-lite` | `SYSTEM_PROMPT_0` | 0.127 | 0.546 | 0.853 | 0.561 | |
+| Experiment 1 `20261016-135638` | `gemini-3.1-flash-lite` | `SYSTEM_PROMPT_1` | 0.067 | 0.612 | 0.894 | 0.573 | $0.1098 |
+| Experiment 2 `20261016-142734` | `gemini-3.8-flash` | `SYSTEM_PROMPT_2` | 0.073 | 0.613 | 0.889 | 0.532 | $0.6391 |
+
+All rows are the same setup: sentence chunks, hybrid `faiss_flatip+bm25`, original queries, k=20.
+
+| Source | Experiment 1 n | Experiment 1 idk | Experiment 1 correct | Experiment 1 faithful | Experiment 2 idk | Experiment 2 correct | Experiment 2 faithful | Experiment 2 relevant |
+|---|---|---|---|---|---|---|---|---|
+| hit | 141 | 0.043 | 0.626 | 0.916 | 0.050 | 0.629 | 0.911 | 0.541 |
+| miss | 9 | 0.444 | 0.391 | 0.556 | 0.444 | 0.366 | 0.556 | 0.383 |
+
+| Question type | Experiment 1 idk | Experiment 1 correct | Experiment 2 idk | Experiment 2 correct | Experiment 2 faithful | Experiment 2 relevant |
+|---|---|---|---|---|---|---|
+| multi_hop_specific_query_synthesizer | 0.065 | 0.583 | 0.065 | 0.587 | 0.896 | 0.499 |
+| single_hop_specific_query_synthesizer | 0.068 | 0.643 | 0.082 | 0.641 | 0.882 | 0.567 |
+
+**How the changes affected the scores.**
+- **The stronger model did not give better answers.** Correctness stayed at 0.613 against 0.612, on hits 0.629 against 0.626, and on multi-hop questions 0.587 against 0.583, all within run-to-run noise, while l9 cost about 6 times as much ($0.6391 against $0.1098), mostly for thinking tokens.
+- **Faithfulness stayed the same**, 0.889 against 0.894, so the weaker model was not adding unsupported claims that a stronger one avoids.
+- **Relevance fell from 0.573 to 0.532.** Partial answers still say which part the context does not cover, and RAGAS scores those as noncommittal: 4 of the 10 worst answers have relevance 0.000, each answering one part and saying another part is not covered or not provided, for example "The result for the first semester is to be published on or before 29 / 06 / 20. The date when the first semester commences is not provided." `SYSTEM_PROMPT_2` covers only replies that answer nothing, so it does not change these.
+- **I don't know barely moved**, 0.073 against 0.067, as the new rule turned some no-answer replies into I don't know.
+- **The worst answers are mostly not wrong answers.** 9 of the 10 have faithfulness 1.000: they are supported by the context but differ from the reference answer. The worst, correctness 0.077, gives correct steps to add a Sky Yahoo Mail account from the context, where the reference describes other steps. Since neither a better prompt nor a better model moves correctness above about 0.61, the limit is in the eval set and the judge, single reference answers judged on claim overlap, more than in the generator.
 
 ## Dependency notes
 

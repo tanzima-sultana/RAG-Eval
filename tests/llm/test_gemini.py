@@ -130,7 +130,8 @@ class FakeGenaiClient:
         Input: name, the batch job name.
         Output: the job, JOB_STATE_RUNNING until checks_before_end checks have been made, then state["end_state"]
         with one inline response per entry in state["results"], whose cached_content_token_count comes from
-        state["cached_tokens"] (None for an id not in it, as Gemini reports it).
+        state["cached_tokens"] and whose thoughts_token_count comes from state["thoughts_tokens"] (None for an id not in
+        them, as Gemini reports it).
         What it does: records the check.
         """
         self.state["retrieved"].append(name)
@@ -143,7 +144,8 @@ class FakeGenaiClient:
                 inlined_responses.append(SimpleNamespace(error={"code": 500}, response=None, metadata={"request_id": request_id}))
             else:
                 usage_metadata = SimpleNamespace(prompt_token_count=input_tokens, candidates_token_count=output_tokens,
-                                                 cached_content_token_count=self.state["cached_tokens"].get(request_id))
+                                                 cached_content_token_count=self.state["cached_tokens"].get(request_id),
+                                                 thoughts_token_count=self.state["thoughts_tokens"].get(request_id))
                 response = SimpleNamespace(text=text, usage_metadata=usage_metadata)
                 inlined_responses.append(SimpleNamespace(error=None, response=response, metadata={"request_id": request_id}))
         return SimpleNamespace(state=SimpleNamespace(name=self.state["end_state"]),
@@ -158,7 +160,7 @@ def fake_genai(monkeypatch):
     What it does: makes generate_batch use FakeGenaiClient. ChatGoogleGenerativeAI keeps the real SDK, untouched.
     """
     state = {"created": [], "retrieved": [], "checks_before_end": 0, "end_state": "JOB_STATE_SUCCEEDED", "results": [],
-             "cached_tokens": {}, "keys": []}
+             "cached_tokens": {}, "thoughts_tokens": {}, "keys": []}
 
     def make_client(api_key):
         """
@@ -277,3 +279,19 @@ def test_batch_counts_the_tokens_gemini_read_from_its_cache(paid_env, fake_genai
 
     assert gemini_llm.token_counter.input_tokens == 2100
     assert gemini_llm.token_counter.cache_read_tokens == 1200
+
+
+def test_batch_counts_thinking_tokens_as_output(paid_env, fake_genai, tmp_path, make_test_llm_args, batch_requests):
+    """
+    Input: hash_a reports 3 answer tokens and 500 thinking tokens; hash_b reports 4 answer tokens and no thinking (None).
+    Output: the token counter holds 507 output tokens, and hash_a's reply 503.
+    What it does: checks a thinking model's thinking tokens, billed as output, are counted as output.
+    """
+    fake_genai["results"] = [("hash_a", False, "Answer A.", 2000, 3), ("hash_b", False, "Answer B.", 100, 4)]
+    fake_genai["thoughts_tokens"] = {"hash_a": 500}
+
+    gemini_llm = make_gemini_llm(make_test_llm_args)
+    replies = gemini_llm.generate_batch(batch_requests, str(tmp_path / "batch_id.txt"), 0, 60)
+
+    assert gemini_llm.token_counter.output_tokens == 507
+    assert replies["hash_a"].output_tokens == 503

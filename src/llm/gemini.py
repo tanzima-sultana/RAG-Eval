@@ -193,7 +193,10 @@ class GeminiLLM:
 				usage_metadata = inlined_response.response.usage_metadata
 				# prompt_token_count includes the tokens Gemini read from its prompt cache, which it caches on its own
 				input_tokens = usage_metadata.prompt_token_count
+				# A thinking model's thinking tokens are billed as output but counted apart, in thoughts_token_count
 				output_tokens = usage_metadata.candidates_token_count
+				if usage_metadata.thoughts_token_count is not None:
+					output_tokens = output_tokens + usage_metadata.thoughts_token_count
 				cache_read_tokens = 0
 				if usage_metadata.cached_content_token_count is not None:
 					cache_read_tokens = usage_metadata.cached_content_token_count

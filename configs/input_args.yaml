@@ -53,6 +53,16 @@ models:
   flash_lite_31_batch_output_price: &flash_lite_31_batch_output_price 0.75
   flash_lite_31_batch_cache_write_price: &flash_lite_31_batch_cache_write_price 0.125
   flash_lite_31_batch_cache_read_price: &flash_lite_31_batch_cache_read_price 0.0125
+  # gemini-3.8-flash prices are valid to Dec 31, 2026; Google doubles them from Jan 1, 2027
+  flash_38: &flash_38 gemini-3.8-flash
+  flash_38_input_price: &flash_38_input_price 0.75
+  flash_38_output_price: &flash_38_output_price 3.75
+  flash_38_cache_write_price: &flash_38_cache_write_price 0.75
+  flash_38_cache_read_price: &flash_38_cache_read_price 0.075
+  flash_38_batch_input_price: &flash_38_batch_input_price 0.375
+  flash_38_batch_output_price: &flash_38_batch_output_price 1.875
+  flash_38_batch_cache_write_price: &flash_38_batch_cache_write_price 0.375
+  flash_38_batch_cache_read_price: &flash_38_batch_cache_read_price 0.0375
 
   gpt_mini: &gpt_mini gpt-4.1-mini
   gpt_mini_input_price: &gpt_mini_input_price 0.40
@@ -157,11 +167,11 @@ eval:
   # answers one at a time
   generation:
     generation_llm: gemini      # LLM that answers the prompts
-    generation_llm_model: *flash_lite_31
-    generation_input_price: *flash_lite_31_batch_input_price
-    generation_output_price: *flash_lite_31_batch_output_price
-    generation_cache_write_price: *flash_lite_31_batch_cache_write_price
-    generation_cache_read_price: *flash_lite_31_batch_cache_read_price
+    generation_llm_model: *flash_38
+    generation_input_price: *flash_38_batch_input_price
+    generation_output_price: *flash_38_batch_output_price
+    generation_cache_write_price: *flash_38_batch_cache_write_price
+    generation_cache_read_price: *flash_38_batch_cache_read_price
     batch_poll_seconds: 60      # Seconds between status checks of a generation batch
     batch_timeout_seconds: 86400   # Seconds to wait for a batch before stopping; a later run resumes the same batch
 
