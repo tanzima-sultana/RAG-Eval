@@ -37,14 +37,24 @@ All commands below assume current working directory is the repo root (`rag-eval/
 ```
 ## Project Structure
 
-configs/
-	input_args.yaml			# Command line args
-
+config.yaml					# Command line args
 src/
-	build.py                # CLI entry point for the RAG build pipeline
-	eval.py                 # CLI entry point for the RAG eval pipeline
+	pipeline.py				# CLI entry point for the entire RAG pipeline
+	build.py                # CLI entry point for the RAG build phase
+	eval.py                 # CLI entry point for the RAG eval phase
 
 	api/
+
+	analysis/
+		analysis.py            			# Orchastrator
+		schema.py		    			# Analysis summary schema
+		validate.py		     			# Validate given parameters
+		cache.py	           			# Store and retrieve analysis results
+		summary.py            			# Prints analysis results
+		comparison.py            		# Comapre runs upto 5
+		disgnosis.py         			# Explains where answers lose points
+		report.py         				# Writes the summary tables
+
 	llm/
 		llm.py		        # LLM orchatrator, decides which llm to return
 		check_llms.py		# Check llm and llm_models works or not (dev)
@@ -135,6 +145,7 @@ src/
 	
 	l10_evaluation/
 		schema.py            			# Defines dataclass for eval results
+		validate.py		     # Validate given parameters
 		summary.py            			# Prints eval results
 		answer_evaluation.py            # Evaluates generated ans
 		retrieval_evaluation.py         # Evaluates retrieval quality and filters them before L7, L8 and L9

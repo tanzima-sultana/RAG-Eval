@@ -10,13 +10,12 @@ from l2_chunking.chunking import Chunking
 from l3_embedding.embedding import Embedding
 from l4_indexing.indexing import Indexing
 
-if __name__ == "__main__":
-	print("\n ------------- RAG -------- \n")
-	start = time.time()
-
-	args = parse_build_args()
-	print(args)
-
+def run_build(args) -> None:
+	"""
+	Input: args, the parsed build arguments.
+	Output: nothing. The documents, chunks, embeddings and indexes are saved under the dataset's output folder.
+	What it does: runs l1 ingestion, then l2 chunking, l3 embedding and l4 indexing once per chunk type.
+	"""
 	# 1. Ingestion
 	print("\n\nIngestion")
 	ingest_args = make_ingest_args(args)
@@ -59,6 +58,15 @@ if __name__ == "__main__":
 			Indexing(index_args, chunking_args).compute_index(chunks, embeddings, output_path)
 		e4 = time.time() - s4
 		print("\nIndexing time : ", e4)
+
+if __name__ == "__main__":
+	print("\n ------------- RAG -------- \n")
+	start = time.time()
+
+	args = parse_build_args()
+	print(args)
+
+	run_build(args)
 
 	# ---------
 	end = time.time()

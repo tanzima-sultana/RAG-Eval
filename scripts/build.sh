@@ -1,7 +1,7 @@
-# Builds the RAG indexes with the settings in the build part of configs/input_args.yaml.
+# Builds the RAG indexes with the settings in the build part of config.yaml.
 #
 # Usage:
-#   bash scripts/build.sh                      # the build settings in configs/input_args.yaml
+#   bash scripts/build.sh                      # the build settings in config.yaml
 #   bash scripts/build.sh --dataset_size 20    # any setting can be overridden for one run
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,4 +17,4 @@ fi
 mkdir -p log
 LOG="log/log.txt"
 
-python3 src/build.py --config configs/input_args.yaml "$@" 2>&1 | tee "$LOG"
+python3 src/build.py --config config.yaml "$@" 2>&1 | tee "$LOG"

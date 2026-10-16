@@ -1,7 +1,7 @@
-# Evaluates the RAG build with the settings in the build and eval parts of configs/input_args.yaml.
+# Evaluates the RAG build with the settings in the build and eval parts of config.yaml.
 #
 # Usage:
-#   bash scripts/eval.sh                  # the build and eval settings in configs/input_args.yaml
+#   bash scripts/eval.sh                  # the build and eval settings in config.yaml
 #   bash scripts/eval.sh --top_k 10       # any setting can be overridden for one run
 #   ALLOW_PAID_API=1 bash scripts/eval.sh # when a layer uses a paid LLM and its cache does not exist
 
@@ -18,4 +18,4 @@ fi
 mkdir -p log
 LOG="log/eval_log.txt"
 
-python3 src/eval.py --config configs/input_args.yaml "$@" 2>&1 | tee "$LOG"
+python3 src/eval.py --config config.yaml "$@" 2>&1 | tee "$LOG"

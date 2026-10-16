@@ -24,7 +24,7 @@ PROVIDER="$1"
 mkdir -p log
 LOG="log/llm_check_${PROVIDER}.txt"
 
-# Models: LLM provider, model name and price in US dollars per million tokens. The same as configs/input_args.yaml
+# Models: LLM provider, model name and price in US dollars per million tokens. The same as config.yaml
 CLAUDE="claude"
 SONNET="claude-sonnet-5-5"
 SONNET_INPUT_PRICE_PER_MIL=2.00

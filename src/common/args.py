@@ -2,7 +2,7 @@
 args.py
 
 The settings of each layer as dataclasses, and the command line arguments of build.py and eval.py that fill them.
-The arguments come from the YAML file configs/input_args.yaml (--config): build.py reads its build part and eval.py
+The arguments come from the YAML file config.yaml (--config): build.py reads its build part and eval.py
 its build and eval parts, so each setting is written once. Any flag given after --config overrides its value.
 """
 
@@ -125,7 +125,7 @@ def parse_config_arguments(parser: argparse.ArgumentParser, config_parts: list[s
 	"""
 	# 1. Get the config file path. The other command line flags are overrides, kept for step 3
 	config_parser = argparse.ArgumentParser(add_help=False)
-	config_parser.add_argument("--config", type=str, required=True, help="YAML config file, e.g. configs/input_args.yaml")
+	config_parser.add_argument("--config", type=str, required=True, help="YAML config file, e.g. config.yaml")
 	config_args, override_arguments = config_parser.parse_known_args()
 
 	with open(config_args.config, encoding="utf-8") as f:

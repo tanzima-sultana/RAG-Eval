@@ -335,13 +335,13 @@ def run_analysis(args, output_path: str, retrieval_evaluations: list[tuple[Retri
 
 	return analysis_run
 
-if __name__ == "__main__":
-	print("\n ------------- RAG Eval -------- \n")
-	start = time.time()
-
-	args = parse_eval_args()
-	print(args)
-
+def run_eval(args) -> AnalysisRun:
+	"""
+	Input: args, the parsed eval arguments, holding the settings of the build to evaluate.
+	Output: the run's AnalysisRun.
+	What it does: loads the build, eval QnA and queries, then runs l6 retrieval to l10 evaluation and the analysis on
+	the query split chosen by query_split.
+	"""
 	ingest_args = make_ingest_args(args)
 	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
 
@@ -393,6 +393,17 @@ if __name__ == "__main__":
 
 	# 8. Analysis: summaries, diagnosis, worst answers and comparison with earlier runs, saved with the run's report
 	analysis_run = run_analysis(args, output_path, retrieval_evaluations, retrieved_list, retrieval_evaluation_list, generated_list, answer_evaluations, eval_qna)
+
+	return analysis_run
+
+if __name__ == "__main__":
+	print("\n ------------- RAG Eval -------- \n")
+	start = time.time()
+
+	args = parse_eval_args()
+	print(args)
+
+	run_eval(args)
 
 	# ---------
 	end = time.time()
