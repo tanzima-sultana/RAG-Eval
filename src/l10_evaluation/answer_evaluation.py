@@ -35,6 +35,7 @@ from common.args import AnswerEvalArgs
 from l7_context.schema import Context
 from l9_generation.schema import Generated
 from l10_evaluation.schema import AnswerEvaluation
+from l10_evaluation.validate import validate_answer_eval_args
 from llm.llm import get_llm
 from llm.validate import validate_llm
 from qna.schema import EvalQnA
@@ -176,6 +177,8 @@ def get_answer_evaluations(output_path: str, eval_qna: list[EvalQnA], context_li
 	What it does: loads the cached scores, scores the answers not in the cache, saves the cache, then builds the
 	AnswerEvaluation list in order.
 	"""
+	validate_answer_eval_args(answer_eval_args)
+
 	# 1. Find each answer's eval question by its id. Many answers share one id, one per kept setup
 	eval_qna_by_id = {}
 	for eval_qna_item in eval_qna:
@@ -186,11 +189,9 @@ def get_answer_evaluations(output_path: str, eval_qna: list[EvalQnA], context_li
 	answer_evaluation_cache = load_answer_evaluation_cache(answer_evaluation_file)
 	print(f"Cached answer evaluations : {len(answer_evaluation_cache)} in {answer_evaluation_file}")
 
-	# 3. Score the answers not in the cache with the chosen framework, then save the cache
-	if answer_eval_args.framework == constants.RAGAS_FRAMEWORK:
-		unscored_count = evaluate_answers_ragas(eval_qna_by_id, context_list, generated_list, answer_eval_args, answer_evaluation_cache)
-	else:
-		raise ValueError(f"ans_eval_framework ({answer_eval_args.framework}) is not supported. Use {constants.RAGAS_FRAMEWORK}.")
+	# 3. Score the answers not in the cache, then save the cache. RAGAS is the only framework, checked by
+	# validate_answer_eval_args
+	unscored_count = evaluate_answers_ragas(eval_qna_by_id, context_list, generated_list, answer_eval_args, answer_evaluation_cache)
 	save_answer_evaluation_cache(answer_evaluation_file, answer_evaluation_cache)
 
 	# 4. Answers with a score the judge could not give keep None for it and are left out of that score's averages

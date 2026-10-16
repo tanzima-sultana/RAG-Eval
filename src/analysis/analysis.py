@@ -21,6 +21,7 @@ from analysis.report import get_retrieval_summary_table
 from analysis.schema import AnalysisRun
 from analysis.summary import get_answer_summaries
 from analysis.summary import get_retrieval_summaries
+from analysis.validate import validate_analysis_args
 from common import paths
 from common.args import AnalysisArgs
 from l6_retrieval.schema import Retrieved
@@ -38,8 +39,7 @@ def analyze_run(output_path: str, analysis_args: AnalysisArgs, settings: dict, r
 	What it does: builds the summaries, diagnosis, worst answers and comparison, saves the run with its report and
 	prints the report.
 	"""
-	if analysis_args.n_compare_runs < 1:
-		raise ValueError(f"n_compare_runs ({analysis_args.n_compare_runs}) must be at least 1, the current run")
+	validate_analysis_args(analysis_args)
 
 	# 1. Summaries: one RetrievalSummary per retrieval setup, one AnswerSummary per kept setup
 	retrieval_summaries = get_retrieval_summaries(retrieval_evaluations)

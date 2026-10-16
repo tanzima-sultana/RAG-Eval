@@ -6,6 +6,7 @@ from common.args import GenerationArgs
 from l8_prompt.schema import Prompt
 from l9_generation import cache
 from l9_generation.schema import Generated
+from l9_generation.validate import validate_generation_args
 from llm.llm import get_llm
 from llm.validate import validate_llm
 
@@ -35,6 +36,7 @@ def generate_answers(prompt_list: list[Prompt], generation_args: GenerationArgs,
 	# run needs no API keys, ALLOW_PAID_API or Ollama server
 	if len(requests) > 0:
 		validate_llm(generation_args.llm_args)
+		validate_generation_args(generation_args)
 		generation_llm = get_llm(generation_args.llm_args)
 		replies = generation_llm.generate_batch(requests, batch_id_file, generation_args.batch_poll_seconds, generation_args.batch_timeout_seconds)
 		generation_llm.compute_cost()

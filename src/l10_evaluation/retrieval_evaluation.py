@@ -11,6 +11,7 @@ from l2_chunking.schema import Chunk
 from l6_retrieval.schema import Retrieved
 from l10_evaluation.schema import Evaluation
 from l10_evaluation.schema import RetrievalEvaluation
+from l10_evaluation.validate import validate_n_retrieval_evaluation
 from qna.schema import EvalQnA
 
 class RetrievalEvaluator:
@@ -58,8 +59,7 @@ class RetrievalEvaluator:
 		are ranked apart, because they are scored at a different k. A Retrieved with the same question and the same
 		chunks as one already kept is skipped, since it would give the LLM the same prompt.
 		"""
-		if n_retrieval_evaluation < 1:
-			raise ValueError(f"n_retrieval_evaluation ({n_retrieval_evaluation}) must be at least 1")
+		validate_n_retrieval_evaluation(n_retrieval_evaluation)
 
 		# 1. Group the evaluations by setup
 		retrieval_evaluations_by_setup = {}

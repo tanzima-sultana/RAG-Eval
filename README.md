@@ -762,7 +762,7 @@ Prompt time is about 2 ms for 300 prompts, because each prompt is one dict looku
 
 1. It loads the model's answer cache, `{output_path}/generated/{model}/generated.json`, a dict of `prompt_hash` to `{"qus", "answer"}`.
 2. It collects the prompts that are neither empty nor in the cache into `requests`, keyed by `prompt_hash`, so a prompt that comes more than once (two setups that built the same context) is sent once.
-3. If there is anything to send, it checks the LLM with `validate_llm`, builds it with `get_llm`, and calls `generate_batch(requests, ...)` once. With nothing to send, no LLM is checked or built, so a fully cached run needs no API key, `ALLOW_PAID_API` or Ollama server.
+3. If there is anything to send, it checks the LLM with `validate_llm` and the batch settings with `validate_generation_args`, builds it with `get_llm`, and calls `generate_batch(requests, ...)` once. With nothing to send, no LLM is checked or built, so a fully cached run needs no API key, `ALLOW_PAID_API` or Ollama server.
 4. It saves every reply to the cache, then deletes the batch id file. If a request failed in the batch, it stops with an error after saving the others, so the next run sends only the failed ones.
 5. It builds `generated_list` by walking `prompt_list` in order: an empty prompt gets `I_DONT_KNOW` without a call, every other prompt gets its answer from the cache. The batch returns results in any order; the list order comes from this walk, not from the batch.
 
@@ -787,7 +787,7 @@ Design choices and why:
 - **`generation.py`**: `get_generated_list` loads the model's cache; `generate_answers` sends the uncached prompts as one batch, saves the replies and builds `generated_list` in prompt order.
 - **`cache.py`**: loads and saves the answer cache file of one model, `{prompt_hash: {"qus", "answer"}}`, written to a temporary file and renamed into place.
 - **`schema.py`**: defines `Generated`.
-- **`validate.py`**: empty. The generation LLM is checked by `llm.validate.validate_llm`.
+- **`validate.py`**: checks the batch settings: `batch_poll_seconds` ≥ 1 and `batch_timeout_seconds` ≥ `batch_poll_seconds`. The generation LLM is checked by `llm.validate.validate_llm`.
 
 ### Run results
 
@@ -859,6 +859,7 @@ The scores are cached per framework and judge model in `{output_path}/answer_eva
 - **`retrieval_evaluation.py`**: `RetrievalEvaluator`, with `compute_retrieval_evaluation`, `compute_chunk_evaluation`, `compute_doc_evaluation` and `get_filtered_retrieval_evaluations`.
 - **`schema.py`**: defines `Evaluation`, `RetrievalEvaluation` and `AnswerEvaluation`.
 - **`answer_evaluation.py`**: scores each generated answer with RAGAS and a judge LLM, and keeps the scores in the answer evaluation cache.
+- **`validate.py`**: checks `n_retrieval_evaluation` ≥ 1 and that `ans_eval_framework` is `ragas`. The judge LLM is checked by `llm.validate.validate_llm`.
 
 ### Run results
 
@@ -1383,6 +1384,7 @@ The report has these sections, in order:
 - **`comparison.py`**: the comparison of the best setup of each run and the settings that differ.
 - **`report.py`**: the summary tables and the report's title and order.
 - **`cache.py`**: saves and loads the runs and replaces a run with the same settings.
+- **`validate.py`**: checks `n_compare_runs` ≥ 1 and `n_worst_answers` ≥ 0.
 
 ### Run results
 
