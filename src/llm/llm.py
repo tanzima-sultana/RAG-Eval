@@ -27,10 +27,13 @@ class TokenCounter(BaseCallbackHandler):
 		"""
 		Input: nothing.
 		Output: nothing.
-		What it does: starts all counts at 0.
+		What it does: starts all counts at 0. input_tokens counts every input token, cached ones included;
+		cache_creation_tokens and cache_read_tokens count the part written to and read from the prompt cache.
 		"""
 		super().__init__()
 		self.input_tokens = 0
+		self.cache_creation_tokens = 0
+		self.cache_read_tokens = 0
 		self.output_tokens = 0
 		self.number_of_calls = 0
 
@@ -49,8 +52,22 @@ class TokenCounter(BaseCallbackHandler):
 				usage_metadata = getattr(message, "usage_metadata", None)
 				if usage_metadata is None:
 					continue
+				# LangChain's input_tokens already includes the cached tokens, for every provider
 				self.input_tokens = self.input_tokens + usage_metadata["input_tokens"]
 				self.output_tokens = self.output_tokens + usage_metadata["output_tokens"]
+
+				# The cached part, when the provider reports it. Claude may report its cache writes by lifetime
+				# (ephemeral_5m_input_tokens, ephemeral_1h_input_tokens) instead of cache_creation, so all three are added
+				input_token_details = usage_metadata.get("input_token_details")
+				if input_token_details is None:
+					continue
+				for cache_creation_key in ("cache_creation", "ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens"):
+					cache_creation_tokens = input_token_details.get(cache_creation_key)
+					if cache_creation_tokens is not None:
+						self.cache_creation_tokens = self.cache_creation_tokens + cache_creation_tokens
+				cache_read_tokens = input_token_details.get("cache_read")
+				if cache_read_tokens is not None:
+					self.cache_read_tokens = self.cache_read_tokens + cache_read_tokens
 
 def get_llm(llm_args: LLMArgs) -> ChatGPTLLM | ClaudeLLM | GeminiLLM | OllamaLLM:
 	"""

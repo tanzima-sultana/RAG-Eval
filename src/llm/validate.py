@@ -20,9 +20,10 @@ def validate_llm(llm_args: LLMArgs) -> bool:
 		raise ValueError(f"llm_model is empty for llm ({llm_args.llm}). Provide a model name.")
 
 	# 2. Check the prices
-	if llm_args.input_price < 0 or llm_args.output_price < 0:
+	if llm_args.input_price < 0 or llm_args.output_price < 0 or llm_args.cache_write_price < 0 or llm_args.cache_read_price < 0:
 		raise ValueError(
-			f"Prices of {llm_args.llm_model} must be 0 or more, got input {llm_args.input_price} and output {llm_args.output_price}"
+			f"Prices of {llm_args.llm_model} must be 0 or more, got input {llm_args.input_price}, output {llm_args.output_price}, "
+			f"cache write {llm_args.cache_write_price} and cache read {llm_args.cache_read_price}"
 		)
 
 	# 3. Check max_tokens
@@ -33,7 +34,11 @@ def validate_llm(llm_args: LLMArgs) -> bool:
 	if llm_args.timeout_seconds <= 0:
 		raise ValueError(f"timeout_seconds ({llm_args.timeout_seconds}) must be larger than 0")
 
-	# 5. Check the provider
+	# 5. Check cache_ttl. 5m and 1h are the two lifetimes Claude's prompt cache takes
+	if llm_args.cache_ttl not in ("5m", "1h"):
+		raise ValueError(f"cache_ttl ({llm_args.cache_ttl}) must be 5m or 1h")
+
+	# 6. Check the provider
 	if llm_args.llm == CLAUDE_LLM:
 		return validate_claude(llm_args)
 	if llm_args.llm == CHATGPT_LLM:

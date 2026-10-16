@@ -48,8 +48,8 @@ def validate_claude(llm_args: LLMArgs) -> bool:
 		raise ValueError(f"Claude model ({llm_args.llm_model}) is not one of the Anthropic models: {model_names}")
 
 	# 4. Paid models need a price, so the cost of every run can be computed
-	if llm_args.input_price == 0 or llm_args.output_price == 0:
-		raise ValueError(f"Claude model ({llm_args.llm_model}) needs an input and output price above 0.")
+	if llm_args.input_price == 0 or llm_args.output_price == 0 or llm_args.cache_write_price == 0 or llm_args.cache_read_price == 0:
+		raise ValueError(f"Claude model ({llm_args.llm_model}) needs an input, output, cache write and cache read price above 0.")
 
 	return True
 
@@ -120,8 +120,9 @@ class ClaudeLLM:
 		Input: requests, {request_id: {"system_prompt", "user_prompt"}}; batch_id_file, where the batch id is kept;
 		batch_poll_seconds, the seconds between status checks; batch_timeout_seconds, the seconds to wait in all.
 		Output: {request_id: LLMResponse} for every request that succeeded.
-		What it does: sends all requests as one Message Batch at the batch price, waits for it to end and collects
-		the replies by request id. If batch_id_file exists, it waits for that batch instead of sending a new one.
+		What it does: sends all requests as one Message Batch at the batch price, with the system prompt marked for
+		Claude's prompt cache, waits for it to end and collects the replies by request id. If batch_id_file exists, it
+		waits for that batch instead of sending a new one.
 		"""
 		client = anthropic.Anthropic(api_key=os.environ.get("CLAUDE_API_KEY", ""), timeout=self.llm_args.timeout_seconds)
 
@@ -131,7 +132,9 @@ class ClaudeLLM:
 				batch_id = f.read().strip()
 			print(f"Resuming Claude batch : {batch_id}")
 		else:
-			# 2. Send all requests as one batch, each with its request id as custom_id
+			# 2. Send all requests as one batch, each with its request id as custom_id.
+			# The system prompt is marked for Claude's prompt cache, so the requests after the first read it at the cache
+			# read price. Claude does not cache a system prompt below its minimum size, and then bills it as normal input
 			batch_requests = []
 			for request_id in requests:
 				request = requests[request_id]
@@ -140,7 +143,13 @@ class ClaudeLLM:
 					"params": {
 						"model": self.llm_args.llm_model,
 						"max_tokens": self.llm_args.max_tokens,
-						"system": request["system_prompt"],
+						"system": [
+							{
+								"type": "text",
+								"text": request["system_prompt"],
+								"cache_control": {"type": "ephemeral", "ttl": self.llm_args.cache_ttl}
+							}
+						],
 						"messages": [{"role": "user", "content": request["user_prompt"]}]
 					}
 				})
@@ -175,8 +184,16 @@ class ClaudeLLM:
 			for content_block in entry.result.message.content:
 				if content_block.type == "text":
 					reply_text = reply_text + content_block.text
-			input_tokens = entry.result.message.usage.input_tokens
-			output_tokens = entry.result.message.usage.output_tokens
+			# Claude's input_tokens leaves out the cached tokens, so they are added to get every input token
+			usage = entry.result.message.usage
+			cache_creation_tokens = 0
+			if usage.cache_creation_input_tokens is not None:
+				cache_creation_tokens = usage.cache_creation_input_tokens
+			cache_read_tokens = 0
+			if usage.cache_read_input_tokens is not None:
+				cache_read_tokens = usage.cache_read_input_tokens
+			input_tokens = usage.input_tokens + cache_creation_tokens + cache_read_tokens
+			output_tokens = usage.output_tokens
 			replies[entry.custom_id] = LLMResponse(
 				llm=self.llm_args.llm,
 				llm_model=self.llm_args.llm_model,
@@ -187,6 +204,8 @@ class ClaudeLLM:
 			)
 			self.token_counter.number_of_calls = self.token_counter.number_of_calls + 1
 			self.token_counter.input_tokens = self.token_counter.input_tokens + input_tokens
+			self.token_counter.cache_creation_tokens = self.token_counter.cache_creation_tokens + cache_creation_tokens
+			self.token_counter.cache_read_tokens = self.token_counter.cache_read_tokens + cache_read_tokens
 			self.token_counter.output_tokens = self.token_counter.output_tokens + output_tokens
 
 		print(f"Claude batch {batch_id} : {len(replies)} succeeded, {failed_count} failed")
@@ -195,16 +214,23 @@ class ClaudeLLM:
 	def compute_cost(self) -> LLMCost:
 		"""
 		Input: nothing.
-		Output: an LLMCost with the calls, tokens and cost of all calls made so far, in US dollars.
-		What it does: multiplies the counted tokens by the model's prices and prints the tokens and cost.
+		Output: an LLMCost with the calls, tokens (cached ones apart) and cost of all calls made so far, in US dollars.
+		What it does: multiplies the counted tokens by the model's prices, cached input tokens by the cache prices,
+		and prints the tokens and cost.
 		"""
 		llm_model = self.llm_args.llm_model
-		input_cost = self.token_counter.input_tokens * self.llm_args.input_price / 1000000
+		# The cached input tokens are priced at the cache prices, the rest at the input price
+		uncached_input_tokens = self.token_counter.input_tokens - self.token_counter.cache_creation_tokens - self.token_counter.cache_read_tokens
+		input_cost = uncached_input_tokens * self.llm_args.input_price / 1000000
+		cache_write_cost = self.token_counter.cache_creation_tokens * self.llm_args.cache_write_price / 1000000
+		cache_read_cost = self.token_counter.cache_read_tokens * self.llm_args.cache_read_price / 1000000
 		output_cost = self.token_counter.output_tokens * self.llm_args.output_price / 1000000
-		total_cost = input_cost + output_cost
+		total_cost = input_cost + cache_write_cost + cache_read_cost + output_cost
 
 		print(f"{llm_model} calls : {self.token_counter.number_of_calls}")
-		print(f"{llm_model} input tokens : {self.token_counter.input_tokens}, cost : ${input_cost:.4f}")
+		print(f"{llm_model} input tokens : {self.token_counter.input_tokens}, of which not cached : {uncached_input_tokens}, cost : ${input_cost:.4f}")
+		print(f"{llm_model} cache written tokens : {self.token_counter.cache_creation_tokens}, cost : ${cache_write_cost:.4f}")
+		print(f"{llm_model} cache read tokens : {self.token_counter.cache_read_tokens}, cost : ${cache_read_cost:.4f}")
 		print(f"{llm_model} output tokens : {self.token_counter.output_tokens}, cost : ${output_cost:.4f}")
 		print(f"{llm_model} cost : ${total_cost:.4f}")
 
@@ -213,8 +239,12 @@ class ClaudeLLM:
 			llm_model=llm_model,
 			number_of_calls=self.token_counter.number_of_calls,
 			input_tokens=self.token_counter.input_tokens,
+			cache_creation_tokens=self.token_counter.cache_creation_tokens,
+			cache_read_tokens=self.token_counter.cache_read_tokens,
 			output_tokens=self.token_counter.output_tokens,
 			input_cost=input_cost,
+			cache_write_cost=cache_write_cost,
+			cache_read_cost=cache_read_cost,
 			output_cost=output_cost,
 			total_cost=total_cost
 		)

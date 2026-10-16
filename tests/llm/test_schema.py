@@ -27,12 +27,14 @@ def test_cost_is_one_flat_record():
     Output: dataclasses.asdict gives one flat dict, with llm and llm_model next to the cost fields.
     What it does: checks the fields come by inheritance, not as a nested object, so logs and JSON stay flat.
     """
-    llm_cost = LLMCost(llm="claude", llm_model="claude-haiku-5-5", number_of_calls=2, input_tokens=10, output_tokens=4,
-                       input_cost=0.1, output_cost=0.2, total_cost=0.3)
+    llm_cost = LLMCost(llm="claude", llm_model="claude-haiku-5-5", number_of_calls=2, input_tokens=10, cache_creation_tokens=3,
+                       cache_read_tokens=5, output_tokens=4, input_cost=0.1, cache_write_cost=0.01, cache_read_cost=0.02,
+                       output_cost=0.2, total_cost=0.33)
 
     assert dataclasses.asdict(llm_cost) == {
-        "llm": "claude", "llm_model": "claude-haiku-5-5", "number_of_calls": 2, "input_tokens": 10, "output_tokens": 4,
-        "input_cost": 0.1, "output_cost": 0.2, "total_cost": 0.3,
+        "llm": "claude", "llm_model": "claude-haiku-5-5", "number_of_calls": 2, "input_tokens": 10, "cache_creation_tokens": 3,
+        "cache_read_tokens": 5, "output_tokens": 4, "input_cost": 0.1, "cache_write_cost": 0.01, "cache_read_cost": 0.02,
+        "output_cost": 0.2, "total_cost": 0.33,
     }
 
 

@@ -132,13 +132,15 @@ def make_test_llm_args():
     Output: a function that builds an LLMArgs.
     What it does: returns a builder where any setting can be given by keyword.
     """
-    def build_llm_args(llm="claude", llm_model="claude-haiku-5-5", input_price=1.0, output_price=2.0, max_tokens=100, timeout_seconds=10):
+    def build_llm_args(llm="claude", llm_model="claude-haiku-5-5", input_price=1.0, output_price=2.0, cache_write_price=1.25,
+                       cache_read_price=0.1, max_tokens=100, timeout_seconds=10, cache_ttl="5m"):
         """
         Input: any LLMArgs setting as a keyword argument.
         Output: an LLMArgs.
         What it does: builds the settings of one LLM.
         """
-        return make_llm_args(llm, llm_model, input_price, output_price, max_tokens, timeout_seconds)
+        return make_llm_args(llm, llm_model, input_price, output_price, cache_write_price, cache_read_price, max_tokens,
+                             timeout_seconds, cache_ttl)
 
     return build_llm_args
 

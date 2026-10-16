@@ -69,6 +69,26 @@ def test_token_counter_adds_every_call():
     assert token_counter.output_tokens == 7
 
 
+def test_token_counter_adds_the_cached_tokens_langchain_reports():
+    """
+    Input: three replies whose input_token_details hold cache_read 100; cache_creation 50; and Claude's
+    ephemeral_5m_input_tokens 30 and ephemeral_1h_input_tokens 20 with cache_creation 0.
+    Output: 150 tokens written to the cache, 100 read, and every input token counted once in input_tokens.
+    What it does: checks the cache tokens are counted under every key LangChain uses for them.
+    """
+    token_counter = TokenCounter()
+    token_counter.on_llm_end(make_llm_result([
+        {"input_tokens": 300, "output_tokens": 1, "input_token_details": {"cache_read": 100}},
+        {"input_tokens": 200, "output_tokens": 1, "input_token_details": {"cache_creation": 50, "cache_read": None}},
+        {"input_tokens": 100, "output_tokens": 1, "input_token_details": {"cache_creation": 0, "ephemeral_5m_input_tokens": 30,
+                                                                          "ephemeral_1h_input_tokens": 20}},
+    ]))
+
+    assert token_counter.input_tokens == 600
+    assert token_counter.cache_creation_tokens == 100
+    assert token_counter.cache_read_tokens == 100
+
+
 def test_token_counter_skips_replies_without_usage():
     """
     Input: one call with a reply without a message, one with no usage_metadata and one with usage.
@@ -181,17 +201,26 @@ def test_generate_with_empty_system_prompt_sends_only_the_user_prompt(paid_env, 
 @pytest.mark.parametrize("provider, llm_model, llm_class", PROVIDERS)
 def test_compute_cost_returns_the_cost_of_the_counted_tokens(paid_env, make_test_llm_args, capsys, provider, llm_model, llm_class):
     """
-    Input: 3 calls, 2,000,000 input and 500,000 output tokens, at $1.00 and $2.00 per million.
-    Output: an LLMCost of $2.00 input, $1.00 output and $3.00 in total, also printed.
-    What it does: checks the cost is the counted tokens times the prices, for every provider.
+    Input: 3 calls, 2,000,000 input tokens of which 300,000 written to the cache and 500,000 read from it, and 500,000
+    output tokens; prices $1.00 input, $2.00 output, $1.25 cache write and $0.10 cache read per million.
+    Output: an LLMCost of $1.20 for the 1,200,000 uncached input tokens, $0.375 cache write, $0.05 cache read, $1.00
+    output and $2.625 in total, also printed.
+    What it does: checks each kind of token is priced at its own price, for every provider.
     """
-    llm_object = get_llm(make_test_llm_args(llm=provider, llm_model=llm_model, input_price=1.0, output_price=2.0))
+    llm_object = get_llm(make_test_llm_args(llm=provider, llm_model=llm_model, input_price=1.0, output_price=2.0,
+                                            cache_write_price=1.25, cache_read_price=0.1))
     llm_object.token_counter.number_of_calls = 3
     llm_object.token_counter.input_tokens = 2000000
+    llm_object.token_counter.cache_creation_tokens = 300000
+    llm_object.token_counter.cache_read_tokens = 500000
     llm_object.token_counter.output_tokens = 500000
 
     llm_cost = llm_object.compute_cost()
 
-    assert llm_cost == LLMCost(llm=provider, llm_model=llm_model, number_of_calls=3, input_tokens=2000000, output_tokens=500000,
-                               input_cost=2.0, output_cost=1.0, total_cost=3.0)
-    assert f"{llm_model} cost : $3.0000" in capsys.readouterr().out
+    assert llm_cost == LLMCost(llm=provider, llm_model=llm_model, number_of_calls=3, input_tokens=2000000,
+                               cache_creation_tokens=300000, cache_read_tokens=500000, output_tokens=500000,
+                               input_cost=pytest.approx(1.2), cache_write_cost=pytest.approx(0.375),
+                               cache_read_cost=pytest.approx(0.05), output_cost=pytest.approx(1.0), total_cost=pytest.approx(2.625))
+    printed = capsys.readouterr().out
+    assert f"{llm_model} cache read tokens : 500000" in printed
+    assert f"{llm_model} cost : $2.6250" in printed

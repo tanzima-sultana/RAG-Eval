@@ -20,7 +20,7 @@ from l5_query.query import get_queries
 from common.args import make_llm_args
 
 # The query LLM settings every test uses. The LLM itself is faked, so no call is made
-QUERY_LLM_ARGS = make_llm_args("ollama", "llama3.1:8b", 0, 0, 16000, 180)
+QUERY_LLM_ARGS = make_llm_args("ollama", "llama3.1:8b", 0, 0, 0, 0, 16000, 180, "5m")
 
 
 def test_generate_queries_builds_one_query_per_question(fake_query_llm, make_query_args, make_eval_qna):

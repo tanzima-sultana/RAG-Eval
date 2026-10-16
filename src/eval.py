@@ -38,10 +38,10 @@ def load_eval_inputs(args, output_path: str):
 	"""
 	ingest_args = make_ingest_args(args)
 	eval_qna_args = make_eval_qna_args(args)
-	qna_llm_args = make_llm_args(args.qna_llm, args.qna_llm_model, args.qna_input_price, args.qna_output_price, args.llm_max_tokens, args.llm_timeout_seconds)
-	qna_kg_llm_args = make_llm_args(args.qna_kg_llm, args.qna_kg_llm_model, args.qna_kg_input_price, args.qna_kg_output_price, args.llm_max_tokens, args.llm_timeout_seconds)
+	qna_llm_args = make_llm_args(args.qna_llm, args.qna_llm_model, args.qna_input_price, args.qna_output_price, args.qna_cache_write_price, args.qna_cache_read_price, args.llm_max_tokens, args.llm_timeout_seconds, args.llm_cache_ttl)
+	qna_kg_llm_args = make_llm_args(args.qna_kg_llm, args.qna_kg_llm_model, args.qna_kg_input_price, args.qna_kg_output_price, args.qna_kg_cache_write_price, args.qna_kg_cache_read_price, args.llm_max_tokens, args.llm_timeout_seconds, args.llm_cache_ttl)
 	query_args = make_query_args(args)
-	query_llm_args = make_llm_args(args.query_llm, args.query_llm_model, args.query_input_price, args.query_output_price, args.llm_max_tokens, args.llm_timeout_seconds)
+	query_llm_args = make_llm_args(args.query_llm, args.query_llm_model, args.query_input_price, args.query_output_price, args.query_cache_write_price, args.query_cache_read_price, args.llm_max_tokens, args.llm_timeout_seconds, args.llm_cache_ttl)
 
 	# 1. Load the l1 documents
 	# The same ingestion call as build.py; it returns the documents from the l1 cache

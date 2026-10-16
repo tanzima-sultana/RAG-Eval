@@ -88,16 +88,16 @@ def test_gemini_models_not_reachable_raises(paid_env, fake_urlopen, url_error, m
         validate_gemini(make_gemini_llm_args(make_test_llm_args))
 
 
-@pytest.mark.parametrize("input_price, output_price", [(0, 2.0), (1.0, 0)])
-def test_gemini_zero_price_raises(paid_env, fake_urlopen, make_test_llm_args, input_price, output_price):
+@pytest.mark.parametrize("price_name", ["input_price", "output_price", "cache_write_price", "cache_read_price"])
+def test_gemini_zero_price_raises(paid_env, fake_urlopen, make_test_llm_args, price_name):
     """
-    Input: an input or output price of 0.
+    Input: one of the four prices at 0.
     Output: ValueError saying the model needs prices above 0.
     What it does: checks every paid run can compute its cost.
     """
     fake_urlopen["bodies"] = [FIRST_PAGE, SECOND_PAGE]
     with pytest.raises(ValueError, match="price above 0"):
-        validate_gemini(make_gemini_llm_args(make_test_llm_args, input_price=input_price, output_price=output_price))
+        validate_gemini(make_gemini_llm_args(make_test_llm_args, **{price_name: 0}))
 
 
 # ------ generate_batch
@@ -129,7 +129,8 @@ class FakeGenaiClient:
         """
         Input: name, the batch job name.
         Output: the job, JOB_STATE_RUNNING until checks_before_end checks have been made, then state["end_state"]
-        with one inline response per entry in state["results"].
+        with one inline response per entry in state["results"], whose cached_content_token_count comes from
+        state["cached_tokens"] (None for an id not in it, as Gemini reports it).
         What it does: records the check.
         """
         self.state["retrieved"].append(name)
@@ -141,7 +142,8 @@ class FakeGenaiClient:
             if failed:
                 inlined_responses.append(SimpleNamespace(error={"code": 500}, response=None, metadata={"request_id": request_id}))
             else:
-                usage_metadata = SimpleNamespace(prompt_token_count=input_tokens, candidates_token_count=output_tokens)
+                usage_metadata = SimpleNamespace(prompt_token_count=input_tokens, candidates_token_count=output_tokens,
+                                                 cached_content_token_count=self.state["cached_tokens"].get(request_id))
                 response = SimpleNamespace(text=text, usage_metadata=usage_metadata)
                 inlined_responses.append(SimpleNamespace(error=None, response=response, metadata={"request_id": request_id}))
         return SimpleNamespace(state=SimpleNamespace(name=self.state["end_state"]),
@@ -155,7 +157,8 @@ def fake_genai(monkeypatch):
     Output: the state dict FakeGenaiClient uses; the test sets "results", "checks_before_end" and "end_state".
     What it does: makes generate_batch use FakeGenaiClient. ChatGoogleGenerativeAI keeps the real SDK, untouched.
     """
-    state = {"created": [], "retrieved": [], "checks_before_end": 0, "end_state": "JOB_STATE_SUCCEEDED", "results": [], "keys": []}
+    state = {"created": [], "retrieved": [], "checks_before_end": 0, "end_state": "JOB_STATE_SUCCEEDED", "results": [],
+             "cached_tokens": {}, "keys": []}
 
     def make_client(api_key):
         """
@@ -258,3 +261,19 @@ def test_partly_succeeded_job_leaves_out_failed_requests(paid_env, fake_genai, t
 
     assert list(replies) == ["hash_a"]
     assert gemini_llm.token_counter.number_of_calls == 1
+
+
+def test_batch_counts_the_tokens_gemini_read_from_its_cache(paid_env, fake_genai, tmp_path, make_test_llm_args, batch_requests):
+    """
+    Input: hash_a's 2,000 prompt tokens include 1,200 Gemini read from its cache; hash_b reports none (None).
+    Output: the token counter holds 2,100 input tokens, of which 1,200 read from the cache.
+    What it does: checks Gemini's cached tokens are counted, and a missing count is taken as 0.
+    """
+    fake_genai["results"] = [("hash_a", False, "Answer A.", 2000, 3), ("hash_b", False, "Answer B.", 100, 4)]
+    fake_genai["cached_tokens"] = {"hash_a": 1200}
+
+    gemini_llm = make_gemini_llm(make_test_llm_args)
+    gemini_llm.generate_batch(batch_requests, str(tmp_path / "batch_id.txt"), 0, 60)
+
+    assert gemini_llm.token_counter.input_tokens == 2100
+    assert gemini_llm.token_counter.cache_read_tokens == 1200

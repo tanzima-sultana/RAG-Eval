@@ -19,10 +19,10 @@ TAGS_BODY = {"models": [{"name": "llama3.1:8b"}, {"name": "qwen2.5:7b"}]}
 def make_ollama_llm_args(make_test_llm_args, **overrides):
     """
     Input: the make_test_llm_args fixture; any LLMArgs setting as a keyword argument.
-    Output: LLMArgs for llama3.1:8b with prices 0, plus the overrides.
+    Output: LLMArgs for llama3.1:8b with every price 0, plus the overrides.
     What it does: builds the settings of the Ollama tests.
     """
-    settings = {"llm": "ollama", "llm_model": "llama3.1:8b", "input_price": 0, "output_price": 0}
+    settings = {"llm": "ollama", "llm_model": "llama3.1:8b", "input_price": 0, "output_price": 0, "cache_write_price": 0, "cache_read_price": 0}
     for setting_name in overrides:
         settings[setting_name] = overrides[setting_name]
     return make_test_llm_args(**settings)
@@ -42,15 +42,15 @@ def test_valid_ollama_settings_pass(no_paid_env, fake_urlopen, make_test_llm_arg
     assert fake_urlopen["urls"] == [OLLAMA_URL + "/api/tags"]
 
 
-@pytest.mark.parametrize("input_price, output_price", [(0.1, 0), (0, 0.1)])
-def test_ollama_price_above_zero_raises_before_any_request(fake_urlopen, make_test_llm_args, input_price, output_price):
+@pytest.mark.parametrize("price_name", ["input_price", "output_price", "cache_write_price", "cache_read_price"])
+def test_ollama_price_above_zero_raises_before_any_request(fake_urlopen, make_test_llm_args, price_name):
     """
-    Input: an input or output price above 0.
+    Input: one of the four prices above 0.
     Output: ValueError saying the prices must be 0, and no request sent.
     What it does: checks a local model is never priced, so its cost is always 0.
     """
-    with pytest.raises(ValueError, match="price must be 0"):
-        validate_ollama(make_ollama_llm_args(make_test_llm_args, input_price=input_price, output_price=output_price))
+    with pytest.raises(ValueError, match="prices must be 0"):
+        validate_ollama(make_ollama_llm_args(make_test_llm_args, **{price_name: 0.1}))
     assert fake_urlopen["urls"] == []
 
 

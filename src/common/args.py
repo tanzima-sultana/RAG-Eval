@@ -75,17 +75,25 @@ class LLMArgs:
 	Fields:
 		llm:             The LLM provider: claude, chatgpt, gemini or ollama.
 		llm_model:       The model the provider runs, e.g. claude-sonnet-5-5 or llama3.1:8b.
-		input_price:     US dollars per million input tokens. 0 for ollama.
-		output_price:    US dollars per million output tokens. 0 for ollama.
-		max_tokens:      Maximum output tokens per call.
-		timeout_seconds: Seconds before one call times out.
+		input_price:       US dollars per million input tokens. 0 for ollama.
+		output_price:      US dollars per million output tokens. 0 for ollama.
+		cache_write_price: US dollars per million input tokens written to the provider's prompt cache. The input price
+		                   for providers that do not charge extra to write it. 0 for ollama.
+		cache_read_price:  US dollars per million input tokens read from the provider's prompt cache. 0 for ollama.
+		max_tokens:        Maximum output tokens per call.
+		timeout_seconds:   Seconds before one call times out.
+		cache_ttl:         How long Claude keeps a cached prompt: 5m or 1h. Its cache_write_price must be the price of
+		                   this lifetime.
 	"""
 	llm: str
 	llm_model: str
 	input_price: float
 	output_price: float
+	cache_write_price: float
+	cache_read_price: float
 	max_tokens: int
 	timeout_seconds: int
+	cache_ttl: str
 
 @dataclasses.dataclass
 class GenerationArgs:
@@ -376,6 +384,11 @@ def add_llm_arguments(parser: argparse.ArgumentParser) -> None:
 		type=int,
 		required=True,
 		help="Seconds before one LLM call times out, the same for every layer")
+	parser.add_argument(
+		"--llm_cache_ttl",
+		type=str,
+		required=True,
+		help="How long Claude keeps a cached system prompt: 5m or 1h, the same for every layer")
 
 def add_eval_qna_arguments(parser: argparse.ArgumentParser) -> None:
 	"""
@@ -404,6 +417,16 @@ def add_eval_qna_arguments(parser: argparse.ArgumentParser) -> None:
 		required=True,
 		help="QnA model price in US dollars per million output tokens, 0 for ollama")
 	parser.add_argument(
+		"--qna_cache_write_price",
+		type=float,
+		required=True,
+		help="QnA model price in US dollars per million input tokens written to the prompt cache, 0 for ollama")
+	parser.add_argument(
+		"--qna_cache_read_price",
+		type=float,
+		required=True,
+		help="QnA model price in US dollars per million input tokens read from the prompt cache, 0 for ollama")
+	parser.add_argument(
 		"--qna_kg_llm",
 		type=str,
 		required=True,
@@ -423,6 +446,16 @@ def add_eval_qna_arguments(parser: argparse.ArgumentParser) -> None:
 		type=float,
 		required=True,
 		help="Knowledge graph model price in US dollars per million output tokens, 0 for ollama")
+	parser.add_argument(
+		"--qna_kg_cache_write_price",
+		type=float,
+		required=True,
+		help="Knowledge graph model price in US dollars per million input tokens written to the prompt cache, 0 for ollama")
+	parser.add_argument(
+		"--qna_kg_cache_read_price",
+		type=float,
+		required=True,
+		help="Knowledge graph model price in US dollars per million input tokens read from the prompt cache, 0 for ollama")
 	parser.add_argument(
 		"--eval_qna_model",
 		type=str,
@@ -468,6 +501,16 @@ def add_query_arguments(parser: argparse.ArgumentParser) -> None:
 		type=float,
 		required=True,
 		help="Query model price in US dollars per million output tokens, 0 for ollama")
+	parser.add_argument(
+		"--query_cache_write_price",
+		type=float,
+		required=True,
+		help="Query model price in US dollars per million input tokens written to the prompt cache, 0 for ollama")
+	parser.add_argument(
+		"--query_cache_read_price",
+		type=float,
+		required=True,
+		help="Query model price in US dollars per million input tokens read from the prompt cache, 0 for ollama")
 	parser.add_argument(
 		"--n_multi_qus",
 		type=int,
@@ -545,6 +588,16 @@ def add_generation_arguments(parser: argparse.ArgumentParser) -> None:
 		type=float,
 		required=True,
 		help="Generation model price in US dollars per million output tokens, 0 for ollama")
+	parser.add_argument(
+		"--generation_cache_write_price",
+		type=float,
+		required=True,
+		help="Generation model price in US dollars per million input tokens written to the prompt cache, 0 for ollama")
+	parser.add_argument(
+		"--generation_cache_read_price",
+		type=float,
+		required=True,
+		help="Generation model price in US dollars per million input tokens read from the prompt cache, 0 for ollama")
 	parser.add_argument(
 		"--batch_poll_seconds",
 		type=int,
@@ -658,10 +711,11 @@ def make_retrieval_args(parsed_args):
 	)
 	return retrieval_args
 
-def make_llm_args(llm: str, llm_model: str, input_price: float, output_price: float, max_tokens: int, timeout_seconds: int) -> LLMArgs:
+def make_llm_args(llm: str, llm_model: str, input_price: float, output_price: float, cache_write_price: float, cache_read_price: float, max_tokens: int, timeout_seconds: int, cache_ttl: str) -> LLMArgs:
 	"""
-	Input: llm, the LLM provider; llm_model, its model; input_price and output_price, in US dollars per million tokens;
-	max_tokens, the maximum output tokens per call; timeout_seconds, the seconds before one call times out.
+	Input: llm, the LLM provider; llm_model, its model; input_price, output_price, cache_write_price and
+	cache_read_price, in US dollars per million tokens; max_tokens, the maximum output tokens per call;
+	timeout_seconds, the seconds before one call times out; cache_ttl, how long Claude keeps a cached prompt.
 	Output: an LLMArgs object holding these settings.
 	What it does: copies the LLM settings of one layer into an LLMArgs object.
 	"""
@@ -670,8 +724,11 @@ def make_llm_args(llm: str, llm_model: str, input_price: float, output_price: fl
 		llm_model=llm_model,
 		input_price=input_price,
 		output_price=output_price,
+		cache_write_price=cache_write_price,
+		cache_read_price=cache_read_price,
 		max_tokens=max_tokens,
-		timeout_seconds=timeout_seconds
+		timeout_seconds=timeout_seconds,
+		cache_ttl=cache_ttl
 	)
 	return llm_args
 
@@ -686,8 +743,11 @@ def make_generation_args(parsed_args) -> GenerationArgs:
 		parsed_args.generation_llm_model,
 		parsed_args.generation_input_price,
 		parsed_args.generation_output_price,
+		parsed_args.generation_cache_write_price,
+		parsed_args.generation_cache_read_price,
 		parsed_args.llm_max_tokens,
-		parsed_args.llm_timeout_seconds
+		parsed_args.llm_timeout_seconds,
+		parsed_args.llm_cache_ttl
 	)
 	generation_args = GenerationArgs(
 		llm_args=generation_llm_args,

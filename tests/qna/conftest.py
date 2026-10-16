@@ -50,8 +50,12 @@ class FakeQnALLM:
             llm_model=self.llm_args.llm_model,
             number_of_calls=0,
             input_tokens=0,
+            cache_creation_tokens=0,
+            cache_read_tokens=0,
             output_tokens=0,
             input_cost=0.0,
+            cache_write_cost=0.0,
+            cache_read_cost=0.0,
             output_cost=0.0,
             total_cost=0.0
         )
@@ -238,7 +242,7 @@ def make_qna_llm_args():
         Output: an LLMArgs with those and fixed prices and limits.
         What it does: builds the settings of one LLM.
         """
-        return make_llm_args(llm, llm_model, 2.0, 10.0, 16000, 180)
+        return make_llm_args(llm, llm_model, 2.0, 10.0, 2.5, 0.1, 16000, 180, "5m")
 
     return build_llm_args
 

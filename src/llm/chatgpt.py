@@ -49,8 +49,8 @@ def validate_chatgpt(llm_args: LLMArgs) -> bool:
 		raise ValueError(f"ChatGPT model ({llm_args.llm_model}) is not one of the OpenAI models.")
 
 	# 4. Paid models need a price, so the cost of every run can be computed
-	if llm_args.input_price == 0 or llm_args.output_price == 0:
-		raise ValueError(f"ChatGPT model ({llm_args.llm_model}) needs an input and output price above 0.")
+	if llm_args.input_price == 0 or llm_args.output_price == 0 or llm_args.cache_write_price == 0 or llm_args.cache_read_price == 0:
+		raise ValueError(f"ChatGPT model ({llm_args.llm_model}) needs an input, output, cache write and cache read price above 0.")
 
 	return True
 
@@ -199,8 +199,13 @@ class ChatGPTLLM:
 					failed_count = failed_count + 1
 					continue
 				body = output["response"]["body"]
+				# prompt_tokens includes the tokens OpenAI read from its prompt cache, which it caches on its own
 				input_tokens = body["usage"]["prompt_tokens"]
 				output_tokens = body["usage"]["completion_tokens"]
+				cache_read_tokens = 0
+				prompt_tokens_details = body["usage"].get("prompt_tokens_details")
+				if prompt_tokens_details is not None and prompt_tokens_details.get("cached_tokens") is not None:
+					cache_read_tokens = prompt_tokens_details["cached_tokens"]
 				replies[output["custom_id"]] = LLMResponse(
 					llm=self.llm_args.llm,
 					llm_model=self.llm_args.llm_model,
@@ -211,6 +216,7 @@ class ChatGPTLLM:
 				)
 				self.token_counter.number_of_calls = self.token_counter.number_of_calls + 1
 				self.token_counter.input_tokens = self.token_counter.input_tokens + input_tokens
+				self.token_counter.cache_read_tokens = self.token_counter.cache_read_tokens + cache_read_tokens
 				self.token_counter.output_tokens = self.token_counter.output_tokens + output_tokens
 
 		print(f"ChatGPT batch {batch_id} : {batch.status}, {len(replies)} succeeded, {failed_count} failed")
@@ -219,16 +225,23 @@ class ChatGPTLLM:
 	def compute_cost(self) -> LLMCost:
 		"""
 		Input: nothing.
-		Output: an LLMCost with the calls, tokens and cost of all calls made so far, in US dollars.
-		What it does: multiplies the counted tokens by the model's prices and prints the tokens and cost.
+		Output: an LLMCost with the calls, tokens (cached ones apart) and cost of all calls made so far, in US dollars.
+		What it does: multiplies the counted tokens by the model's prices, cached input tokens by the cache prices,
+		and prints the tokens and cost.
 		"""
 		llm_model = self.llm_args.llm_model
-		input_cost = self.token_counter.input_tokens * self.llm_args.input_price / 1000000
+		# The cached input tokens are priced at the cache prices, the rest at the input price
+		uncached_input_tokens = self.token_counter.input_tokens - self.token_counter.cache_creation_tokens - self.token_counter.cache_read_tokens
+		input_cost = uncached_input_tokens * self.llm_args.input_price / 1000000
+		cache_write_cost = self.token_counter.cache_creation_tokens * self.llm_args.cache_write_price / 1000000
+		cache_read_cost = self.token_counter.cache_read_tokens * self.llm_args.cache_read_price / 1000000
 		output_cost = self.token_counter.output_tokens * self.llm_args.output_price / 1000000
-		total_cost = input_cost + output_cost
+		total_cost = input_cost + cache_write_cost + cache_read_cost + output_cost
 
 		print(f"{llm_model} calls : {self.token_counter.number_of_calls}")
-		print(f"{llm_model} input tokens : {self.token_counter.input_tokens}, cost : ${input_cost:.4f}")
+		print(f"{llm_model} input tokens : {self.token_counter.input_tokens}, of which not cached : {uncached_input_tokens}, cost : ${input_cost:.4f}")
+		print(f"{llm_model} cache written tokens : {self.token_counter.cache_creation_tokens}, cost : ${cache_write_cost:.4f}")
+		print(f"{llm_model} cache read tokens : {self.token_counter.cache_read_tokens}, cost : ${cache_read_cost:.4f}")
 		print(f"{llm_model} output tokens : {self.token_counter.output_tokens}, cost : ${output_cost:.4f}")
 		print(f"{llm_model} cost : ${total_cost:.4f}")
 
@@ -237,8 +250,12 @@ class ChatGPTLLM:
 			llm_model=llm_model,
 			number_of_calls=self.token_counter.number_of_calls,
 			input_tokens=self.token_counter.input_tokens,
+			cache_creation_tokens=self.token_counter.cache_creation_tokens,
+			cache_read_tokens=self.token_counter.cache_read_tokens,
 			output_tokens=self.token_counter.output_tokens,
 			input_cost=input_cost,
+			cache_write_cost=cache_write_cost,
+			cache_read_cost=cache_read_cost,
 			output_cost=output_cost,
 			total_cost=total_cost
 		)

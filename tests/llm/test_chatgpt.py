@@ -78,16 +78,16 @@ def test_chatgpt_models_not_reachable_raises(paid_env, fake_urlopen, url_error, 
         validate_chatgpt(make_test_llm_args(llm="chatgpt", llm_model="gpt-4.1-nano"))
 
 
-@pytest.mark.parametrize("input_price, output_price", [(0, 2.0), (1.0, 0)])
-def test_chatgpt_zero_price_raises(paid_env, fake_urlopen, make_test_llm_args, input_price, output_price):
+@pytest.mark.parametrize("price_name", ["input_price", "output_price", "cache_write_price", "cache_read_price"])
+def test_chatgpt_zero_price_raises(paid_env, fake_urlopen, make_test_llm_args, price_name):
     """
-    Input: an input or output price of 0.
+    Input: one of the four prices at 0.
     Output: ValueError saying the model needs prices above 0.
     What it does: checks every paid run can compute its cost.
     """
     fake_urlopen["bodies"] = [MODELS_BODY]
     with pytest.raises(ValueError, match="price above 0"):
-        validate_chatgpt(make_test_llm_args(llm="chatgpt", llm_model="gpt-4.1-nano", input_price=input_price, output_price=output_price))
+        validate_chatgpt(make_test_llm_args(llm="chatgpt", llm_model="gpt-4.1-nano", **{price_name: 0}))
 
 
 # ------ generate_batch
@@ -141,12 +141,16 @@ class FakeOpenAI:
     def file_content(self, file_id):
         """
         Input: file_id, the output file.
-        Output: an object whose text is one JSONL line per entry in state["results"].
-        What it does: builds the output file the way OpenAI writes it.
+        Output: an object whose text is one JSONL line per entry in state["results"], with prompt_tokens_details for
+        an id in state["cached_tokens"].
+        What it does: builds the output file the way OpenAI writes it; prompt_tokens includes the cached tokens.
         """
         lines = []
         for custom_id, status_code, text, input_tokens, output_tokens in self.state["results"]:
-            body = {"choices": [{"message": {"content": text}}], "usage": {"prompt_tokens": input_tokens, "completion_tokens": output_tokens}}
+            usage = {"prompt_tokens": input_tokens, "completion_tokens": output_tokens}
+            if custom_id in self.state["cached_tokens"]:
+                usage["prompt_tokens_details"] = {"cached_tokens": self.state["cached_tokens"][custom_id]}
+            body = {"choices": [{"message": {"content": text}}], "usage": usage}
             lines.append(json.dumps({"custom_id": custom_id, "response": {"status_code": status_code, "body": body}}))
         return SimpleNamespace(text="\n".join(lines) + "\n")
 
@@ -160,7 +164,7 @@ def fake_openai(monkeypatch):
     What it does: makes generate_batch use FakeOpenAI. ChatOpenAI keeps the real SDK, untouched.
     """
     state = {"created": [], "retrieved": [], "checks_before_end": 0, "end_status": "completed", "output_file_id": "out_1",
-             "results": [], "keys": []}
+             "results": [], "cached_tokens": {}, "keys": []}
 
     def make_client(api_key, timeout):
         """
@@ -281,3 +285,20 @@ def test_failed_batch_without_output_file_returns_no_replies(paid_env, fake_open
 
     assert replies == {}
     assert chatgpt_llm.token_counter.number_of_calls == 0
+
+
+def test_batch_counts_the_tokens_openai_read_from_its_cache(paid_env, fake_openai, tmp_path, make_test_llm_args, batch_requests):
+    """
+    Input: hash_b's 1,500 prompt tokens include 1,024 OpenAI read from its cache; hash_a reports no details.
+    Output: the token counter holds 2,500 input tokens, of which 1,024 read from the cache.
+    What it does: checks OpenAI's automatic caching is counted, so its cached tokens are priced at the cache price.
+    """
+    fake_openai["results"] = [("hash_a", 200, "Answer A.", 1000, 3), ("hash_b", 200, "Answer B.", 1500, 4)]
+    fake_openai["cached_tokens"] = {"hash_b": 1024}
+
+    chatgpt_llm = make_chatgpt_llm(make_test_llm_args)
+    chatgpt_llm.generate_batch(batch_requests, str(tmp_path / "batch_id.txt"), 0, 60)
+
+    assert chatgpt_llm.token_counter.input_tokens == 2500
+    assert chatgpt_llm.token_counter.cache_read_tokens == 1024
+    assert chatgpt_llm.token_counter.cache_creation_tokens == 0

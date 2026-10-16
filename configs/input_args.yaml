@@ -3,45 +3,75 @@
 # Any setting can be overridden for one run, e.g. bash scripts/build.sh --dataset_size 20
 
 # Models: LLM model names and prices in US dollars per million tokens. Not settings themselves: the eval layers below
-# reuse them with *name. Batch prices are the batch API prices, 50% of the normal ones, used by generation
+# reuse them with *name. Batch prices are the batch API prices, 50% of the normal ones, used by generation.
+# Cache prices are for input tokens written to or read from the provider's prompt cache. Claude charges more to write
+# (the price below is the 5m one; see llm_cache_ttl); OpenAI and Gemini do not, so their write price is the input price.
+# OpenAI lists no cached price for batches, so its batch cache read price is the batch input price.
+# Sources: platform.claude.com/docs/en/about-claude/pricing, developers.openai.com/api/docs/pricing, ai.google.dev/pricing
 models:
   sonnet: &sonnet claude-sonnet-5-5
   sonnet_input_price: &sonnet_input_price 2.00
   sonnet_output_price: &sonnet_output_price 10.00
+  sonnet_cache_write_price: &sonnet_cache_write_price 2.50   # 1h cache write: 4.00, batch 2.00
+  sonnet_cache_read_price: &sonnet_cache_read_price 0.10
   sonnet_batch_input_price: &sonnet_batch_input_price 1.00
   sonnet_batch_output_price: &sonnet_batch_output_price 5.00
+  sonnet_batch_cache_write_price: &sonnet_batch_cache_write_price 1.25
+  sonnet_batch_cache_read_price: &sonnet_batch_cache_read_price 0.05
   haiku: &haiku claude-haiku-5-5
   haiku_input_price: &haiku_input_price 0.10
   haiku_output_price: &haiku_output_price 0.50
+  haiku_cache_write_price: &haiku_cache_write_price 0.125   # 1h cache write: 0.20, batch 0.10
+  haiku_cache_read_price: &haiku_cache_read_price 0.01
   haiku_batch_input_price: &haiku_batch_input_price 0.05
   haiku_batch_output_price: &haiku_batch_output_price 0.25
+  haiku_batch_cache_write_price: &haiku_batch_cache_write_price 0.0625
+  haiku_batch_cache_read_price: &haiku_batch_cache_read_price 0.005
 
   llama: &llama llama3.1:8b
   llama_input_price: &llama_input_price 0
   llama_output_price: &llama_output_price 0
+  llama_cache_write_price: &llama_cache_write_price 0
+  llama_cache_read_price: &llama_cache_read_price 0
 
   # The 2.5 models are listed but no longer available to new users, so the 3.x models are used
   flash_lite_35: &flash_lite_35 gemini-3.5-flash-lite
   flash_lite_35_input_price: &flash_lite_35_input_price 0.30
   flash_lite_35_output_price: &flash_lite_35_output_price 2.50
+  flash_lite_35_cache_write_price: &flash_lite_35_cache_write_price 0.30
+  flash_lite_35_cache_read_price: &flash_lite_35_cache_read_price 0.03
   flash_lite_35_batch_input_price: &flash_lite_35_batch_input_price 0.15
   flash_lite_35_batch_output_price: &flash_lite_35_batch_output_price 1.25
+  flash_lite_35_batch_cache_write_price: &flash_lite_35_batch_cache_write_price 0.15
+  flash_lite_35_batch_cache_read_price: &flash_lite_35_batch_cache_read_price 0.02
   flash_lite_31: &flash_lite_31 gemini-3.1-flash-lite
   flash_lite_31_input_price: &flash_lite_31_input_price 0.25
   flash_lite_31_output_price: &flash_lite_31_output_price 1.50
+  flash_lite_31_cache_write_price: &flash_lite_31_cache_write_price 0.25
+  flash_lite_31_cache_read_price: &flash_lite_31_cache_read_price 0.025
   flash_lite_31_batch_input_price: &flash_lite_31_batch_input_price 0.125
   flash_lite_31_batch_output_price: &flash_lite_31_batch_output_price 0.75
+  flash_lite_31_batch_cache_write_price: &flash_lite_31_batch_cache_write_price 0.125
+  flash_lite_31_batch_cache_read_price: &flash_lite_31_batch_cache_read_price 0.0125
 
   gpt_mini: &gpt_mini gpt-4.1-mini
   gpt_mini_input_price: &gpt_mini_input_price 0.40
   gpt_mini_output_price: &gpt_mini_output_price 1.60
+  gpt_mini_cache_write_price: &gpt_mini_cache_write_price 0.40
+  gpt_mini_cache_read_price: &gpt_mini_cache_read_price 0.10
   gpt_mini_batch_input_price: &gpt_mini_batch_input_price 0.20
   gpt_mini_batch_output_price: &gpt_mini_batch_output_price 0.80
+  gpt_mini_batch_cache_write_price: &gpt_mini_batch_cache_write_price 0.20
+  gpt_mini_batch_cache_read_price: &gpt_mini_batch_cache_read_price 0.20
   gpt_nano: &gpt_nano gpt-4.1-nano
   gpt_nano_input_price: &gpt_nano_input_price 0.10
   gpt_nano_output_price: &gpt_nano_output_price 0.40
+  gpt_nano_cache_write_price: &gpt_nano_cache_write_price 0.10
+  gpt_nano_cache_read_price: &gpt_nano_cache_read_price 0.025
   gpt_nano_batch_input_price: &gpt_nano_batch_input_price 0.05
   gpt_nano_batch_output_price: &gpt_nano_batch_output_price 0.20
+  gpt_nano_batch_cache_write_price: &gpt_nano_batch_cache_write_price 0.05
+  gpt_nano_batch_cache_read_price: &gpt_nano_batch_cache_read_price 0.05
 
 build:
   # 1. Ingestion
@@ -83,6 +113,7 @@ eval:
   llm:
     llm_max_tokens: 16000       # Maximum output tokens per call
     llm_timeout_seconds: 180    # Seconds before one call times out
+    llm_cache_ttl: 5m           # How long Claude keeps a cached system prompt: 5m or 1h. Each Claude cache write price must match
 
   # 4. Eval QnA
   qna:
@@ -90,10 +121,14 @@ eval:
     qna_llm_model: *sonnet
     qna_input_price: *sonnet_input_price
     qna_output_price: *sonnet_output_price
+    qna_cache_write_price: *sonnet_cache_write_price
+    qna_cache_read_price: *sonnet_cache_read_price
     qna_kg_llm: claude          # LLM RAGAS uses to build its knowledge graph
     qna_kg_llm_model: *haiku
     qna_kg_input_price: *haiku_input_price
     qna_kg_output_price: *haiku_output_price
+    qna_kg_cache_write_price: *haiku_cache_write_price
+    qna_kg_cache_read_price: *haiku_cache_read_price
     eval_qna_model: all-MiniLM-L6-v2   # Local embedding model RAGAS uses to build its knowledge graph
     n_sample_documents: 100     # Documents randomly picked for RAGAS to generate the eval QnA from
     n_sample_evals: 200         # Eval QnA items to generate
@@ -104,6 +139,8 @@ eval:
     query_llm_model: *llama
     query_input_price: *llama_input_price
     query_output_price: *llama_output_price
+    query_cache_write_price: *llama_cache_write_price
+    query_cache_read_price: *llama_cache_read_price
     n_multi_qus: 3              # Phrasings the query LLM writes for each eval question
 
   # 6. Retrieval
@@ -116,11 +153,14 @@ eval:
     n_retrieval_quality: 1      # Best plain setups and best reranked setups whose retrieved outputs go on to the next layers
 
   # 7. Generation
-  # Always sent as one batch, so a paid model uses its batch prices. Ollama has no batch API and answers one at a time
+  # Always sent as one batch, so a paid model uses its batch prices, cache prices included. Ollama has no batch API and
+  # answers one at a time
   generation:
     generation_llm: ollama      # LLM that answers the prompts
     generation_llm_model: *llama
     generation_input_price: *llama_input_price
     generation_output_price: *llama_output_price
+    generation_cache_write_price: *llama_cache_write_price
+    generation_cache_read_price: *llama_cache_read_price
     batch_poll_seconds: 60      # Seconds between status checks of a generation batch
     batch_timeout_seconds: 86400   # Seconds to wait for a batch before stopping; a later run resumes the same batch

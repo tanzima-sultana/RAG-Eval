@@ -77,16 +77,16 @@ def test_claude_models_not_reachable_raises(paid_env, fake_urlopen, url_error, m
         validate_claude(make_test_llm_args())
 
 
-@pytest.mark.parametrize("input_price, output_price", [(0, 2.0), (1.0, 0)])
-def test_claude_zero_price_raises(paid_env, fake_urlopen, make_test_llm_args, input_price, output_price):
+@pytest.mark.parametrize("price_name", ["input_price", "output_price", "cache_write_price", "cache_read_price"])
+def test_claude_zero_price_raises(paid_env, fake_urlopen, make_test_llm_args, price_name):
     """
-    Input: an input or output price of 0.
+    Input: one of the four prices at 0.
     Output: ValueError saying the model needs prices above 0.
     What it does: checks every paid run can compute its cost.
     """
     fake_urlopen["bodies"] = [MODELS_BODY]
     with pytest.raises(ValueError, match="price above 0"):
-        validate_claude(make_test_llm_args(input_price=input_price, output_price=output_price))
+        validate_claude(make_test_llm_args(**{price_name: 0}))
 
 
 # ------ generate_batch
@@ -128,15 +128,16 @@ class FakeAnthropic:
     def results(self, batch_id):
         """
         Input: batch_id.
-        Output: one result per entry in state["results"]: (custom_id, type, text, input tokens, output tokens).
-        What it does: builds the results the way the SDK returns them.
+        Output: one result per entry in state["results"]: (custom_id, type, text, input tokens, output tokens), with the
+        cache write and read tokens of state["cache_tokens"] (0 and 0 for an id not in it).
+        What it does: builds the results the way the SDK returns them; input_tokens leaves out the cached tokens.
         """
         entries = []
         for custom_id, result_type, text, input_tokens, output_tokens in self.state["results"]:
-            message = SimpleNamespace(
-                content=[SimpleNamespace(type="text", text=text)],
-                usage=SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens)
-            )
+            cache_creation_tokens, cache_read_tokens = self.state["cache_tokens"].get(custom_id, (0, 0))
+            usage = SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens,
+                                    cache_creation_input_tokens=cache_creation_tokens, cache_read_input_tokens=cache_read_tokens)
+            message = SimpleNamespace(content=[SimpleNamespace(type="text", text=text)], usage=usage)
             entries.append(SimpleNamespace(custom_id=custom_id, result=SimpleNamespace(type=result_type, message=message)))
         return entries
 
@@ -148,7 +149,7 @@ def fake_anthropic(monkeypatch):
     Output: the state dict FakeAnthropic uses; the test sets "results" and "checks_before_end".
     What it does: makes generate_batch use FakeAnthropic. ChatAnthropic keeps the real SDK, untouched.
     """
-    state = {"created": [], "retrieved": [], "checks_before_end": 0, "results": [], "keys": []}
+    state = {"created": [], "retrieved": [], "checks_before_end": 0, "results": [], "cache_tokens": {}, "keys": []}
 
     def make_client(api_key, timeout):
         """
@@ -192,7 +193,8 @@ def test_batch_sends_every_request_once_and_returns_responses(paid_env, fake_ant
     assert len(fake_anthropic["created"]) == 1
     assert sent_requests[0] == {
         "custom_id": "hash_a",
-        "params": {"model": "claude-haiku-5-5", "max_tokens": 100, "system": "Answer from the context.",
+        "params": {"model": "claude-haiku-5-5", "max_tokens": 100,
+                   "system": [{"type": "text", "text": "Answer from the context.", "cache_control": {"type": "ephemeral", "ttl": "5m"}}],
                    "messages": [{"role": "user", "content": "Context: A\n\nQuestion: a?"}]},
     }
     assert sent_requests[1]["custom_id"] == "hash_b"
@@ -253,3 +255,38 @@ def test_batch_leaves_out_failed_requests(paid_env, fake_anthropic, tmp_path, ma
     assert list(replies) == ["hash_a"]
     assert claude_llm.token_counter.number_of_calls == 1
     assert claude_llm.token_counter.input_tokens == 20
+
+
+def test_batch_counts_cache_writes_and_reads(paid_env, fake_anthropic, tmp_path, make_test_llm_args, batch_requests):
+    """
+    Input: hash_a wrote 100 system prompt tokens to the cache and hash_b read them; each has its own 20 or 30 other
+    input tokens.
+    Output: each response's input tokens include its cached ones (120 and 130); the token counter holds 250 input
+    tokens, 100 written and 100 read.
+    What it does: checks Claude's input_tokens, which leaves out the cached tokens, is added up with them, so the cost
+    can price each kind.
+    """
+    fake_anthropic["results"] = [("hash_a", "succeeded", "Answer A.", 20, 3), ("hash_b", "succeeded", "Answer B.", 30, 4)]
+    fake_anthropic["cache_tokens"] = {"hash_a": (100, 0), "hash_b": (0, 100)}
+
+    claude_llm = make_claude_llm(make_test_llm_args)
+    replies = claude_llm.generate_batch(batch_requests, str(tmp_path / "batch_id.txt"), 0, 60)
+
+    assert (replies["hash_a"].input_tokens, replies["hash_b"].input_tokens) == (120, 130)
+    assert claude_llm.token_counter.input_tokens == 250
+    assert claude_llm.token_counter.cache_creation_tokens == 100
+    assert claude_llm.token_counter.cache_read_tokens == 100
+
+
+def test_batch_uses_the_cache_lifetime_setting(paid_env, fake_anthropic, tmp_path, make_test_llm_args, batch_requests):
+    """
+    Input: cache_ttl 1h.
+    Output: every request's system prompt is marked with ttl 1h.
+    What it does: checks the lifetime comes from the settings, not the code.
+    """
+    claude_llm = ClaudeLLM(make_test_llm_args(cache_ttl="1h"), TokenCounter())
+
+    claude_llm.generate_batch(batch_requests, str(tmp_path / "batch_id.txt"), 0, 60)
+
+    for sent_request in fake_anthropic["created"][0]:
+        assert sent_request["params"]["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}

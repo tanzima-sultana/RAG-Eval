@@ -25,8 +25,8 @@ def validate_ollama(llm_args: LLMArgs) -> bool:
 	What it does: checks the prices are 0, the Ollama server is reachable and the model is pulled.
 	"""
 	# 1. Ollama runs locally, so it costs nothing
-	if llm_args.input_price != 0 or llm_args.output_price != 0:
-		raise ValueError(f"Ollama model ({llm_args.llm_model}) runs locally, so its input and output price must be 0.")
+	if llm_args.input_price != 0 or llm_args.output_price != 0 or llm_args.cache_write_price != 0 or llm_args.cache_read_price != 0:
+		raise ValueError(f"Ollama model ({llm_args.llm_model}) runs locally, so its input, output and cache prices must be 0.")
 
 	# 2. Check the Ollama server is running
 	try:
@@ -137,16 +137,23 @@ class OllamaLLM:
 	def compute_cost(self) -> LLMCost:
 		"""
 		Input: nothing.
-		Output: an LLMCost with the calls, tokens and cost of all calls made so far. The cost is 0 with the ollama prices of 0.
-		What it does: multiplies the counted tokens by the model's prices and prints the tokens and cost.
+		Output: an LLMCost with the calls, tokens (cached ones apart) and cost of all calls made so far. The cost is 0 with the ollama prices of 0.
+		What it does: multiplies the counted tokens by the model's prices, cached input tokens by the cache prices,
+		and prints the tokens and cost.
 		"""
 		llm_model = self.llm_args.llm_model
-		input_cost = self.token_counter.input_tokens * self.llm_args.input_price / 1000000
+		# The cached input tokens are priced at the cache prices, the rest at the input price
+		uncached_input_tokens = self.token_counter.input_tokens - self.token_counter.cache_creation_tokens - self.token_counter.cache_read_tokens
+		input_cost = uncached_input_tokens * self.llm_args.input_price / 1000000
+		cache_write_cost = self.token_counter.cache_creation_tokens * self.llm_args.cache_write_price / 1000000
+		cache_read_cost = self.token_counter.cache_read_tokens * self.llm_args.cache_read_price / 1000000
 		output_cost = self.token_counter.output_tokens * self.llm_args.output_price / 1000000
-		total_cost = input_cost + output_cost
+		total_cost = input_cost + cache_write_cost + cache_read_cost + output_cost
 
 		print(f"{llm_model} calls : {self.token_counter.number_of_calls}")
-		print(f"{llm_model} input tokens : {self.token_counter.input_tokens}, cost : ${input_cost:.4f}")
+		print(f"{llm_model} input tokens : {self.token_counter.input_tokens}, of which not cached : {uncached_input_tokens}, cost : ${input_cost:.4f}")
+		print(f"{llm_model} cache written tokens : {self.token_counter.cache_creation_tokens}, cost : ${cache_write_cost:.4f}")
+		print(f"{llm_model} cache read tokens : {self.token_counter.cache_read_tokens}, cost : ${cache_read_cost:.4f}")
 		print(f"{llm_model} output tokens : {self.token_counter.output_tokens}, cost : ${output_cost:.4f}")
 		print(f"{llm_model} cost : ${total_cost:.4f}")
 
@@ -155,8 +162,12 @@ class OllamaLLM:
 			llm_model=llm_model,
 			number_of_calls=self.token_counter.number_of_calls,
 			input_tokens=self.token_counter.input_tokens,
+			cache_creation_tokens=self.token_counter.cache_creation_tokens,
+			cache_read_tokens=self.token_counter.cache_read_tokens,
 			output_tokens=self.token_counter.output_tokens,
 			input_cost=input_cost,
+			cache_write_cost=cache_write_cost,
+			cache_read_cost=cache_read_cost,
 			output_cost=output_cost,
 			total_cost=total_cost
 		)

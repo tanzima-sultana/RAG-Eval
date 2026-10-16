@@ -77,15 +77,37 @@ def test_empty_model_raises(provider_checks, make_test_llm_args, llm_model):
         validate_llm(make_test_llm_args(llm_model=llm_model))
 
 
-@pytest.mark.parametrize("input_price, output_price", [(-0.1, 1.0), (1.0, -0.1)])
-def test_negative_price_raises(provider_checks, make_test_llm_args, input_price, output_price):
+@pytest.mark.parametrize("price_name", ["input_price", "output_price", "cache_write_price", "cache_read_price"])
+def test_negative_price_raises(provider_checks, make_test_llm_args, price_name):
     """
-    Input: a negative input or output price.
+    Input: one of the four prices below 0.
     Output: ValueError mentioning the prices.
-    What it does: checks prices are 0 or more.
+    What it does: checks every price is 0 or more.
     """
     with pytest.raises(ValueError, match="must be 0 or more"):
-        validate_llm(make_test_llm_args(input_price=input_price, output_price=output_price))
+        validate_llm(make_test_llm_args(**{price_name: -0.1}))
+
+
+@pytest.mark.parametrize("cache_ttl", ["5m", "1h"])
+def test_both_cache_lifetimes_pass(provider_checks, make_test_llm_args, cache_ttl):
+    """
+    Input: cache_ttl 5m or 1h.
+    Output: True.
+    What it does: checks the two lifetimes Claude's prompt cache takes are accepted.
+    """
+    assert validate_llm(make_test_llm_args(cache_ttl=cache_ttl)) is True
+
+
+@pytest.mark.parametrize("cache_ttl", ["", "10m", "1d"])
+def test_other_cache_lifetime_raises(provider_checks, make_test_llm_args, cache_ttl):
+    """
+    Input: a cache_ttl other than 5m or 1h.
+    Output: ValueError mentioning cache_ttl, before any provider check.
+    What it does: checks a lifetime Claude would reject is caught before a paid run.
+    """
+    with pytest.raises(ValueError, match="cache_ttl"):
+        validate_llm(make_test_llm_args(cache_ttl=cache_ttl))
+    assert provider_checks == []
 
 
 @pytest.mark.parametrize("max_tokens", [0, -5])
