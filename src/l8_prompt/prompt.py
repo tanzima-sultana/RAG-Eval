@@ -6,9 +6,9 @@ from l8_prompt.schema import Prompt
 from l8_prompt.prompt_template import SYSTEM_PROMPT
 from l8_prompt.prompt_template import USER_PROMPT_TEMPLATE
 
-def get_prompt_list(context_list: list[Context], tuning_queries: list[Query]) -> list[Prompt]:
+def get_prompt_list(context_list: list[Context], queries: list[Query]) -> list[Prompt]:
 	"""
-	Input: context_list, the l7 contexts; tuning_queries, the l5 tuning queries.
+	Input: context_list, the l7 contexts; queries, the l5 queries of this run, tuning or held-out.
 	Output: one Prompt per Context, in the same order, so prompt_list[i] belongs to context_list[i].
 	What it does: fills the user prompt template with each context and its original question.
 	An empty context gets an empty user prompt.
@@ -17,7 +17,7 @@ def get_prompt_list(context_list: list[Context], tuning_queries: list[Query]) ->
 
 	# 1. Store each original question by its id, so each Context finds its question by context.id
 	question_by_id = {}
-	for query in tuning_queries:
+	for query in queries:
 		question_by_id[query.id] = query.original_qus.qus
 
 	# The system prompt is the same for every prompt, so count its words once

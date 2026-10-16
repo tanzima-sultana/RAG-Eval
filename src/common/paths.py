@@ -232,14 +232,15 @@ def get_retrieved_index_folder(index_args: IndexArgs) -> str:
 		return "qdrant"
 	raise ValueError(f"index_type ({index_args.index_type}) is not supported")
 
-def get_retrieved_path(output_path:str, chunking_args: ChunkingArgs, index_args: IndexArgs, tuning_queries_size: int) -> str:
+def get_retrieved_path(output_path:str, chunking_args: ChunkingArgs, index_args: IndexArgs, query_split: str, tuning_queries_size: int, query_types: list[str]) -> str:
 	"""
 	Input: output_path, the dataset's output folder; chunking_args and index_args, the chunks and index searched;
-	tuning_queries_size, the number of tuning queries.
+	query_split, tuning or held_out; tuning_queries_size, the number of tuning queries; query_types, the query types
+	searched with.
 	Output: the retrieved folder path of one index, as a string ending with "/".
 	What it does: builds {output_path}/retrieved/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/
-	{index_folder}/{tuning_queries_size}/, with a {framework}/ folder after retrieved/ when a framework such as
-	langchain is used.
+	{index_folder}/{query_split}_{tuning_queries_size}/{query_types joined by "_"}/, with a {framework}/ folder after
+	retrieved/ when a framework such as langchain is used.
 	"""
 	if chunking_args.framework == NO_FRAMEWORK:
 		framework_folder = ""
@@ -247,18 +248,20 @@ def get_retrieved_path(output_path:str, chunking_args: ChunkingArgs, index_args:
 		framework_folder = f"{chunking_args.framework}/"
 
 	index_folder = get_retrieved_index_folder(index_args)
+	query_types_folder = "_".join(query_types)
 
 	return (
 		f"{output_path}/retrieved/{framework_folder}{chunking_args.chunk_type}/{chunking_args.model_name}/"
 		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
 		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}/"
-		f"{index_folder}/{tuning_queries_size}/"
+		f"{index_folder}/{query_split}_{tuning_queries_size}/{query_types_folder}/"
 	)
 
-def get_hybrid_retrieved_path(output_path:str, chunking_args: ChunkingArgs, dense_index_args: IndexArgs, bm25_index_args: IndexArgs, tuning_queries_size: int) -> str:
+def get_hybrid_retrieved_path(output_path:str, chunking_args: ChunkingArgs, dense_index_args: IndexArgs, bm25_index_args: IndexArgs, query_split: str, tuning_queries_size: int, query_types: list[str]) -> str:
 	"""
 	Input: output_path, the dataset's output folder; chunking_args, the chunks searched; dense_index_args and
-	bm25_index_args, the two indexes fused; tuning_queries_size, the number of tuning queries.
+	bm25_index_args, the two indexes fused; query_split, tuning or held_out; tuning_queries_size, the number of tuning
+	queries; query_types, the query types searched with.
 	Output: the retrieved folder path of one hybrid pair, as a string ending with "/".
 	What it does: the same as get_retrieved_path, with both index folders joined by "+" as the index folder,
 	e.g. flatip+bm25_1.5_0.75_whitespace.
@@ -270,12 +273,13 @@ def get_hybrid_retrieved_path(output_path:str, chunking_args: ChunkingArgs, dens
 
 	dense_index_folder = get_retrieved_index_folder(dense_index_args)
 	bm25_index_folder = get_retrieved_index_folder(bm25_index_args)
+	query_types_folder = "_".join(query_types)
 
 	return (
 		f"{output_path}/retrieved/{framework_folder}{chunking_args.chunk_type}/{chunking_args.model_name}/"
 		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
 		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}/"
-		f"{dense_index_folder}+{bm25_index_folder}/{tuning_queries_size}/"
+		f"{dense_index_folder}+{bm25_index_folder}/{query_split}_{tuning_queries_size}/{query_types_folder}/"
 	)
 
 # ------ Generation

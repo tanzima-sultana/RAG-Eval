@@ -34,7 +34,7 @@ def test_one_output_per_query_type_in_order(faiss_index, make_query):
     """
     queries = [make_query(query_id="eval_qna_0"), make_query(query_id="eval_qna_1")]
 
-    dense_outputs = dense.get_dense_outputs(queries, "fixed", "faiss_flatip", faiss_index, 2)
+    dense_outputs = dense.get_dense_outputs(queries, "fixed", "faiss_flatip", faiss_index, 2, ["original", "rewritten", "multi", "hyde"])
 
     keys = []
     for retrieved in dense_outputs:
@@ -47,13 +47,29 @@ def test_one_output_per_query_type_in_order(faiss_index, make_query):
     ]
 
 
+def test_only_the_given_query_types_are_searched(faiss_index, make_query):
+    """
+    Input: two queries and query_types ["original"].
+    Output: 2 Retrieved, the original of each query.
+    What it does: checks query types not in query_types are not searched.
+    """
+    queries = [make_query(query_id="eval_qna_0"), make_query(query_id="eval_qna_1")]
+
+    dense_outputs = dense.get_dense_outputs(queries, "fixed", "faiss_flatip", faiss_index, 2, ["original"])
+
+    keys = []
+    for retrieved in dense_outputs:
+        keys.append((retrieved.id, retrieved.query_type))
+    assert keys == [("eval_qna_0", "original"), ("eval_qna_1", "original")]
+
+
 def test_original_query_finds_the_closest_chunks_best_first(faiss_index, make_query):
     """
     Input: an original question along the first axis, top_k 2.
     Output: doc_a_0 (cosine 1.0) then doc_my_file_2 (cosine 1/sqrt(3)), with their documents.
     What it does: checks the cosine scores, the order, the top_k cut, and that a doc id with "_" is kept whole.
     """
-    dense_outputs = dense.get_dense_outputs([make_query(original=(1, 0, 0))], "fixed", "faiss_flatip", faiss_index, 2)
+    dense_outputs = dense.get_dense_outputs([make_query(original=(1, 0, 0))], "fixed", "faiss_flatip", faiss_index, 2, ["original", "rewritten", "multi", "hyde"])
     original_output = dense_outputs[0]
 
     assert original_output.chunk_ids == ["doc_a_0", "doc_my_file_2"]
@@ -69,7 +85,7 @@ def test_multi_phrasings_are_merged_keeping_each_chunks_best_score(faiss_index, 
     """
     query = make_query(multi=((1, 0, 0), (0, 1, 0)), multi_tokens=(("a",), ("b",)))
 
-    multi_output = dense.get_dense_outputs([query], "fixed", "faiss_flatip", faiss_index, 3)[2]
+    multi_output = dense.get_dense_outputs([query], "fixed", "faiss_flatip", faiss_index, 3, ["original", "rewritten", "multi", "hyde"])[2]
 
     assert multi_output.query_type == "multi"
     assert sorted(multi_output.chunk_ids[:2]) == ["doc_a_0", "doc_a_1"]
@@ -85,7 +101,7 @@ def test_refused_hyde_and_missing_multi_give_empty_outputs(faiss_index, make_que
     """
     query = make_query(multi=(), multi_tokens=(), hyde_text=I_DONT_KNOW)
 
-    dense_outputs = dense.get_dense_outputs([query], "fixed", "faiss_flatip", faiss_index, 2)
+    dense_outputs = dense.get_dense_outputs([query], "fixed", "faiss_flatip", faiss_index, 2, ["original", "rewritten", "multi", "hyde"])
 
     assert (dense_outputs[2].query_type, dense_outputs[2].chunk_ids) == ("multi", [])
     assert (dense_outputs[3].query_type, dense_outputs[3].chunk_ids) == ("hyde", [])
@@ -97,7 +113,7 @@ def test_top_k_above_the_number_of_chunks_returns_every_chunk_once(faiss_index, 
     Output: 4 chunks.
     What it does: checks the -1 positions FAISS returns for missing results are skipped.
     """
-    original_output = dense.get_dense_outputs([make_query()], "fixed", "faiss_flatip", faiss_index, 10)[0]
+    original_output = dense.get_dense_outputs([make_query()], "fixed", "faiss_flatip", faiss_index, 10, ["original", "rewritten", "multi", "hyde"])[0]
 
     assert sorted(original_output.chunk_ids) == sorted(CHUNK_IDS)
 
@@ -112,7 +128,7 @@ def test_qdrant_is_searched_once_per_embedding(make_qdrant_index, make_query):
     qdrant_index = make_qdrant_index([("doc_b_0", 0.9), ("doc_a_1", 0.4)])
     query = make_query(multi=((1, 0, 0), (0, 1, 0)), multi_tokens=(("a",), ("b",)))
 
-    dense_outputs = dense.get_dense_outputs([query], "fixed", "qdrant", qdrant_index, 2)
+    dense_outputs = dense.get_dense_outputs([query], "fixed", "qdrant", qdrant_index, 2, ["original", "rewritten", "multi", "hyde"])
 
     assert dense_outputs[0].chunk_ids == ["doc_b_0", "doc_a_1"]
     assert dense_outputs[0].chunk_scores == pytest.approx([0.9, 0.4])

@@ -54,7 +54,7 @@ def test_dense_outputs_search_each_embedding_and_read_chunk_ids(make_query):
     index = SimpleNamespace(vector_store=vector_store)
     query = make_query(multi=((1, 0, 0), (0, 1, 0)), multi_tokens=(("a",), ("b",)), hyde_text=I_DONT_KNOW)
 
-    dense_outputs = Langchain(2).get_dense_outputs([query], "fixed", "faiss_flatip", index)
+    dense_outputs = Langchain(2, ["original", "rewritten", "multi", "hyde"]).get_dense_outputs([query], "fixed", "faiss_flatip", index)
 
     query_types = []
     for retrieved in dense_outputs:
@@ -90,7 +90,7 @@ def test_bm25_outputs_score_with_the_retrievers_model(make_query):
         tokenized_texts.append(texts[position].split())
     index = SimpleNamespace(retriever=SimpleNamespace(docs=documents, vectorizer=BM25Okapi(tokenized_texts)))
 
-    bm25_outputs = Langchain(3).get_bm25_outputs([make_query(original_tokens=("refund", "policy"))], "fixed", "bm25", index)
+    bm25_outputs = Langchain(3, ["original", "rewritten", "multi", "hyde"]).get_bm25_outputs([make_query(original_tokens=("refund", "policy"))], "fixed", "bm25", index)
 
     query_types = []
     for retrieved in bm25_outputs:

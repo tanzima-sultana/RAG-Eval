@@ -272,7 +272,7 @@ def make_retrieval_args():
         Output: a RetrievalArgs with the defaults plus the overrides.
         What it does: fills in a built-in, not reranked run of all three retrieval types.
         """
-        field_values = {"framework": "", "retrieval_types": ["dense", "bm25", "hybrid"], "top_k": 3, "reranking": False, "rerank_top_k": 2}
+        field_values = {"framework": "", "retrieval_types": ["dense", "bm25", "hybrid"], "query_types": ["original", "rewritten", "multi", "hyde"], "top_k": 3, "reranking": False, "rerank_top_k": 2}
         for field_name in overrides:
             field_values[field_name] = overrides[field_name]
         return RetrievalArgs(**field_values)

@@ -53,7 +53,7 @@ def make_retrieval(tmp_path, chunking_args, index_args, make_retrieval_args, no_
         Output: a Retrieval with 150 tuning queries and tmp_path as the output folder.
         What it does: builds the orchestrator the tests call.
         """
-        return Retrieval(make_retrieval_args(**overrides), chunking_args, index_args, 150, str(tmp_path))
+        return Retrieval(make_retrieval_args(**overrides), chunking_args, index_args, "tuning", 150, str(tmp_path))
 
     return build_retrieval
 
@@ -78,7 +78,7 @@ def retrieved_folder(tmp_path, chunking_args, index_args, index_type):
     What it does: works out where Retrieval writes that index's caches.
     """
     index_type_args = dataclasses.replace(index_args, index_type=index_type)
-    return paths.get_retrieved_path(str(tmp_path), chunking_args, index_type_args, 150)
+    return paths.get_retrieved_path(str(tmp_path), chunking_args, index_type_args, "tuning", 150, ["original", "rewritten", "multi", "hyde"])
 
 
 def hybrid_folder_of(tmp_path, chunking_args, index_args, dense_index_type):
@@ -89,7 +89,7 @@ def hybrid_folder_of(tmp_path, chunking_args, index_args, dense_index_type):
     """
     dense_index_args = dataclasses.replace(index_args, index_type=dense_index_type)
     bm25_index_args = dataclasses.replace(index_args, index_type="bm25")
-    return paths.get_hybrid_retrieved_path(str(tmp_path), chunking_args, dense_index_args, bm25_index_args, 150)
+    return paths.get_hybrid_retrieved_path(str(tmp_path), chunking_args, dense_index_args, bm25_index_args, "tuning", 150, ["original", "rewritten", "multi", "hyde"])
 
 
 # ------ Setup
@@ -101,7 +101,7 @@ def test_invalid_args_raise_when_created(tmp_path, chunking_args, index_args, ma
     What it does: checks the settings are validated before any search.
     """
     with pytest.raises(ValueError, match="rerank_top_k"):
-        Retrieval(make_retrieval_args(top_k=2, rerank_top_k=5), chunking_args, index_args, 150, str(tmp_path))
+        Retrieval(make_retrieval_args(top_k=2, rerank_top_k=5), chunking_args, index_args, "tuning", 150, str(tmp_path))
 
 
 def test_cross_encoder_is_loaded_only_with_reranking(make_retrieval, no_cross_encoder_model):
@@ -168,6 +168,19 @@ def test_retrieval_types_not_asked_for_do_not_run(make_retrieval, make_query, sm
     assert len(retrieval.compute_dense_retrieval([make_query()], "fixed", "faiss_flatip", faiss_index)) == 4
     assert retrieval.compute_bm25_retrieval([make_query()], "fixed", "bm25", bm25_index) == []
     assert retrieval.compute_hybrid_retrieval("fixed", "faiss_flatip", [make_retrieved()], [make_retrieved()]) == []
+
+
+def test_hybrid_alone_still_computes_dense_and_bm25(make_retrieval, make_query, small_indexes):
+    """
+    Input: retrieval_types ["hybrid"] only.
+    Output: dense and BM25 still return their outputs.
+    What it does: checks hybrid gets the dense and BM25 outputs it fuses.
+    """
+    faiss_index, bm25_index = small_indexes
+    retrieval = make_retrieval(retrieval_types=["hybrid"])
+
+    assert len(retrieval.compute_dense_retrieval([make_query()], "fixed", "faiss_flatip", faiss_index)) == 4
+    assert len(retrieval.compute_bm25_retrieval([make_query()], "fixed", "bm25", bm25_index)) == 3
 
 
 # ------ Cache files
@@ -244,6 +257,30 @@ def test_each_index_has_its_own_dense_cache(tmp_path, make_retrieval, make_query
     assert qdrant_outputs[0].chunk_ids == ["doc_z_9"]
     assert qdrant_outputs[0].index_type == "qdrant"
     assert os.path.exists(os.path.join(retrieved_folder(tmp_path, chunking_args, index_args, "qdrant"), "dense_top3.json"))
+
+
+def test_held_out_queries_have_their_own_dense_cache(tmp_path, make_retrieval_args, make_query, small_indexes, chunking_args, index_args):
+    """
+    Input: dense retrieval on faiss_flatip, first with the tuning queries, then with the held-out queries and only the
+    original query type.
+    Output: the held-out outputs are searched, not loaded from the tuning cache, and saved in their own folder.
+    What it does: checks the tuning and held-out caches are never mixed up.
+    """
+    faiss_index, bm25_index = small_indexes
+    tuning_retrieval = Retrieval(make_retrieval_args(), chunking_args, index_args, "tuning", 150, str(tmp_path))
+    tuning_retrieval.compute_dense_retrieval([make_query(query_id="eval_qna_0")], "fixed", "faiss_flatip", faiss_index)
+
+    held_out_retrieval = Retrieval(make_retrieval_args(query_types=["original"]), chunking_args, index_args, "held_out", 150, str(tmp_path))
+    held_out_outputs = held_out_retrieval.compute_dense_retrieval([make_query(query_id="eval_qna_9")], "fixed", "faiss_flatip", faiss_index)
+
+    keys = []
+    for retrieved in held_out_outputs:
+        keys.append((retrieved.id, retrieved.query_type))
+    assert keys == [("eval_qna_9", "original")]
+    faiss_index_args = dataclasses.replace(index_args, index_type="faiss_flatip")
+    held_out_folder = paths.get_retrieved_path(str(tmp_path), chunking_args, faiss_index_args, "held_out", 150, ["original"])
+    assert held_out_folder.endswith("/held_out_150/original/")
+    assert os.path.exists(os.path.join(held_out_folder, "dense_top3.json"))
 
 
 # ------ LangChain hand-off

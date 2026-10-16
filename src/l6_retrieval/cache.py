@@ -7,8 +7,9 @@ type and index (see common.paths.get_retrieved_path and get_hybrid_retrieved_pat
 {retrieval_type}_top{top_k}.json:                                 the outputs, not reranked.
 {retrieval_type}_top{top_k}_rerank{rerank_top_k}_{model}.json:    the same outputs reranked by the cross-encoder.
 
-The folder name holds the chunk, index and tuning split settings, but not the l5 queries or the split seed.
-Delete outputs/<dataset>/retrieved/ after regenerating the queries or changing TUNING_SPLIT_SEED.
+The folder name holds the chunk and index settings, the query split (tuning or held_out), the tuning size and the
+query types, but not the l5 queries or the split seed. Delete outputs/<dataset>/retrieved/ after regenerating the
+queries or changing TUNING_SPLIT_SEED.
 
 Each file is first written to a temporary file and then renamed into place, so a crash mid-write never leaves a
 half-written file that a later run would mistake for a complete cache.

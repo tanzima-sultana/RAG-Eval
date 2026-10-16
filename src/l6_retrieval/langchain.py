@@ -19,18 +19,19 @@ from l6_retrieval.retrievars.dense import make_dense_retrieved
 from l6_retrieval.retrievars.bm25 import make_bm25_retrieved
 
 class Langchain:
-	def __init__(self, top_k: int):
+	def __init__(self, top_k: int, query_types: list[str]):
 		"""
-		Input: top_k, the number of chunks to keep per query.
+		Input: top_k, the number of chunks to keep per query; query_types, the query types to search with.
 		Output: none.
-		What it does: stores top_k.
+		What it does: stores top_k and query_types.
 		"""
 		self.top_k = top_k
+		self.query_types = query_types
 
 	def get_dense_outputs(self, queries: list[Query], chunk_type: str, index_type: str, index: LangchainFaissIndex | LangchainQdrantIndex) -> list[Retrieved]:
 		"""
 		Input: l5 queries, the chunk type, one LangChain FAISS or Qdrant vector store with its index type.
-		Output: one Retrieved per query and query type, not reranked.
+		Output: one Retrieved per query and query type in query_types, not reranked.
 		What it does: searches the vector store with each query type's embeddings and keeps the top_k chunks.
 		"""
 		dense_outputs = []
@@ -55,6 +56,8 @@ class Langchain:
 			# 2. Search the vector store with each query type
 			# A query type with no embeddings gets a Retrieved with no chunks, so it still counts as a miss
 			for query_type, query_vectors in query_types_and_vectors:
+				if query_type not in self.query_types:
+					continue
 				hits = []
 				for query_vector in query_vectors:
 					# The score is the cosine similarity, since the vectors are normalized
@@ -69,7 +72,7 @@ class Langchain:
 	def get_bm25_outputs(self, queries: list[Query], chunk_type: str, index_type: str, index: LangchainBm25Index) -> list[Retrieved]:
 		"""
 		Input: l5 queries, the chunk type, the LangChain BM25 retriever with its index type.
-		Output: one Retrieved per query and query type (original, rewritten, multi), not reranked.
+		Output: one Retrieved per query and query type in query_types (original, rewritten, multi), not reranked.
 		What it does: scores every chunk with the retriever's BM25 model and each query type's tokens, and keeps the
 		top_k chunks. HyDE has no tokens, so it is not searched.
 		"""
@@ -94,6 +97,8 @@ class Langchain:
 			# 2. Search with each query type
 			# BM25Retriever.invoke returns no scores, so its rank_bm25 model is scored directly
 			for query_type, query_tokens_list in query_types_and_tokens:
+				if query_type not in self.query_types:
+					continue
 				hits = []
 				for query_tokens in query_tokens_list:
 					scores = index.retriever.vectorizer.get_scores(query_tokens)

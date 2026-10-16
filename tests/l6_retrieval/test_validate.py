@@ -37,6 +37,16 @@ def test_unknown_retrieval_type_raises(make_retrieval_args):
         validate_retrieval_args(make_retrieval_args(retrieval_types=["dense", "sparse"]))
 
 
+def test_unknown_query_type_raises(make_retrieval_args):
+    """
+    Input: query_types with "expanded".
+    Output: ValueError naming the supported types.
+    What it does: checks a misspelled query type is caught.
+    """
+    with pytest.raises(ValueError, match="expanded"):
+        validate_retrieval_args(make_retrieval_args(query_types=["original", "expanded"]))
+
+
 @pytest.mark.parametrize("top_k", [0, -1])
 def test_top_k_below_one_raises(make_retrieval_args, top_k):
     """

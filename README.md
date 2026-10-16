@@ -554,13 +554,14 @@ The log has no per-stage timing, only the total. Nearly all of it is the LLM: ea
 
 ### Overview
 
-`l6_retrieval` finds the chunks for each eval question. `src/eval.py` splits the 200 queries with a fixed seed (`TUNING_SPLIT_SEED` 42) into `--tuning_queries_size` (150) tuning queries and 50 held-out queries, and only the tuning queries are retrieved. `RetrievalArgs` holds `--framework`, `--retrieval_types` (any of `dense`, `bm25`, `hybrid`), `--top_k` (20), `--reranking` (`true` or `false`) and `--rerank_top_k` (5). It then loops one item at a time:
+`l6_retrieval` finds the chunks for each eval question. `src/eval.py` splits the 200 queries with a fixed seed (`TUNING_SPLIT_SEED` 42) into `--tuning_queries_size` (150) tuning queries and 50 held-out queries. `--query_split` decides once which set the run uses: `tuning` while tuning, `held_out` for the one final check (see analysis). `RetrievalArgs` holds `--framework`, `--retrieval_types` (any of `dense`, `bm25`, `hybrid`), `--query_types` (any of `original`, `rewritten`, `multi`, `hyde`; all four by default), `--top_k` (20), `--reranking` (`true` or `false`) and `--rerank_top_k` (5). It then loops one item at a time:
 
-1. For each chunk type in `--chunk_types`, it loads that chunk type's l2 chunks and creates one `Retrieval(retrieval_args, chunking_args, index_args, tuning_queries_size, output_path)` for that chunk type. `index_args` holds the run's index settings with an empty `index_type`; each method sets its own index type when it builds its cache folder.
+1. For each chunk type in `--chunk_types`, it loads that chunk type's l2 chunks and creates one `Retrieval(retrieval_args, chunking_args, index_args, query_split, tuning_queries_size, output_path)` for that chunk type. `index_args` holds the run's index settings with an empty `index_type`; each method sets its own index type when it builds its cache folder.
 2. For each index type in `--index_types`, it loads that one l4 index with `index_cache.load_index()` (load-only, never builds) and runs:
    - **Dense** (`compute_dense_retrieval`) on `faiss_flatip`, `faiss_ivf`, `faiss_hnsw` and `qdrant`. It searches with each query type's embedding and keeps the top_k chunks. The score is cosine similarity. The multi-query phrasings are searched one by one and merged, keeping each chunk's best score. A HyDE answer stored as `I don't know` is not searched.
    - **BM25** (`compute_bm25_retrieval`) on `bm25`. It scores every chunk with the query tokens and keeps the top_k chunks with a score above 0. HyDE has no tokens, so BM25 has no HyDE record.
-   - Each method returns `[]` when its type is not in `--retrieval_types` or the index is the wrong kind, so the loop needs no type checks.
+   - Each method returns `[]` when its type is not in `--retrieval_types` or the index is the wrong kind, so the loop needs no type checks. Dense and BM25 also run when only `hybrid` is given, since hybrid fuses their outputs, but then `eval.py` does not evaluate or keep them as setups of their own. So `--retrieval_types hybrid` gives exactly the hybrid setups.
+   - Only the query types in `--query_types` are searched.
 3. After the index loop, **hybrid** (`compute_hybrid_retrieval`) fuses each dense index's outputs with the BM25 outputs of the same question and query type, using reciprocal rank fusion. A chunk gets `1 / (RRF_K + rank)` from each list it is in, with `RRF_K` 60, and the top_k by fused score are kept. Ranks are used, not scores, because dense and BM25 scores are on different scales. `index_type` is written as e.g. `faiss_flatip+bm25`.
 4. With `--reranking true`, each plain output list is reranked separately (`get_reranked_dense_retrieval`, `get_reranked_bm25_retrieval`, `get_reranked_hybrid_retrieval`). The cross-encoder `cross-encoder/ms-marco-MiniLM-L-6-v2` (`CROSS_ENCODER_MODEL`, loaded in `Retrieval.__init__`, so once per chunk type) scores each chunk's text against the original eval question, and the best `rerank_top_k` are kept. Every query type is reranked against the original question, because that is what the answer must match. The reranked records are a separate list from the plain ones, and hybrid always fuses the plain top_k lists.
 
@@ -576,10 +577,10 @@ Records per index, for 150 tuning queries:
 | BM25 | original, rewritten, multi | 450 |
 | Hybrid | original, rewritten, multi (no BM25 for HyDE) | 450 |
 
-A query type with nothing to search (no multi-query phrasings, or a HyDE `I don't know`) still gets a `Retrieved` with no chunks, so it counts as a miss.
+A query type with nothing to search (no multi-query phrasings, or a HyDE `I don't know`) still gets a `Retrieved` with no chunks, so it counts as a miss. If a run retrieves nothing at all, e.g. `--retrieval_types dense` with only a BM25 index, `eval.py` stops with an error after l6 instead of going on with empty lists.
 
 **Cache.** Every method first looks for its saved outputs and returns them if found. Otherwise it computes them, saves them and returns them. `eval.py` passes only `output_path`; each method builds its own folder:
-- **Dense or BM25 index:** `{output folder}/retrieved/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/{index}/{tuning_queries_size}/`. `{index}` is `flatip`, `ivf_{nlist}`, `hnsw_{m}_{ef_construction}`, `bm25_{k1}_{b}_{tokenizer}` or `qdrant`.
+- **Dense or BM25 index:** `{output folder}/retrieved/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/{index}/{query_split}_{tuning_queries_size}/{query_types}/`, e.g. `.../flatip/tuning_150/original_rewritten_multi_hyde/` or `.../flatip/held_out_150/original/`, so the tuning and held-out outputs, and runs with different query types, never share a cache. `{index}` is `flatip`, `ivf_{nlist}`, `hnsw_{m}_{ef_construction}`, `bm25_{k1}_{b}_{tokenizer}` or `qdrant`.
 - **Hybrid pair:** the same, with the two index folders joined by `+`, e.g. `flatip+bm25_1.5_0.75_whitespace`.
 - **LangChain:** a `langchain/` folder after `retrieved/`.
 - **Files:** `{retrieval_type}_top{top_k}.json` holds the plain outputs. `{retrieval_type}_top{top_k}_rerank{rerank_top_k}_{cross-encoder}.json` holds the reranked ones. Each is written to a temporary file first and then renamed into place.
@@ -595,7 +596,7 @@ The records are built by the same functions as the built-in ones, so hybrid, rer
 ### Architecture
 
 - **`retrieval.py`**: `Retrieval`, the orchestrator. It validates the args, creates `Langchain` for `--framework langchain` and loads the cross-encoder for `--reranking true`. It has one method per retrieval type (`compute_dense_retrieval`, `compute_bm25_retrieval`, `compute_hybrid_retrieval`) and one per reranked list.
-- **`validate.py`**: checks `retrieval_types`, `top_k` ≥ 1, `rerank_top_k` ≥ 1 and `rerank_top_k` ≤ `top_k`.
+- **`validate.py`**: checks `retrieval_types`, `query_types`, `top_k` ≥ 1, `rerank_top_k` ≥ 1 and `rerank_top_k` ≤ `top_k`.
 - **`schema.py`**: defines `Retrieved`, the layer's output record.
 - **`retrievars/dense.py`**: searches the built-in FAISS index or the Qdrant collection with each query type's embeddings and builds the dense `Retrieved` records.
 - **`retrievars/bm25.py`**: scores the built-in BM25 model with each query type's tokens and builds the BM25 `Retrieved` records.
@@ -714,10 +715,10 @@ The eval QnA is not used here. Its ground truth is only needed again in l10. The
 
 The system and user prompts are kept apart because the chat APIs of Claude, OpenAI and Gemini take a system prompt separately from the user message.
 
-The system prompts are numbered in `prompt_template.py`, so earlier ones stay in the code for comparison, and `SYSTEM_PROMPT` names the one l8 sends (`SYSTEM_PROMPT = SYSTEM_PROMPT_2`). Switching back to an earlier prompt gives the same prompt hashes as before, so its l9 answers and l10 scores load from the caches.
+The system prompts are numbered in `prompt_template.py`, so earlier ones stay in the code for comparison, and `SYSTEM_PROMPT` names the one l8 sends (`SYSTEM_PROMPT = SYSTEM_PROMPT_1`). Switching back to an earlier prompt gives the same prompt hashes as before, so its l9 answers and l10 scores load from the caches.
 - **`SYSTEM_PROMPT_0`**, the first: answer only from the context, in a few sentences, and reply with exactly `I don't know` (`constants.I_DONT_KNOW`, the same constant l5 uses) when the context does not hold the answer, so l10 can find those answers by an exact match.
-- **`SYSTEM_PROMPT_1`**: still only from the context, but give a complete answer with every name, number and date the question asks for; answer each part of a question, combining parts of the context; when the context holds different answers for different cases, such as years or versions, give each and say which case it is; when the context answers only part of the question, answer that part and say which part is not covered, without starting with "I don't know"; and reply with exactly `I don't know` only when nothing in the context is relevant. Why it was changed and what it did is in the analysis section.
-- **`SYSTEM_PROMPT_2`**, in use: `SYSTEM_PROMPT_1` with its last line replaced by two: reply with exactly `I don't know` when the context holds nothing that answers any part of the question, and never reply only that the context does not contain the answer, but with exactly `I don't know` instead. It is aimed at replies such as "The provided text does not contain information on how to set up a PayPal Key.", which are not counted as I don't know. Its effect is in the analysis section (experiment 2).
+- **`SYSTEM_PROMPT_1`**, in use: still only from the context, but give a complete answer with every name, number and date the question asks for; answer each part of a question, combining parts of the context; when the context holds different answers for different cases, such as years or versions, give each and say which case it is; when the context answers only part of the question, answer that part and say which part is not covered, without starting with "I don't know"; and reply with exactly `I don't know` only when nothing in the context is relevant. Why it was changed and what it did is in the analysis section.
+- **`SYSTEM_PROMPT_2`**: `SYSTEM_PROMPT_1` with its last line replaced by two: reply with exactly `I don't know` when the context holds nothing that answers any part of the question, and never reply only that the context does not contain the answer, but with exactly `I don't know` instead. It is aimed at replies such as "The provided text does not contain information on how to set up a PayPal Key.", which are not counted as I don't know. Its effect is in the analysis section (experiment 2). It was tried together with a stronger model and gave no gain, so l8 went back to `SYSTEM_PROMPT_1`.
 
 The user prompt is:
 
@@ -1482,6 +1483,41 @@ All rows are the same setup: sentence chunks, hybrid `faiss_flatip+bm25`, origin
 - **Relevance fell from 0.573 to 0.532.** Partial answers still say which part the context does not cover, and RAGAS scores those as noncommittal: 4 of the 10 worst answers have relevance 0.000, each answering one part and saying another part is not covered or not provided, for example "The result for the first semester is to be published on or before 29 / 06 / 20. The date when the first semester commences is not provided." `SYSTEM_PROMPT_2` covers only replies that answer nothing, so it does not change these.
 - **I don't know barely moved**, 0.073 against 0.067, as the new rule turned some no-answer replies into I don't know.
 - **The worst answers are mostly not wrong answers.** 9 of the 10 have faithfulness 1.000: they are supported by the context but differ from the reference answer. The worst, correctness 0.077, gives correct steps to add a Sky Yahoo Mail account from the context, where the reference describes other steps. Since neither a better prompt nor a better model moves correctness above about 0.61, the limit is in the eval set and the judge, single reference answers judged on claim overlap, more than in the generator.
+
+**Chosen setup.** Experiment 1: sentence chunks, hybrid `faiss_flatip+bm25`, original queries, k=20, no reranking, `SYSTEM_PROMPT_1` and `gemini-3.1-flash-lite`. It ties experiment 2 on correctness and faithfulness, has better relevance and costs about a sixth as much to generate, so `configs/input_args.yaml` and `prompt_template.py` were set back to it.
+
+**Final check on the 50 held-out queries** (from `log/analysis/log_5k_analysis_20261016-161744.txt`; report in `outputs/pdfa-eng-wds/analysis/runs/20261016-161744/report.md`). The held-out queries were never used to choose anything, so this is the pipeline's result on new questions. Run once with:
+
+```
+ALLOW_PAID_API=1 bash scripts/eval.sh --query_split held_out --query_types original \
+  --chunk_types sentence --index_types faiss_flatip bm25 --retrieval_types hybrid
+```
+
+The last four flags limit l6 to the chosen setup, so nothing is chosen again on the held-out scores. A first try failed before any LLM call, at $0: with `--retrieval_types hybrid` alone, dense and BM25 did not run, hybrid had nothing to fuse, and the analysis stopped on an empty run. Hybrid alone now computes its dense and BM25 inputs, and an empty retrieval stops the run after l6.
+
+The run cost $0.7784 and took 598.41s. l9 sent 50 prompts as one Gemini batch: 50 succeeded, 260,882 input and 7,573 output tokens, $0.0383, and 4 answered I don't know. l10 scored 46 answers with 276 judge calls, 628,661 input and 305,385 output tokens, $0.7401, in 366.73s, and every answer was scored.
+
+| Query set | n | idk | correct | faithful | relevant | c_hit | c_recall | c_mrr |
+|---|---|---|---|---|---|---|---|---|
+| Tuning, experiment 1 | 150 | 0.067 | 0.612 | 0.894 | 0.573 | 0.940 | 0.927 | 0.718 |
+| **Held-out** | **50** | **0.080** | **0.550** | **0.891** | **0.637** | **0.900** | **0.880** | **0.826** |
+
+| Source | n | idk | correct | faithful | relevant |
+|---|---|---|---|---|---|
+| hit | 45 | 0.044 | 0.597 | 0.926 | 0.661 |
+| miss | 5 | 0.400 | 0.122 | 0.570 | 0.419 |
+
+| Question type | n | idk | correct | faithful | relevant |
+|---|---|---|---|---|---|
+| multi_hop_specific_query_synthesizer | 23 | 0.000 | 0.647 | 0.986 | 0.650 |
+| single_hop_specific_query_synthesizer | 27 | 0.148 | 0.467 | 0.809 | 0.626 |
+
+**What the held-out result shows.**
+- **Faithfulness carries over**: 0.891 against 0.894 on the tuning queries, so the answers stay grounded in their context on new questions.
+- **Correctness is lower, 0.550 against 0.612.** Part of that is expected, since the setup and prompt were chosen on the tuning queries. With 50 questions the mean is also less certain, so the pipeline's correctness is best read as about 0.55 to 0.61.
+- **Relevance is higher, 0.637 against 0.573**, and multi-hop questions score above single-hop ones here, the reverse of the tuning queries. With 23 and 27 questions per type, such differences are within what one set of questions to the next can give.
+- **Retrieval holds**: the source passage is retrieved for 45 of 50 questions, and those answers average 0.597 correctness, against 0.122 on the 5 misses.
+- The report's comparison table lists this run with the tuning runs, but they are scored on different queries, so it shows how the setup generalizes, not a gain or a loss.
 
 ## Dependency notes
 

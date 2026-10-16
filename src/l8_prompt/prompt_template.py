@@ -45,7 +45,7 @@ SYSTEM_PROMPT_2 = (
 )
 
 # The system prompt l8 sends. Point it at another numbered prompt to switch
-SYSTEM_PROMPT = SYSTEM_PROMPT_2
+SYSTEM_PROMPT = SYSTEM_PROMPT_1
 
 # Input: {context}, {question}. Output: the user prompt sent with SYSTEM_PROMPT
 USER_PROMPT_TEMPLATE = """Context:

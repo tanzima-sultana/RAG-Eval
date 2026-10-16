@@ -14,10 +14,11 @@ from l4_indexing.schema import Bm25Index
 from l5_query.schema import Query
 from l6_retrieval.schema import Retrieved
 
-def get_bm25_outputs(queries: list[Query], chunk_type: str, index_type: str, bm25_index: Bm25Index, top_k: int) -> list[Retrieved]:
+def get_bm25_outputs(queries: list[Query], chunk_type: str, index_type: str, bm25_index: Bm25Index, top_k: int, query_types: list[str]) -> list[Retrieved]:
 	"""
-	Input: l5 queries, the chunk type, the built-in BM25 index with its index type, and top_k.
-	Output: one Retrieved per query and query type (original, rewritten, multi), not reranked.
+	Input: l5 queries, the chunk type, the built-in BM25 index with its index type, top_k, and query_types, the query
+	types to search with.
+	Output: one Retrieved per query and query type in query_types (original, rewritten, multi), not reranked.
 	What it does: searches the index with each query type's tokens and keeps the top_k chunks.
 	HyDE has no tokens, because l5 searches it by embedding only, so it is not searched here.
 	"""
@@ -37,6 +38,8 @@ def get_bm25_outputs(queries: list[Query], chunk_type: str, index_type: str, bm2
 		# 2. Search the index with each query type
 		# A query type with no tokens gets a Retrieved with no chunks, so it still counts as a miss
 		for query_type, query_tokens_list in query_types_and_tokens:
+			if query_type not in query_types:
+				continue
 			hits = search_bm25(bm25_index, query_tokens_list, top_k)
 			retrieved = make_bm25_retrieved(query.id, query_type, chunk_type, index_type, top_k, hits)
 			bm25_outputs.append(retrieved)

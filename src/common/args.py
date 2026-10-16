@@ -63,6 +63,7 @@ class QueryArgs:
 class RetrievalArgs:
 	framework: str
 	retrieval_types: list[str]
+	query_types: list[str]
 	top_k: int
 	reranking: bool
 	rerank_top_k: int
@@ -545,6 +546,13 @@ def add_retrieval_arguments(parser: argparse.ArgumentParser) -> None:
 		default=[constants.DENSE_RETRIEVAL, constants.BM25_RETRIEVAL, constants.HYBRID_RETRIEVAL],
 		help="Retrieval types to run, one after another: dense, bm25 and/or hybrid")
 	parser.add_argument(
+		"--query_types",
+		type=str,
+		nargs="+",
+		required=False,
+		default=[constants.ORIGINAL_QUERY, constants.REWRITTEN_QUERY, constants.MULTI_QUERY, constants.HYDE_QUERY],
+		help="Query types to search with: original, rewritten, multi and/or hyde")
+	parser.add_argument(
 		"--top_k",
 		type=int,
 		required=False,
@@ -568,6 +576,12 @@ def add_retrieval_arguments(parser: argparse.ArgumentParser) -> None:
 		type=int,
 		required=True,
 		help="Number of eval questions used for tuning; the rest are held out for one final check")
+	parser.add_argument(
+		"--query_split",
+		type=str,
+		required=True,
+		choices=["tuning", "held_out"],
+		help="Queries this run uses: tuning while tuning, held_out for the one final check")
 	parser.add_argument(
 		"--n_retrieval_evaluation",
 		type=int,
@@ -777,11 +791,12 @@ def make_retrieval_args(parsed_args):
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args().
 	Output: a RetrievalArgs object holding the retrieval settings.
-	What it does: copies the parsed framework, retrieval_types, top_k, reranking and rerank_top_k into the matching RetrievalArgs fields.
+	What it does: copies the parsed framework, retrieval_types, query_types, top_k, reranking and rerank_top_k into the matching RetrievalArgs fields.
 	"""
 	retrieval_args = RetrievalArgs(
 		framework=parsed_args.framework,
 		retrieval_types=parsed_args.retrieval_types,
+		query_types=parsed_args.query_types,
 		top_k=parsed_args.top_k,
 		reranking=parsed_args.reranking == "true",
 		rerank_top_k=parsed_args.rerank_top_k

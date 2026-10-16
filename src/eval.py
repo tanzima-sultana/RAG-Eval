@@ -93,15 +93,23 @@ def load_eval_inputs(args, output_path: str):
 
 	return documents, eval_qna, tuning_queries, held_out_queries
 
-def run_retrieval_and_evaluation(args, output_path: str, doc_ids: list[str], tuning_queries: list[Query], retrieval_evaluator: RetrievalEvaluator) -> list[tuple[Retrieved, RetrievalEvaluation]]:
+def run_retrieval_and_evaluation(args, output_path: str, doc_ids: list[str], queries: list[Query], retrieval_evaluator: RetrievalEvaluator) -> list[tuple[Retrieved, RetrievalEvaluation]]:
 	"""
-	Input: args, the parsed eval arguments; output_path; doc_ids, the l1 document ids; tuning_queries; and
-	retrieval_evaluator, which scores each Retrieved.
-	Output: one (Retrieved, RetrievalEvaluation) per tuning query and setup, plain and reranked.
+	Input: args, the parsed eval arguments; output_path; doc_ids, the l1 document ids; queries, the l5 queries of this
+	run, tuning or held-out; and retrieval_evaluator, which scores each Retrieved.
+	Output: one (Retrieved, RetrievalEvaluation) per query and setup, plain and reranked.
 	What it does: retrieves, reranks and scores, one chunk type and one index at a time.
 	"""
 	# Retrieval settings do not depend on the chunk type
 	retrieval_args = make_retrieval_args(args)
+
+	# Dense and BM25 outputs are computed for their own setups and for hybrid, which fuses them, but kept as setups
+	# only when given themselves
+	keep_dense = constants.DENSE_RETRIEVAL in retrieval_args.retrieval_types
+	keep_bm25 = constants.BM25_RETRIEVAL in retrieval_args.retrieval_types
+	keep_hybrid = constants.HYBRID_RETRIEVAL in retrieval_args.retrieval_types
+	compute_dense = keep_dense or keep_hybrid
+	compute_bm25 = keep_bm25 or keep_hybrid
 
 	# List of (retrieved, retrieval_evaluation) tuples, one per Retrieved
 	retrieval_evaluations = []
@@ -120,7 +128,7 @@ def run_retrieval_and_evaluation(args, output_path: str, doc_ids: list[str], tun
 		print("\nLoading chunks time : ", e5)
 
 		# One Retrieval per chunk type. index_type is left empty here; each Retrieval method sets its own
-		retrieval = Retrieval(retrieval_args, chunking_args, make_index_args(args, ""), args.tuning_queries_size, output_path)
+		retrieval = Retrieval(retrieval_args, chunking_args, make_index_args(args, ""), args.query_split, args.tuning_queries_size, output_path)
 
 		# Kept for hybrid: dense outputs of each dense index, and the BM25 outputs
 		retrieved_dense_outputs = {}
@@ -137,50 +145,53 @@ def run_retrieval_and_evaluation(args, output_path: str, doc_ids: list[str], tun
 			e6 = time.time() - s6
 			print("\nLoading index time : ", e6)
 
-			# 7. Dense retrieval on the tuning queries. 
-			if constants.DENSE_RETRIEVAL in retrieval_args.retrieval_types:
+			# 7. Dense retrieval on this run's queries. Hybrid fuses the dense outputs, so they are also computed when
+			# only hybrid is given, but then not evaluated or kept as a setup of their own
+			if compute_dense:
 				s7 = time.time()
-				dense_outputs = retrieval.compute_dense_retrieval(tuning_queries, chunk_type, index_type, index)
+				dense_outputs = retrieval.compute_dense_retrieval(queries, chunk_type, index_type, index)
 				if len(dense_outputs) > 0:
 					retrieved_dense_outputs[index_type] = dense_outputs
 					print(f"\n\nDense retrieved outputs on {index_type} : {len(dense_outputs)}")
 					print("\nDense retrieval time : ", time.time() - s7)
 
-					# 8. Retrieval evaluation of dense
-					for retrieved in dense_outputs:
-						retrieval_evaluations.append((retrieved, retrieval_evaluator.compute_retrieval_evaluation(retrieved, chunks)))
-					
-					# 9. Rerank
-					if retrieval_args.reranking:
-						reranked_dense_outputs = retrieval.get_reranked_dense_retrieval(tuning_queries, chunks, index_type, dense_outputs)
-
-						# 10. Retrieval evaluation of reranked_dense
-						for retrieved in reranked_dense_outputs:
+					if keep_dense:
+						# 8. Retrieval evaluation of dense
+						for retrieved in dense_outputs:
 							retrieval_evaluations.append((retrieved, retrieval_evaluator.compute_retrieval_evaluation(retrieved, chunks)))
 
-			# 11. BM25 retrieval on the tuning queries. 
-			if constants.BM25_RETRIEVAL in retrieval_args.retrieval_types:
+						# 9. Rerank
+						if retrieval_args.reranking:
+							reranked_dense_outputs = retrieval.get_reranked_dense_retrieval(queries, chunks, index_type, dense_outputs)
+
+							# 10. Retrieval evaluation of reranked_dense
+							for retrieved in reranked_dense_outputs:
+								retrieval_evaluations.append((retrieved, retrieval_evaluator.compute_retrieval_evaluation(retrieved, chunks)))
+
+			# 11. BM25 retrieval on this run's queries. Also computed for hybrid alone, like dense
+			if compute_bm25:
 				s9 = time.time()
-				bm25_outputs = retrieval.compute_bm25_retrieval(tuning_queries, chunk_type, index_type, index)
+				bm25_outputs = retrieval.compute_bm25_retrieval(queries, chunk_type, index_type, index)
 				if len(bm25_outputs) > 0:
 					retrieved_bm25_outputs = bm25_outputs
 					print(f"\n\nBM25 retrieved outputs on {index_type} : {len(bm25_outputs)}")
 					print("\nBM25 retrieval time : ", time.time() - s9)
 
-					# 12. Retrieval evaluation of BM25
-					for retrieved in bm25_outputs:
-						retrieval_evaluations.append((retrieved, retrieval_evaluator.compute_retrieval_evaluation(retrieved, chunks)))
-
-					# 13. Rerank
-					if retrieval_args.reranking:
-						reranked_bm25_outputs = retrieval.get_reranked_bm25_retrieval(tuning_queries, chunks, bm25_outputs)
-
-						# 14. Retrieval evaluation of reranked_bm25
-						for retrieved in reranked_bm25_outputs:
+					if keep_bm25:
+						# 12. Retrieval evaluation of BM25
+						for retrieved in bm25_outputs:
 							retrieval_evaluations.append((retrieved, retrieval_evaluator.compute_retrieval_evaluation(retrieved, chunks)))
 
+						# 13. Rerank
+						if retrieval_args.reranking:
+							reranked_bm25_outputs = retrieval.get_reranked_bm25_retrieval(queries, chunks, bm25_outputs)
+
+							# 14. Retrieval evaluation of reranked_bm25
+							for retrieved in reranked_bm25_outputs:
+								retrieval_evaluations.append((retrieved, retrieval_evaluator.compute_retrieval_evaluation(retrieved, chunks)))
+
 		# 15. Hybrid: each dense index's outputs fused with the BM25 outputs, only if both exist and hybrid is given
-		if len(retrieved_dense_outputs) > 0 and len(retrieved_bm25_outputs) > 0 and constants.HYBRID_RETRIEVAL in args.retrieval_types:
+		if len(retrieved_dense_outputs) > 0 and len(retrieved_bm25_outputs) > 0 and keep_hybrid:
 
 			for index_type in retrieved_dense_outputs:
 				s11 = time.time()
@@ -194,7 +205,7 @@ def run_retrieval_and_evaluation(args, output_path: str, doc_ids: list[str], tun
 
 				# 17. Rerank
 				if retrieval_args.reranking:
-					reranked_hybrid_outputs = retrieval.get_reranked_hybrid_retrieval(tuning_queries, chunks, index_type, hybrid_outputs)
+					reranked_hybrid_outputs = retrieval.get_reranked_hybrid_retrieval(queries, chunks, index_type, hybrid_outputs)
 
 					# 18. Retrieval evaluation of reranked_hybrid
 					for retrieved in reranked_hybrid_outputs:
@@ -248,16 +259,16 @@ def run_context(args, output_path: str, doc_ids: list[str], filtered_retrieval_e
 	# order can differ from filtered_retrieval_evaluations when the kept setups use different chunk types
 	return retrieved_list, retrieval_evaluation_list, context_list
 
-def run_prompt(context_list: list[Context], tuning_queries: list[Query]) -> list[Prompt]:
+def run_prompt(context_list: list[Context], queries: list[Query]) -> list[Prompt]:
 	"""
-	Input: context_list, the l7 contexts; tuning_queries, the l5 tuning queries.
+	Input: context_list, the l7 contexts; queries, the l5 queries of this run, tuning or held-out.
 	Output: prompt_list, in the same order, so prompt_list[i] belongs to context_list[i] and retrieved_list[i].
 	What it does: builds the system prompt and user prompt of each context, with its original question.
 	"""
 	# 22. Prompt
 	print("\n\nPrompt")
 	s22 = time.time()
-	prompt_list = get_prompt_list(context_list, tuning_queries)
+	prompt_list = get_prompt_list(context_list, queries)
 
 	print(f"Prompt list : {len(prompt_list)}")
 	print("\nPrompt time : ", time.time() - s22)
@@ -337,6 +348,13 @@ if __name__ == "__main__":
 	# 1. Documents, eval QnA and queries, split into tuning and held-out
 	documents, eval_qna, tuning_queries, held_out_queries = load_eval_inputs(args, output_path)
 
+	# The tuning queries while tuning, the held-out queries for the one final check
+	if args.query_split == "held_out":
+		queries = held_out_queries
+	else:
+		queries = tuning_queries
+	print(f"Query split : {args.query_split}, queries used : {len(queries)}")
+
 	doc_ids = []
 	for doc_id in documents:
 		doc_ids.append(doc_id)
@@ -346,7 +364,14 @@ if __name__ == "__main__":
 
 	# 2. Retrieval, reranking and retrieval evaluation
 	# retrieval_evaluations is a list of (Retrieved, RetrievalEvaluation) tuples, one per eval question and setup
-	retrieval_evaluations = run_retrieval_and_evaluation(args, output_path, doc_ids, tuning_queries, retrieval_evaluator)
+	retrieval_evaluations = run_retrieval_and_evaluation(args, output_path, doc_ids, queries, retrieval_evaluator)
+	# Nothing retrieved means the retrieval and index settings do not fit together, e.g. dense without a dense index,
+	# so the run stops here instead of going on with empty lists
+	if len(retrieval_evaluations) == 0:
+		raise ValueError(
+			f"No retrieved outputs for retrieval_types {args.retrieval_types} on index_types {args.index_types} "
+			f"and chunk_types {args.chunk_types}. Check that each retrieval type has an index it can search."
+		)
 
 	# 3. Keep the best n_retrieval_evaluation plain setups and the best n_retrieval_evaluation reranked setups
 	# filtered_retrieval_evaluations is also a list of (Retrieved, RetrievalEvaluation) tuples
@@ -358,7 +383,7 @@ if __name__ == "__main__":
 	retrieved_list, retrieval_evaluation_list, context_list = run_context(args, output_path, doc_ids, filtered_retrieval_evaluations)
 
 	# 5. Prompt
-	prompt_list = run_prompt(context_list, tuning_queries)
+	prompt_list = run_prompt(context_list, queries)
 
 	# 6. Generation
 	generated_list = run_generation(args, output_path, prompt_list)

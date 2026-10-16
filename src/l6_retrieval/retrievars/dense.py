@@ -18,10 +18,11 @@ from l4_indexing.schema import QdrantIndex
 from l5_query.schema import Query
 from l6_retrieval.schema import Retrieved
 
-def get_dense_outputs(queries: list[Query], chunk_type: str, index_type: str, index: FaissIndex | QdrantIndex, top_k: int) -> list[Retrieved]:
+def get_dense_outputs(queries: list[Query], chunk_type: str, index_type: str, index: FaissIndex | QdrantIndex, top_k: int, query_types: list[str]) -> list[Retrieved]:
 	"""
-	Input: l5 queries, the chunk type, one built-in FAISS index or Qdrant collection with its index type, and top_k.
-	Output: one Retrieved per query and query type, not reranked.
+	Input: l5 queries, the chunk type, one built-in FAISS index or Qdrant collection with its index type, top_k, and
+	query_types, the query types to search with.
+	Output: one Retrieved per query and query type in query_types, not reranked.
 	What it does: searches the index with each query type's embeddings and keeps the top_k chunks.
 	"""
 	dense_outputs = []
@@ -46,6 +47,8 @@ def get_dense_outputs(queries: list[Query], chunk_type: str, index_type: str, in
 		# 2. Search the index with each query type
 		# A query type with no embeddings gets a Retrieved with no chunks, so it still counts as a miss
 		for query_type, query_vectors in query_types_and_vectors:
+			if query_type not in query_types:
+				continue
 			if index_type == QDRANT_INDEX:
 				hits = search_qdrant(index, query_vectors, top_k)
 			else:

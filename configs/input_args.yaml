@@ -156,10 +156,12 @@ eval:
   # 6. Retrieval
   retrieval:
     retrieval_types: [dense, bm25, hybrid]   # any of dense, bm25, hybrid
+    query_types: [original, rewritten, multi, hyde]   # any of original, rewritten, multi, hyde
     top_k: 20                   # Chunks each retriever returns for a query
     reranking: false            # true to also rerank the top_k chunks with the cross-encoder, false not to
     rerank_top_k: 5             # Chunks kept after the cross-encoder reranks the top_k chunks
     tuning_queries_size: 150    # Eval questions used for tuning; the rest are held out for one final check
+    query_split: tuning         # tuning while tuning, held_out for the one final check
     n_retrieval_evaluation: 1      # Best plain setups and best reranked setups whose retrieved outputs go on to the next layers
 
   # 7. Generation
@@ -167,11 +169,11 @@ eval:
   # answers one at a time
   generation:
     generation_llm: gemini      # LLM that answers the prompts
-    generation_llm_model: *flash_38
-    generation_input_price: *flash_38_batch_input_price
-    generation_output_price: *flash_38_batch_output_price
-    generation_cache_write_price: *flash_38_batch_cache_write_price
-    generation_cache_read_price: *flash_38_batch_cache_read_price
+    generation_llm_model: *flash_lite_31
+    generation_input_price: *flash_lite_31_batch_input_price
+    generation_output_price: *flash_lite_31_batch_output_price
+    generation_cache_write_price: *flash_lite_31_batch_cache_write_price
+    generation_cache_read_price: *flash_lite_31_batch_cache_read_price
     batch_poll_seconds: 60      # Seconds between status checks of a generation batch
     batch_timeout_seconds: 86400   # Seconds to wait for a batch before stopping; a later run resumes the same batch
 
