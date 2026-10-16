@@ -747,6 +747,71 @@ Question: {question}
 
 Prompt time is about 2 ms for 300 prompts, because each prompt is one dict lookup and one template fill. The 38.40s total goes to the steps before l8. The largest timed ones are loading the l1 documents (9.37s) and loading the l2 chunks and l4 indexes for each chunk type (7.19s together). Retrieval from the cache takes 0.36s and l7 context takes 0.26s. The remaining time is not broken down in the log.
 
+## l9_generation
+
+### Overview
+
+`l9_generation` gets the generation LLM's answer to each l8 `Prompt`. It runs in `src/eval.py` as `run_generation(args, output_path, prompt_list)`, right after l8. `make_generation_args` builds `GenerationArgs` from the `generation` and `llm` sections of `configs/input_args.yaml`: the generation `LLMArgs` (provider, model, prices, max tokens, timeout, cache lifetime) plus `batch_poll_seconds` and `batch_timeout_seconds`. `get_generated_list(output_path, prompt_list, generation_args)` returns one `Generated` per `Prompt`, in the same order, so `generated_list[i]` belongs to `prompt_list[i]`, `context_list[i]` and `retrieved_list[i]`, which holds the setup. l10 gets `generated_list` and `retrieved_list` together.
+
+1. It loads the model's answer cache, `{output_path}/generated/{model}/generated.json`, a dict of `prompt_hash` to `{"qus", "answer"}`.
+2. It collects the prompts that are neither empty nor in the cache into `requests`, keyed by `prompt_hash`, so a prompt that comes more than once (two setups that built the same context) is sent once.
+3. If there is anything to send, it checks the LLM with `validate_llm`, builds it with `get_llm`, and calls `generate_batch(requests, ...)` once. With nothing to send, no LLM is checked or built, so a fully cached run needs no API key, `ALLOW_PAID_API` or Ollama server.
+4. It saves every reply to the cache, then deletes the batch id file. If a request failed in the batch, it stops with an error after saving the others, so the next run sends only the failed ones.
+5. It builds `generated_list` by walking `prompt_list` in order: an empty prompt gets `I_DONT_KNOW` without a call, every other prompt gets its answer from the cache. The batch returns results in any order; the list order comes from this walk, not from the batch.
+
+`Generated` holds:
+- **`id`:** the eval question id, the same as the `Retrieved`, `Context`, `Prompt`, `Query` and `EvalQnA` id. Each question appears twice in the 300, once per kept setup.
+- **`qus`:** the original question.
+- **`answer`:** the LLM's answer, or exactly `I_DONT_KNOW`.
+- **`llm`** and **`llm_model`:** the provider and model that answered.
+
+Design choices and why:
+
+- **The cache key is the prompt, not the question or the setup.** `prompt_hash` is the sha256 of the system prompt and user prompt, made in l8 where the prompt is built. Any change that changes what the LLM sees (the l8 template, the chunks, `top_k`, reranking, the filter) gives a new hash, so an old answer is never reused for a different prompt, and only the changed prompts are sent again. Two setups that built the same prompt share one answer. The model is not in the hash; each model has its own cache file, so the models can be compared.
+- **Always one batch.** Every paid provider has a batch API at 50% of the normal price: Claude Message Batches, the OpenAI Batch API and Gemini batch mode. Each provider class has its own `generate_batch`, and `l9` calls it the same way for all of them. Ollama has no batch API and is free, so its `generate_batch` sends the requests one at a time. Generation therefore uses each model's batch prices in `input_args.yaml`.
+- **A batch can be resumed.** The batch id is saved to `generated/{model}/batch_id.txt` as soon as the batch is sent. If the run stops while waiting (`batch_timeout_seconds`, or a crash), the next run finds the file and waits for that batch instead of sending and paying again.
+- **"I don't know" is stored as exactly `I_DONT_KNOW`.** The system prompt asks for that exact phrase, but models add a full stop or a reason after it. Any reply that starts with "I don't know" or "I do not know" is stored as `I_DONT_KNOW`, so l10 can find every refusal by an exact match.
+- **An empty context is answered `I_DONT_KNOW` without a call** and stays in `generated_list`, so l10 scores it as a failure. It is not stored in the cache.
+- **Prompt caching.** Claude batches mark the system prompt with `cache_control` (lifetime from `llm_cache_ttl`). ChatGPT and Gemini cache long repeated prompts on their own. The cost counts cache writes and reads at their own prices.
+
+### Architecture
+
+- **`generation.py`**: `get_generated_list` loads the model's cache; `generate_answers` sends the uncached prompts as one batch, saves the replies and builds `generated_list` in prompt order.
+- **`cache.py`**: loads and saves the answer cache file of one model, `{prompt_hash: {"qus", "answer"}}`, written to a temporary file and renamed into place.
+- **`schema.py`**: defines `Generated`.
+- **`validate.py`**: empty. The generation LLM is checked by `llm.validate.validate_llm`.
+
+### Run results
+
+**5000 documents, built-in, gemini-3.1-flash-lite** (from `log/l9_generation/log_5k_gemini-3.1-flash-lite.txt`). Run with `ALLOW_PAID_API=1 bash scripts/eval.sh` and generation set to `gemini` / `gemini-3.1-flash-lite` at its batch prices ($0.125 input, $0.75 output, $0.0125 cache read per million tokens). Everything before l9 loads from the cache. The filter keeps 300 `Retrieved` (0 duplicates skipped), l7 builds 300 contexts and l8 300 prompts. There was no answer cache for this model yet.
+
+| | Value |
+|---|---|
+| Cached answers before the run | 0 |
+| Prompts sent | 300 (one Gemini batch) |
+| Batch result | `JOB_STATE_SUCCEEDED`, 300 succeeded, 0 failed |
+| Status checks before it ended | 3 running, then succeeded |
+| Input tokens | 963,887 ($0.1205), 0 cache written, 0 cache read |
+| Output tokens | 19,546 ($0.0147) |
+| Cost | $0.1351 |
+| Empty context, no LLM call | 0 of 300 |
+| Answered `I_DONT_KNOW` | 49 of 300 |
+| Generated list | 300 |
+| Generation time | 188.68s |
+| Total run time | 224.63s |
+
+Generation time is almost all waiting for Google to run the batch: the run sends it once and checks its status every 60 seconds (`batch_poll_seconds`), and it ended after three checks. Building the requests, saving 300 answers and building the list take no measurable time next to that. The 36s before l9 are the cached steps: loading the 5000 l1 documents takes 9.21s, and loading the chunks and indexes of the three chunk types makes up most of the rest; retrieval from the cache takes milliseconds per index, l7 context 0.28s and l8 prompt 0.008s. No input token was cached: the only part every prompt shares is the system prompt, which is below the providers' minimum cacheable size, and the contexts differ in every prompt. The log gives the `I_DONT_KNOW` count for all 300 together, not per setup.
+
+**Small checks of the batch code, three paid providers** (from `log/l9_generation/check_chatgpt_gpt-4.1-nano.txt`, `check_claude_claude-haiku-5-5.txt` and `check_gemini_gemini-3.1-flash-lite.txt`). Each check ran l8 and l9 twice on the same 5 prompts, built from the 2 eval QnA items of the `check_llms` dataset: two with their own context, one duplicate of the first, one with an empty context and one with the other item's context. These logs come from a scratchpad script, written before the cost lines printed cache tokens.
+
+| Provider / model | Prompts sent | Batch status checks | Result | Input / output tokens | Cost |
+|---|---|---|---|---|---|
+| chatgpt / gpt-4.1-nano | 3 | 3 validating, 2 in_progress with 0 done, 2 with 1 done | completed, 3 succeeded, 0 failed | 4,209 / 13 | $0.0002 |
+| claude / claude-haiku-5-5 | 3 | 8 in_progress | 3 succeeded, 0 failed | 7,097 / 81 | $0.0004 |
+| gemini / gemini-3.1-flash-lite | 3 | 4 running | `JOB_STATE_SUCCEEDED`, 3 succeeded, 0 failed | 4,273 / 17 | $0.0005 |
+
+In every check, 3 of the 5 prompts were sent: the empty one got `I_DONT_KNOW` without a call (`Empty context, no LLM call : 1 of 5`) and the duplicate was sent once. `LLM answered I don't know` was 2 of 5 for all three providers. The second run found the 3 answers in the cache, sent 0 prompts, and printed `Same answers as run 1 : True`. Each provider counts tokens with its own tokenizer, so the input counts for the same prompts differ. The output counts are higher for Claude (81) than for the others; the log does not show the raw replies, only the stored answers, in which every refusal is `I_DONT_KNOW`. The status checks were 30 seconds apart. The same check with Ollama (llama3.1:8b) printed to the screen only, so its numbers are not in a log.
+
 ## l10_evaluation
 
 ### Overview

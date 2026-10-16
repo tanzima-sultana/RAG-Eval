@@ -17,6 +17,7 @@ embeddings/
 indexes/
 queries/
 retrieved/
+generated/
 log/
 json/
 

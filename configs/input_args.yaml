@@ -156,11 +156,11 @@ eval:
   # Always sent as one batch, so a paid model uses its batch prices, cache prices included. Ollama has no batch API and
   # answers one at a time
   generation:
-    generation_llm: ollama      # LLM that answers the prompts
-    generation_llm_model: *llama
-    generation_input_price: *llama_input_price
-    generation_output_price: *llama_output_price
-    generation_cache_write_price: *llama_cache_write_price
-    generation_cache_read_price: *llama_cache_read_price
+    generation_llm: gemini      # LLM that answers the prompts
+    generation_llm_model: *flash_lite_31
+    generation_input_price: *flash_lite_31_batch_input_price
+    generation_output_price: *flash_lite_31_batch_output_price
+    generation_cache_write_price: *flash_lite_31_batch_cache_write_price
+    generation_cache_read_price: *flash_lite_31_batch_cache_read_price
     batch_poll_seconds: 60      # Seconds between status checks of a generation batch
     batch_timeout_seconds: 86400   # Seconds to wait for a batch before stopping; a later run resumes the same batch
