@@ -468,7 +468,7 @@ The stage times add up to about 55 minutes; the log does not print a total.
 
 This run was made before the knowledge graph was saved to disk, so its graph was not kept.
 
-**Planned use.** The 200 questions will be split once, with a fixed seed, into 150 for tuning and 50 kept back for one final check per phase: the retrieval phase (query, retrieval, retrieval quality) with no API calls, then the generation phase (context, prompt, generation, answer quality) with paid calls. Because the cache file name has no dataset size, the same 200 questions will be reused for the 50k and 100k document runs, as long as their source documents are in those corpora.
+**Planned use.** The 200 questions will be split once, with a fixed seed, into 150 for tuning and 50 kept back for one final check per phase: the retrieval phase (query, retrieval, retrieval evaluation) with no API calls, then the generation phase (context, prompt, generation, answer evaluation) with paid calls. Because the cache file name has no dataset size, the same 200 questions will be reused for the 50k and 100k document runs, as long as their source documents are in those corpora.
 
 **Earlier test run: 100 documents, 10 sample documents, 2 eval QnA, every call on Sonnet** (from `log/qna_test_log.txt`). This run was made before the Haiku / Sonnet split and before the dataset size was dropped from the cache file name: every Claude call, including the knowledge graph steps, used `claude-sonnet-5-5`, and its cache file has since been deleted. It called `get_eval_qna()` from a one-off script, not through `src/eval.py`, with the `scripts/eval.sh` dataset settings (`--dataset_size 100`, `pixparse/pdfa-eng-wds`) and `--eval_llm claude-sonnet-5-5 --eval_qna_model all-MiniLM-L6-v2 --n_sample_documents 10 --n_sample_evals 2`. l1 loaded all 100 documents from its cache in 10.647662741000204s. There was no eval QnA cache file, so the QnA was generated:
 
@@ -603,7 +603,7 @@ The records are built by the same functions as the built-in ones, so hybrid, rer
 - **`langchain.py`**: `Langchain`, dense and BM25 search on the LangChain indexes.
 - **`cache.py`**: saves and loads one retrieval's `Retrieved` list as one JSON file.
 
-The retrieved folder paths are built in `src/common/paths.py`. Retrieval quality (hit, precision, recall, MRR, nDCG at chunk and doc level) is measured in `l10_evaluation`, not here.
+The retrieved folder paths are built in `src/common/paths.py`. Retrieval evaluation (hit, precision, recall, MRR, nDCG at chunk and doc level) is measured in `l10_evaluation`, not here.
 
 ### Run results
 
@@ -630,7 +630,7 @@ The retrieved folder paths are built in `src/common/paths.py`. Retrieval quality
 
 - **BM25 is still nearly all of the retrieval time:** 362.30s, 399.13s and 456.13s for fixed, sentence and semantic in the first run. It grows with the chunk count (91670, 94053, 104900).
 - **Reranking added about 595s**, the difference between the first two runs. The cross-encoder scores 20 chunks for every plain record: 4650 records per chunk type.
-- **From the cache**, all 54 files load (plain and reranked dense on 4 indexes, BM25, and hybrid on 4 pairs, for 3 chunk types). The run takes 33.31s, most of it loading the l1 documents and the 15 indexes, and it prints the same quality table.
+- **From the cache**, all 54 files load (plain and reranked dense on 4 indexes, BM25, and hybrid on 4 pairs, for 3 chunk types). The run takes 33.31s, most of it loading the l1 documents and the 15 indexes, and it prints the same retrieval evaluation table.
 
 **5000 documents, LangChain, all chunk types and indexes, reranking on, 150 tuning queries** (from `log/l6_retrieval/log_5k_langchain_retrieval_quality_rerank.txt`). Same settings as the built-in runs, with `--framework langchain`. There was no LangChain cache, so this run computed and saved all 54 files under `retrieved/langchain/`.
 
@@ -816,16 +816,16 @@ In every check, 3 of the 5 prompts were sent: the empty one got `I_DONT_KNOW` wi
 
 ### Overview
 
-`l10_evaluation` measures the pipeline's quality. So far it has retrieval quality; answer quality comes after generation.
+`l10_evaluation` measures the pipeline's quality. So far it has retrieval evaluation; answer evaluation comes after generation.
 
-`src/eval.py` creates one `RetrievalEvaluation(eval_qna)` before the loops. It stores each eval question by its id. For every plain and reranked `Retrieved`, `compute_retrieval_quality(retrieved, chunks)` finds the question by `retrieved.id` and returns a `RetrievalQuality`. `eval.py` keeps the `(retrieved, quality)` pairs in `retrieval_qualities`. After the loops, `print_retrieval_summary()` groups them by setup (chunk type, retrieval type, index, query type, reranking) and prints the mean of each metric.
+`src/eval.py` creates one `RetrievalEvaluator(eval_qna)` before the loops. It stores each eval question by its id. For every plain and reranked `Retrieved`, `compute_retrieval_evaluation(retrieved, chunks)` finds the question by `retrieved.id` and returns a `RetrievalEvaluation`. `eval.py` keeps the `(retrieved, retrieval_evaluation)` pairs in `retrieval_evaluations`. After the loops, `print_retrieval_summary()` groups them by setup (chunk type, retrieval type, index, query type, reranking) and prints the mean of each metric.
 
-`RetrievalQuality` holds `k` and two `Quality` records:
+`RetrievalEvaluation` holds `k` and two `Evaluation` records:
 - **`k`:** `top_k` (20) for a plain `Retrieved`, `rerank_top_k` (5) for a reranked one. Chunks missing from a shorter list count as not relevant.
-- **`chunk_quality`:** a chunk is relevant if it comes from one of the question's `doc_ids` and at least `CHUNK_CONTEXT_OVERLAP_THRESHOLD` (0.5) of its distinct lowercase words are in one of the question's `context` passages. The passages are 34 to 875 words, with a median of 560, about three chunks long, so a relevant chunk sits inside a passage. Recall is the share of context passages found.
-- **`doc_quality`:** a chunk is relevant if it comes from one of the question's `doc_ids`. Recall is the share of `doc_ids` found.
+- **`chunk_evaluation`:** a chunk is relevant if it comes from one of the question's `doc_ids` and at least `CHUNK_CONTEXT_OVERLAP_THRESHOLD` (0.5) of its distinct lowercase words are in one of the question's `context` passages. The passages are 34 to 875 words, with a median of 560, about three chunks long, so a relevant chunk sits inside a passage. Recall is the share of context passages found.
+- **`doc_evaluation`:** a chunk is relevant if it comes from one of the question's `doc_ids`. Recall is the share of `doc_ids` found.
 
-Each `Quality` has these fields:
+Each `Evaluation` has these fields:
 - `hit`: 1 if any chunk is relevant.
 - `precision`: relevant chunks ÷ k.
 - `recall`.
@@ -835,14 +835,14 @@ Each `Quality` has these fields:
 
 ### Architecture
 
-- **`retrieval_evaluation.py`**: `RetrievalEvaluation`, with `compute_retrieval_quality`, `compute_chunk_quality`, `compute_doc_quality` and `get_filtered_retrieval_qualities`.
-- **`schema.py`**: defines `Quality` and `RetrievalQuality`.
+- **`retrieval_evaluation.py`**: `RetrievalEvaluator`, with `compute_retrieval_evaluation`, `compute_chunk_evaluation`, `compute_doc_evaluation` and `get_filtered_retrieval_evaluations`.
+- **`schema.py`**: defines `Evaluation` and `RetrievalEvaluation`.
 - **`summary.py`**: `print_retrieval_summary`, the mean of each metric per setup.
-- **`answer_quality.py`**: empty placeholder.
+- **`answer_evaluation.py`**: empty placeholder.
 
 ### Run results
 
-**Retrieval quality, 5000 documents, built-in indexes, 150 tuning queries** (from `log/l6_retrieval/log_5k_retrieval_quality_rerank_cached.txt`, which has all 186 rows: 93 plain and 93 reranked). These are the best plain rows (k=20):
+**Retrieval evaluation, 5000 documents, built-in indexes, 150 tuning queries** (from `log/l6_retrieval/log_5k_retrieval_quality_rerank_cached.txt`, which has all 186 rows: 93 plain and 93 reranked). These are the best plain rows (k=20):
 
 | Chunk | Retrieval | Index | Query | c_hit | c_recall | c_mrr | d_hit |
 |---|---|---|---|---|---|---|---|
@@ -1072,14 +1072,14 @@ These are the best reranked rows (k=5):
 
 </details>
 
-**Filtered retrieval quality.** The table above has 186 setups, 27,900 `(Retrieved, RetrievalQuality)` pairs: 4,650 plain and 4,650 reranked per chunk type. Each `Retrieved` that goes on to the next layers (context, prompt, generation, answer quality) becomes one LLM call, and generation and answer evaluation may use a paid API. So only the best few setups go on.
+**Filtered retrieval evaluation.** The table above has 186 setups, 27,900 `(Retrieved, RetrievalEvaluation)` pairs: 4,650 plain and 4,650 reranked per chunk type. Each `Retrieved` that goes on to the next layers (context, prompt, generation, answer evaluation) becomes one LLM call, and generation and answer evaluation may use a paid API. So only the best few setups go on.
 
-After the summary, `eval.py` calls `retrieval_evaluation.get_filtered_retrieval_qualities(n_retrieval_quality, retrieval_qualities)` and prints the summary again for what it keeps. The method:
+After the summary, `eval.py` calls `retrieval_evaluator.get_filtered_retrieval_evaluations(n_retrieval_evaluation, retrieval_evaluations)` and prints the summary again for what it keeps. The method:
 1. **Scores each setup.** It groups the pairs by setup (chunk type, retrieval type, index, query type, reranking) and scores each setup by its mean chunk-level recall, with mean chunk-level MRR breaking ties. Chunk level is used because generation needs the passage that holds the answer, not just the right document. Recall comes first because a missed passage cannot be answered from. MRR breaks ties because the right chunk near the top helps the LLM.
-2. **Keeps the best of each kind.** It keeps the best `--n_retrieval_quality` plain setups and, separately, the best `--n_retrieval_quality` reranked setups. They are ranked apart because plain setups are scored at k=20 and reranked ones at k=5, so plain would nearly always win a joint ranking only because it has more chunks.
+2. **Keeps the best of each kind.** It keeps the best `--n_retrieval_evaluation` plain setups and, separately, the best `--n_retrieval_evaluation` reranked setups. They are ranked apart because plain setups are scored at k=20 and reranked ones at k=5, so plain would nearly always win a joint ranking only because it has more chunks.
 3. **Skips duplicates.** It drops any `Retrieved` with the same question and the same chunks, in the same order, as one already kept, because it would give the LLM the same prompt and cost a call for nothing. This only happens when n ≥ 2 picks setups that return the same chunks, such as `faiss_flatip` and `qdrant`.
 
-`--n_retrieval_quality` is 1 (`N_RETRIEVAL_QUALITY`), so 1 plain and 1 reranked setup are kept: 2 × 150 = 300 records instead of 27,900. A plain record has 20 chunks and a reranked one 5, so none of them can be duplicates of each other. The filter only regroups and sorts the qualities, so it takes well under a second and is not cached; it is recomputed from the cached retrieved outputs on every run.
+`--n_retrieval_evaluation` is 1 (`N_RETRIEVAL_EVALUATION`), so 1 plain and 1 reranked setup are kept: 2 × 150 = 300 records instead of 27,900. A plain record has 20 chunks and a reranked one 5, so none of them can be duplicates of each other. The filter only regroups and sorts the evaluations, so it takes well under a second and is not cached; it is recomputed from the cached retrieved outputs on every run.
 
 On the 5000-doc built-in run, loaded from the cache in 38.47s (`log/l6_retrieval/log_5k_retrieval_quality_rerank_cached.txt`), the filter kept 300 records with 0 duplicates skipped:
 
@@ -1092,7 +1092,7 @@ On the 5000-doc built-in run, loaded from the cache in 38.47s (`log/l6_retrieval
 - **Reranked:** faiss_flatip+bm25 and qdrant+bm25 have exactly the same recall and MRR. When scores tie, the setup that sorts last alphabetically is kept, so qdrant+bm25 was chosen. The two are effectively the same setup, since both are exact search over the same vectors.
 - **Both kept setups** use sentence chunks, hybrid retrieval and the original question.
 
-**LangChain retrieval quality, 5000 documents, 150 tuning queries** (from `log/l6_retrieval/log_5k_langchain_retrieval_quality_rerank.txt`). Same setups as built-in, searched on the LangChain chunks and indexes with the same l5 queries. The best setup per chunk type (ranked like the filter, by chunk-level recall then MRR):
+**LangChain retrieval evaluation, 5000 documents, 150 tuning queries** (from `log/l6_retrieval/log_5k_langchain_retrieval_quality_rerank.txt`). Same setups as built-in, searched on the LangChain chunks and indexes with the same l5 queries. The best setup per chunk type (ranked like the filter, by chunk-level recall then MRR):
 
 | Chunk | Rerank | Built-in best | c_rec / c_mrr / c_hit | LangChain best | c_rec / c_mrr / c_hit |
 |---|---|---|---|---|---|

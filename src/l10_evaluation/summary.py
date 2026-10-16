@@ -1,29 +1,29 @@
 """
 summary.py
 
-Prints the retrieval quality of every retrieval setup as one table row, averaged over its eval questions.
+Prints the retrieval evaluation of every retrieval setup as one table row, averaged over its eval questions.
 """
 
 from l6_retrieval.schema import Retrieved
-from l10_evaluation.schema import RetrievalQuality
+from l10_evaluation.schema import RetrievalEvaluation
 
-def print_retrieval_summary(retrieval_qualities: list[tuple[Retrieved, RetrievalQuality]]) -> None:
+def print_retrieval_summary(retrieval_evaluations: list[tuple[Retrieved, RetrievalEvaluation]]) -> None:
 	"""
-	Input: retrieval_qualities, one (Retrieved, RetrievalQuality) per eval question and retrieval setup.
+	Input: retrieval_evaluations, one (Retrieved, RetrievalEvaluation) per eval question and retrieval setup.
 	Output: nothing. Prints the table.
-	What it does: groups the qualities by setup (chunk type, retrieval type, index type, query type, reranking)
+	What it does: groups the evaluations by setup (chunk type, retrieval type, index type, query type, reranking)
 	and prints the mean of each metric per setup.
 	"""
-	# 1. Group the qualities by setup
-	qualities_by_setup = {}
-	for retrieved, retrieval_quality in retrieval_qualities:
+	# 1. Group the evaluations by setup
+	evaluations_by_setup = {}
+	for retrieved, retrieval_evaluation in retrieval_evaluations:
 		setup = (retrieved.chunk_type, retrieved.retrieval_type, retrieved.index_type, retrieved.query_type, retrieved.reranking)
-		if setup not in qualities_by_setup:
-			qualities_by_setup[setup] = []
-		qualities_by_setup[setup].append(retrieval_quality)
+		if setup not in evaluations_by_setup:
+			evaluations_by_setup[setup] = []
+		evaluations_by_setup[setup].append(retrieval_evaluation)
 
 	# 2. Print the header
-	print("\n\nRetrieval quality per setup (mean over the eval questions)")
+	print("\n\nRetrieval evaluation per setup (mean over the eval questions)")
 	header = (
 		f"{'chunk':<9}{'retrieval':<10}{'index':<19}{'query':<10}{'rerank':<7}{'k':>3}{'n':>5}  "
 		f"{'c_hit':>6}{'c_prec':>7}{'c_rec':>6}{'c_mrr':>6}{'c_ndcg':>7}  "
@@ -32,10 +32,10 @@ def print_retrieval_summary(retrieval_qualities: list[tuple[Retrieved, Retrieval
 	print(header)
 
 	# 3. Print one row per setup, in setup order
-	for setup in sorted(qualities_by_setup):
+	for setup in sorted(evaluations_by_setup):
 		chunk_type, retrieval_type, index_type, query_type, reranking = setup
-		retrieval_quality_list = qualities_by_setup[setup]
-		question_count = len(retrieval_quality_list)
+		retrieval_evaluation_list = evaluations_by_setup[setup]
+		question_count = len(retrieval_evaluation_list)
 
 		chunk_hit_sum = 0.0
 		chunk_precision_sum = 0.0
@@ -47,20 +47,20 @@ def print_retrieval_summary(retrieval_qualities: list[tuple[Retrieved, Retrieval
 		doc_recall_sum = 0.0
 		doc_mrr_sum = 0.0
 		doc_ndcg_sum = 0.0
-		for retrieval_quality in retrieval_quality_list:
-			chunk_hit_sum = chunk_hit_sum + retrieval_quality.chunk_quality.hit
-			chunk_precision_sum = chunk_precision_sum + retrieval_quality.chunk_quality.precision
-			chunk_recall_sum = chunk_recall_sum + retrieval_quality.chunk_quality.recall
-			chunk_mrr_sum = chunk_mrr_sum + retrieval_quality.chunk_quality.mrr
-			chunk_ndcg_sum = chunk_ndcg_sum + retrieval_quality.chunk_quality.ndcg
-			doc_hit_sum = doc_hit_sum + retrieval_quality.doc_quality.hit
-			doc_precision_sum = doc_precision_sum + retrieval_quality.doc_quality.precision
-			doc_recall_sum = doc_recall_sum + retrieval_quality.doc_quality.recall
-			doc_mrr_sum = doc_mrr_sum + retrieval_quality.doc_quality.mrr
-			doc_ndcg_sum = doc_ndcg_sum + retrieval_quality.doc_quality.ndcg
+		for retrieval_evaluation in retrieval_evaluation_list:
+			chunk_hit_sum = chunk_hit_sum + retrieval_evaluation.chunk_evaluation.hit
+			chunk_precision_sum = chunk_precision_sum + retrieval_evaluation.chunk_evaluation.precision
+			chunk_recall_sum = chunk_recall_sum + retrieval_evaluation.chunk_evaluation.recall
+			chunk_mrr_sum = chunk_mrr_sum + retrieval_evaluation.chunk_evaluation.mrr
+			chunk_ndcg_sum = chunk_ndcg_sum + retrieval_evaluation.chunk_evaluation.ndcg
+			doc_hit_sum = doc_hit_sum + retrieval_evaluation.doc_evaluation.hit
+			doc_precision_sum = doc_precision_sum + retrieval_evaluation.doc_evaluation.precision
+			doc_recall_sum = doc_recall_sum + retrieval_evaluation.doc_evaluation.recall
+			doc_mrr_sum = doc_mrr_sum + retrieval_evaluation.doc_evaluation.mrr
+			doc_ndcg_sum = doc_ndcg_sum + retrieval_evaluation.doc_evaluation.ndcg
 
-		# Every quality of one setup has the same k
-		k = retrieval_quality_list[0].k
+		# Every retrieval evaluation of one setup has the same k
+		k = retrieval_evaluation_list[0].k
 		if reranking:
 			rerank_text = "yes"
 		else:

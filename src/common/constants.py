@@ -108,4 +108,4 @@ CROSS_ENCODER_MODEL="cross-encoder/ms-marco-MiniLM-L-6-v2"
 CHUNK_CONTEXT_OVERLAP_THRESHOLD=0.5
 
 # Number of best plain setups and of best reranked setups whose retrieved outputs go on to the next layers
-N_RETRIEVAL_QUALITY=1
+N_RETRIEVAL_EVALUATION=1

@@ -12,6 +12,7 @@ from common.args import make_query_args
 from common.args import make_retrieval_args
 from common.args import make_llm_args
 from common.args import make_generation_args
+from common.args import make_answer_eval_args
 from l1_ingestion.ingestion import ingestion
 from l2_chunking.cache import load_chunks
 from l4_indexing import cache as index_cache
@@ -22,13 +23,16 @@ from l7_context.context import get_context_list
 from l8_prompt.prompt import get_prompt_list
 from l9_generation.generation import get_generated_list
 from l10_evaluation.summary import print_retrieval_summary
-from l10_evaluation.retrieval_evaluation import RetrievalEvaluation
+from l10_evaluation.retrieval_evaluation import RetrievalEvaluator
+from l10_evaluation.answer_evaluation import get_answer_evaluations
 from l5_query.schema import Query
 from l6_retrieval.schema import Retrieved
 from l7_context.schema import Context
 from l8_prompt.schema import Prompt
 from l9_generation.schema import Generated
-from l10_evaluation.schema import RetrievalQuality
+from l10_evaluation.schema import RetrievalEvaluation
+from l10_evaluation.schema import AnswerEvaluation
+from qna.schema import EvalQnA
 
 def load_eval_inputs(args, output_path: str):
 	"""
@@ -85,18 +89,18 @@ def load_eval_inputs(args, output_path: str):
 
 	return documents, eval_qna, tuning_queries, held_out_queries
 
-def run_retrieval(args, output_path: str, doc_ids: list[str], tuning_queries: list[Query], retrieval_evaluation: RetrievalEvaluation) -> list[tuple[Retrieved, RetrievalQuality]]:
+def run_retrieval(args, output_path: str, doc_ids: list[str], tuning_queries: list[Query], retrieval_evaluator: RetrievalEvaluator) -> list[tuple[Retrieved, RetrievalEvaluation]]:
 	"""
 	Input: args, the parsed eval arguments; output_path; doc_ids, the l1 document ids; tuning_queries; and
-	retrieval_evaluation, which scores each Retrieved.
-	Output: one (Retrieved, RetrievalQuality) per tuning query and setup, plain and reranked.
+	retrieval_evaluator, which scores each Retrieved.
+	Output: one (Retrieved, RetrievalEvaluation) per tuning query and setup, plain and reranked.
 	What it does: retrieves, reranks and scores, one chunk type and one index at a time.
 	"""
 	# Retrieval settings do not depend on the chunk type
 	retrieval_args = make_retrieval_args(args)
 
-	# List of (retrieved, quality) tuples, one per Retrieved
-	retrieval_qualities = []
+	# List of (retrieved, retrieval_evaluation) tuples, one per Retrieved
+	retrieval_evaluations = []
 	# One chunk type at a time, so only its chunks and indexes are in memory
 	for chunk_type in args.chunk_types:
 		print(f"\n\n========== Chunk type : {chunk_type} ==========")
@@ -138,17 +142,17 @@ def run_retrieval(args, output_path: str, doc_ids: list[str], tuning_queries: li
 					print(f"\n\nDense retrieved outputs on {index_type} : {len(dense_outputs)}")
 					print("\nDense retrieval time : ", time.time() - s7)
 
-					# 8. Retrieval quality evaluation of dense
+					# 8. Retrieval evaluation of dense
 					for retrieved in dense_outputs:
-						retrieval_qualities.append((retrieved, retrieval_evaluation.compute_retrieval_quality(retrieved, chunks)))
+						retrieval_evaluations.append((retrieved, retrieval_evaluator.compute_retrieval_evaluation(retrieved, chunks)))
 					
 					# 9. Rerank
 					if retrieval_args.reranking:
 						reranked_dense_outputs = retrieval.get_reranked_dense_retrieval(tuning_queries, chunks, index_type, dense_outputs)
 
-						# 10. Retrieval quality evaluation of reranked_dense
+						# 10. Retrieval evaluation of reranked_dense
 						for retrieved in reranked_dense_outputs:
-							retrieval_qualities.append((retrieved, retrieval_evaluation.compute_retrieval_quality(retrieved, chunks)))
+							retrieval_evaluations.append((retrieved, retrieval_evaluator.compute_retrieval_evaluation(retrieved, chunks)))
 
 			# 11. BM25 retrieval on the tuning queries. 
 			if constants.BM25_RETRIEVAL in retrieval_args.retrieval_types:
@@ -159,17 +163,17 @@ def run_retrieval(args, output_path: str, doc_ids: list[str], tuning_queries: li
 					print(f"\n\nBM25 retrieved outputs on {index_type} : {len(bm25_outputs)}")
 					print("\nBM25 retrieval time : ", time.time() - s9)
 
-					# 12. Retrieval quality evaluation of BM25
+					# 12. Retrieval evaluation of BM25
 					for retrieved in bm25_outputs:
-						retrieval_qualities.append((retrieved, retrieval_evaluation.compute_retrieval_quality(retrieved, chunks)))
+						retrieval_evaluations.append((retrieved, retrieval_evaluator.compute_retrieval_evaluation(retrieved, chunks)))
 
 					# 13. Rerank
 					if retrieval_args.reranking:
 						reranked_bm25_outputs = retrieval.get_reranked_bm25_retrieval(tuning_queries, chunks, bm25_outputs)
 
-						# 14. Retrieval quality evaluation of reranked_bm25
+						# 14. Retrieval evaluation of reranked_bm25
 						for retrieved in reranked_bm25_outputs:
-							retrieval_qualities.append((retrieved, retrieval_evaluation.compute_retrieval_quality(retrieved, chunks)))
+							retrieval_evaluations.append((retrieved, retrieval_evaluator.compute_retrieval_evaluation(retrieved, chunks)))
 
 		# 15. Hybrid: each dense index's outputs fused with the BM25 outputs, only if both exist and hybrid is given
 		if len(retrieved_dense_outputs) > 0 and len(retrieved_bm25_outputs) > 0 and constants.HYBRID_RETRIEVAL in args.retrieval_types:
@@ -180,24 +184,24 @@ def run_retrieval(args, output_path: str, doc_ids: list[str], tuning_queries: li
 				print(f"\n\nHybrid retrieved outputs on {index_type}+{constants.BM25_INDEX} : {len(hybrid_outputs)}")
 				print("\nHybrid retrieval time : ", time.time() - s11)
 
-				# 16. Retrieval quality evaluation of hybrid
+				# 16. Retrieval evaluation of hybrid
 				for retrieved in hybrid_outputs:
-					retrieval_qualities.append((retrieved, retrieval_evaluation.compute_retrieval_quality(retrieved, chunks)))
+					retrieval_evaluations.append((retrieved, retrieval_evaluator.compute_retrieval_evaluation(retrieved, chunks)))
 
 				# 17. Rerank
 				if retrieval_args.reranking:
 					reranked_hybrid_outputs = retrieval.get_reranked_hybrid_retrieval(tuning_queries, chunks, index_type, hybrid_outputs)
 
-					# 18. Retrieval quality evaluation of reranked_hybrid
+					# 18. Retrieval evaluation of reranked_hybrid
 					for retrieved in reranked_hybrid_outputs:
-						retrieval_qualities.append((retrieved, retrieval_evaluation.compute_retrieval_quality(retrieved, chunks)))
+						retrieval_evaluations.append((retrieved, retrieval_evaluator.compute_retrieval_evaluation(retrieved, chunks)))
 
-	return retrieval_qualities
+	return retrieval_evaluations
 
-def run_context(args, output_path: str, doc_ids: list[str], filtered_retrieval_qualities: list[tuple[Retrieved, RetrievalQuality]]) -> tuple[list[Retrieved], list[Context]]:
+def run_context(args, output_path: str, doc_ids: list[str], filtered_retrieval_evaluations: list[tuple[Retrieved, RetrievalEvaluation]]) -> tuple[list[Retrieved], list[Context]]:
 	"""
 	Input: args, the parsed eval arguments; output_path; doc_ids, the l1 document ids; and the filtered
-	(Retrieved, RetrievalQuality).
+	(Retrieved, RetrievalEvaluation).
 	Output: retrieved_list and context_list, in the same order, so context_list[i] belongs to retrieved_list[i].
 	What it does: builds the context of each filtered Retrieved, one chunk type at a time.
 	"""
@@ -212,7 +216,7 @@ def run_context(args, output_path: str, doc_ids: list[str], filtered_retrieval_q
 
 		# Load retrieved for a specific chunk type
 		chunk_type_retrieved_list = []
-		for retrieved, retrieval_quality in filtered_retrieval_qualities:
+		for retrieved, retrieval_evaluation in filtered_retrieval_evaluations:
 			if retrieved.chunk_type == chunk_type:
 				chunk_type_retrieved_list.append(retrieved)
 		if len(chunk_type_retrieved_list) == 0:
@@ -232,7 +236,7 @@ def run_context(args, output_path: str, doc_ids: list[str], filtered_retrieval_q
 	print("\nContext time : ", time.time() - s21)
 
 	# retrieved_list is returned too, because it is regrouped by chunk type: its order can differ from
-	# filtered_retrieval_qualities when the kept setups use different chunk types
+	# filtered_retrieval_evaluations when the kept setups use different chunk types
 	return retrieved_list, context_list
 
 def run_prompt(context_list: list[Context], tuning_queries: list[Query]) -> list[Prompt]:
@@ -269,6 +273,25 @@ def run_generation(args, output_path: str, prompt_list: list[Prompt]) -> list[Ge
 
 	return generated_list
 
+def run_answer_evaluation(args, output_path: str, eval_qna: list[EvalQnA], context_list: list[Context], generated_list: list[Generated]) -> list[AnswerEvaluation]:
+	"""
+	Input: args, the parsed eval arguments; output_path; eval_qna, the eval questions; context_list and generated_list,
+	the l7 contexts and l9 answers.
+	Output: answer_evaluations, in the same order, so answer_evaluations[i] belongs to generated_list[i], context_list[i]
+	and retrieved_list[i].
+	What it does: scores each answer's correctness, faithfulness and relevance, from the cache or the judge LLM.
+	"""
+	# 24. Answer evaluation
+	print("\n\nAnswer evaluation")
+	s24 = time.time()
+	answer_eval_args = make_answer_eval_args(args)
+	answer_evaluations = get_answer_evaluations(output_path, eval_qna, context_list, generated_list, answer_eval_args)
+
+	print(f"Answer evaluations : {len(answer_evaluations)}")
+	print("\nAnswer evaluation time : ", time.time() - s24)
+
+	return answer_evaluations
+
 if __name__ == "__main__":
 	print("\n ------------- RAG Eval -------- \n")
 	start = time.time()
@@ -287,27 +310,32 @@ if __name__ == "__main__":
 		doc_ids.append(doc_id)
 
 	# Finds each Retrieved's eval question by its id
-	retrieval_evaluation = RetrievalEvaluation(eval_qna)
+	retrieval_evaluator = RetrievalEvaluator(eval_qna)
 
-	# 2. Retrieval, reranking and retrieval quality
-	retrieval_qualities = run_retrieval(args, output_path, doc_ids, tuning_queries, retrieval_evaluation)
+	# 2. Retrieval, reranking and retrieval evaluation
+	# retrieval_evaluations is a list of (Retrieved, RetrievalEvaluation) tuples, one per eval question and setup
+	retrieval_evaluations = run_retrieval(args, output_path, doc_ids, tuning_queries, retrieval_evaluator)
 
-	# 3. Retrieval quality of every setup, averaged over the tuning queries
-	print_retrieval_summary(retrieval_qualities)
+	# 3. Retrieval evaluation of every setup, averaged over the tuning queries
+	print_retrieval_summary(retrieval_evaluations)
 
-	# 4. Keep the best n_retrieval_quality plain setups and the best n_retrieval_quality reranked setups
-	filtered_retrieval_qualities = retrieval_evaluation.get_filtered_retrieval_qualities(args.n_retrieval_quality, retrieval_qualities)
-	print_retrieval_summary(filtered_retrieval_qualities)
+	# 4. Keep the best n_retrieval_evaluation plain setups and the best n_retrieval_evaluation reranked setups
+	# filtered_retrieval_evaluations is also a list of (Retrieved, RetrievalEvaluation) tuples
+	filtered_retrieval_evaluations = retrieval_evaluator.get_filtered_retrieval_evaluations(args.n_retrieval_evaluation, retrieval_evaluations)
+	print_retrieval_summary(filtered_retrieval_evaluations)
 
 	# 5. Context
 	# retrieved_list holds the filtered Retrieved regrouped by chunk type, in the order of context_list.
-	retrieved_list, context_list = run_context(args, output_path, doc_ids, filtered_retrieval_qualities)
+	retrieved_list, context_list = run_context(args, output_path, doc_ids, filtered_retrieval_evaluations)
 
 	# 6. Prompt
 	prompt_list = run_prompt(context_list, tuning_queries)
 
 	# 7. Generation
 	generated_list = run_generation(args, output_path, prompt_list)
+
+	# 8. Answer evaluation
+	answer_evaluations = run_answer_evaluation(args, output_path, eval_qna, context_list, generated_list)
 
 	# ---------
 	end = time.time()

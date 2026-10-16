@@ -150,7 +150,7 @@ eval:
     reranking: true             # true to also rerank the top_k chunks with the cross-encoder, false not to
     rerank_top_k: 5             # Chunks kept after the cross-encoder reranks the top_k chunks
     tuning_queries_size: 150    # Eval questions used for tuning; the rest are held out for one final check
-    n_retrieval_quality: 1      # Best plain setups and best reranked setups whose retrieved outputs go on to the next layers
+    n_retrieval_evaluation: 1      # Best plain setups and best reranked setups whose retrieved outputs go on to the next layers
 
   # 7. Generation
   # Always sent as one batch, so a paid model uses its batch prices, cache prices included. Ollama has no batch API and
@@ -164,3 +164,13 @@ eval:
     generation_cache_read_price: *flash_lite_31_batch_cache_read_price
     batch_poll_seconds: 60      # Seconds between status checks of a generation batch
     batch_timeout_seconds: 86400   # Seconds to wait for a batch before stopping; a later run resumes the same batch
+
+  # 8. Answer evaluation
+  answer_evaluation:
+    ans_eval_framework: ragas       # Framework that scores the answers
+    ans_eval_llm: ollama            # LLM that judges the answers
+    ans_eval_llm_model: *llama
+    ans_eval_input_price: *llama_input_price
+    ans_eval_output_price: *llama_output_price
+    ans_eval_cache_write_price: *llama_cache_write_price
+    ans_eval_cache_read_price: *llama_cache_read_price

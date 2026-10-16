@@ -101,6 +101,11 @@ class GenerationArgs:
 	batch_poll_seconds: int
 	batch_timeout_seconds: int
 
+@dataclasses.dataclass
+class AnswerEvalArgs:
+	framework: str
+	llm_args: LLMArgs
+
 # ------ Command line arguments
 def parse_config_arguments(parser: argparse.ArgumentParser, config_parts: list[str]) -> argparse.Namespace:
 	"""
@@ -181,7 +186,7 @@ def parse_eval_args():
 	Input: none. Reads --config and any override flags passed to eval.py.
 	Output: an argparse.Namespace with one attribute per argument.
 	What it does: defines the arguments of the build to evaluate, which must have the values the build was run
-	with, and the LLM, eval QnA, query, retrieval and generation arguments, and parses them from the build and
+	with, and the LLM, eval QnA, query, retrieval, generation and answer evaluation arguments, and parses them from the build and
 	eval parts of the config file, so eval always uses the settings the build was made with.
 	"""
 	parser = argparse.ArgumentParser(description="RAG-Eval evaluation parameters", allow_abbrev=False)
@@ -193,6 +198,7 @@ def parse_eval_args():
 	add_query_arguments(parser)
 	add_retrieval_arguments(parser)
 	add_generation_arguments(parser)
+	add_answer_eval_arguments(parser)
 	return parse_config_arguments(parser, ["build", "eval"])
 
 def add_ingest_arguments(parser: argparse.ArgumentParser) -> None:
@@ -556,10 +562,10 @@ def add_retrieval_arguments(parser: argparse.ArgumentParser) -> None:
 		required=True,
 		help="Number of eval questions used for tuning; the rest are held out for one final check")
 	parser.add_argument(
-		"--n_retrieval_quality",
+		"--n_retrieval_evaluation",
 		type=int,
 		required=False,
-		default=constants.N_RETRIEVAL_QUALITY,
+		default=constants.N_RETRIEVAL_EVALUATION,
 		help="Number of best plain setups and of best reranked setups whose retrieved outputs go on to the next layers")
 
 def add_generation_arguments(parser: argparse.ArgumentParser) -> None:
@@ -608,6 +614,48 @@ def add_generation_arguments(parser: argparse.ArgumentParser) -> None:
 		type=int,
 		required=True,
 		help="Seconds to wait for a generation batch before stopping; a later run resumes the same batch")
+
+def add_answer_eval_arguments(parser: argparse.ArgumentParser) -> None:
+	"""
+	Input: parser, the argument parser of eval.py.
+	Output: nothing.
+	What it does: adds the answer evaluation arguments: the framework and the judge LLM.
+	"""
+	parser.add_argument(
+		"--ans_eval_framework",
+		type=str,
+		required=True,
+		help="Framework that scores the answers, e.g. ragas")
+	parser.add_argument(
+		"--ans_eval_llm",
+		type=str,
+		required=True,
+		help="LLM provider that judges the answers: claude, chatgpt, gemini or ollama")
+	parser.add_argument(
+		"--ans_eval_llm_model",
+		type=str,
+		required=True,
+		help="Model the answer evaluation LLM provider runs")
+	parser.add_argument(
+		"--ans_eval_input_price",
+		type=float,
+		required=True,
+		help="Answer evaluation model price in US dollars per million input tokens, 0 for ollama")
+	parser.add_argument(
+		"--ans_eval_output_price",
+		type=float,
+		required=True,
+		help="Answer evaluation model price in US dollars per million output tokens, 0 for ollama")
+	parser.add_argument(
+		"--ans_eval_cache_write_price",
+		type=float,
+		required=True,
+		help="Answer evaluation model price in US dollars per million input tokens written to the prompt cache, 0 for ollama")
+	parser.add_argument(
+		"--ans_eval_cache_read_price",
+		type=float,
+		required=True,
+		help="Answer evaluation model price in US dollars per million input tokens read from the prompt cache, 0 for ollama")
 
 # ------ Layer settings from the parsed arguments
 def make_ingest_args(parsed_args):
@@ -755,3 +803,26 @@ def make_generation_args(parsed_args) -> GenerationArgs:
 		batch_timeout_seconds=parsed_args.batch_timeout_seconds
 	)
 	return generation_args
+
+def make_answer_eval_args(parsed_args) -> AnswerEvalArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args().
+	Output: an AnswerEvalArgs object holding the answer evaluation framework and the judge LLM.
+	What it does: makes the judge LLM with make_llm_args and copies ans_eval_framework.
+	"""
+	ans_eval_llm_args = make_llm_args(
+		parsed_args.ans_eval_llm,
+		parsed_args.ans_eval_llm_model,
+		parsed_args.ans_eval_input_price,
+		parsed_args.ans_eval_output_price,
+		parsed_args.ans_eval_cache_write_price,
+		parsed_args.ans_eval_cache_read_price,
+		parsed_args.llm_max_tokens,
+		parsed_args.llm_timeout_seconds,
+		parsed_args.llm_cache_ttl
+	)
+	answer_eval_args = AnswerEvalArgs(
+		framework=parsed_args.ans_eval_framework,
+		llm_args=ans_eval_llm_args
+	)
+	return answer_eval_args

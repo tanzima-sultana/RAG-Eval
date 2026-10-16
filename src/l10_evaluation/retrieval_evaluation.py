@@ -9,11 +9,11 @@ import math
 from common.constants import CHUNK_CONTEXT_OVERLAP_THRESHOLD
 from l2_chunking.schema import Chunk
 from l6_retrieval.schema import Retrieved
-from l10_evaluation.schema import Quality
-from l10_evaluation.schema import RetrievalQuality
+from l10_evaluation.schema import Evaluation
+from l10_evaluation.schema import RetrievalEvaluation
 from qna.schema import EvalQnA
 
-class RetrievalEvaluation:
+class RetrievalEvaluator:
 	def __init__(self, eval_qna: list[EvalQnA]):
 		"""
 		Input: eval_qna, the eval questions.
@@ -24,10 +24,10 @@ class RetrievalEvaluation:
 		for eval_qna_item in eval_qna:
 			self.eval_qna_by_id[eval_qna_item.id] = eval_qna_item
 
-	def compute_retrieval_quality(self, retrieved: Retrieved, chunks: dict[str, Chunk]) -> RetrievalQuality:
+	def compute_retrieval_evaluation(self, retrieved: Retrieved, chunks: dict[str, Chunk]) -> RetrievalEvaluation:
 		"""
 		Input: retrieved, one Retrieved; chunks, the l2 chunks of its chunk type.
-		Output: its RetrievalQuality, at chunk level and at doc level.
+		Output: its RetrievalEvaluation, at chunk level and at doc level.
 		What it does: finds the eval question of retrieved and scores its chunks at both levels.
 		"""
 		eval_qna_item = self.eval_qna_by_id[retrieved.id]
@@ -38,49 +38,49 @@ class RetrievalEvaluation:
 		else:
 			k = retrieved.top_k
 
-		chunk_quality = self.compute_chunk_quality(retrieved, chunks, eval_qna_item, k)
-		doc_quality = self.compute_doc_quality(retrieved, eval_qna_item, k)
+		chunk_evaluation = self.compute_chunk_evaluation(retrieved, chunks, eval_qna_item, k)
+		doc_evaluation = self.compute_doc_evaluation(retrieved, eval_qna_item, k)
 
-		return RetrievalQuality(
+		return RetrievalEvaluation(
 			k=k,
-			chunk_quality=chunk_quality,
-			doc_quality=doc_quality
+			chunk_evaluation=chunk_evaluation,
+			doc_evaluation=doc_evaluation
 		)
 
-	def get_filtered_retrieval_qualities(self, n_retrieval_quality: int, retrieval_qualities: list[tuple[Retrieved, RetrievalQuality]]) -> list[tuple[Retrieved, RetrievalQuality]]:
+	def get_filtered_retrieval_evaluations(self, n_retrieval_evaluation: int, retrieval_evaluations: list[tuple[Retrieved, RetrievalEvaluation]]) -> list[tuple[Retrieved, RetrievalEvaluation]]:
 		"""
-		Input: n_retrieval_quality, the number of setups to keep of each kind; retrieval_qualities, one
-		(Retrieved, RetrievalQuality) per eval question and setup.
-		Output: the (Retrieved, RetrievalQuality) of the kept setups, at most n_retrieval_quality x the number of
+		Input: n_retrieval_evaluation, the number of setups to keep of each kind; retrieval_evaluations, one
+		(Retrieved, RetrievalEvaluation) per eval question and setup.
+		Output: the (Retrieved, RetrievalEvaluation) of the kept setups, at most n_retrieval_evaluation x the number of
 		questions of each kind.
 		What it does: ranks the setups by mean chunk-level recall, then mean chunk-level MRR, and keeps the best
-		n_retrieval_quality plain setups and the best n_retrieval_quality reranked setups. Plain and reranked setups
+		n_retrieval_evaluation plain setups and the best n_retrieval_evaluation reranked setups. Plain and reranked setups
 		are ranked apart, because they are scored at a different k. A Retrieved with the same question and the same
 		chunks as one already kept is skipped, since it would give the LLM the same prompt.
 		"""
-		if n_retrieval_quality < 1:
-			raise ValueError(f"n_retrieval_quality ({n_retrieval_quality}) must be at least 1")
+		if n_retrieval_evaluation < 1:
+			raise ValueError(f"n_retrieval_evaluation ({n_retrieval_evaluation}) must be at least 1")
 
-		# 1. Group the qualities by setup
-		retrieval_qualities_by_setup = {}
-		for retrieved, retrieval_quality in retrieval_qualities:
+		# 1. Group the evaluations by setup
+		retrieval_evaluations_by_setup = {}
+		for retrieved, retrieval_evaluation in retrieval_evaluations:
 			setup = (retrieved.chunk_type, retrieved.retrieval_type, retrieved.index_type, retrieved.query_type, retrieved.reranking)
-			if setup not in retrieval_qualities_by_setup:
-				retrieval_qualities_by_setup[setup] = []
-			retrieval_qualities_by_setup[setup].append((retrieved, retrieval_quality))
+			if setup not in retrieval_evaluations_by_setup:
+				retrieval_evaluations_by_setup[setup] = []
+			retrieval_evaluations_by_setup[setup].append((retrieved, retrieval_evaluation))
 
 		# 2. Score each setup by its mean chunk-level recall and MRR, plain and reranked apart
 		plain_setup_scores = []
 		reranked_setup_scores = []
-		for setup in retrieval_qualities_by_setup:
-			setup_retrieval_qualities = retrieval_qualities_by_setup[setup]
+		for setup in retrieval_evaluations_by_setup:
+			setup_retrieval_evaluations = retrieval_evaluations_by_setup[setup]
 			recall_sum = 0.0
 			mrr_sum = 0.0
-			for retrieved, retrieval_quality in setup_retrieval_qualities:
-				recall_sum = recall_sum + retrieval_quality.chunk_quality.recall
-				mrr_sum = mrr_sum + retrieval_quality.chunk_quality.mrr
-			mean_recall = recall_sum / len(setup_retrieval_qualities)
-			mean_mrr = mrr_sum / len(setup_retrieval_qualities)
+			for retrieved, retrieval_evaluation in setup_retrieval_evaluations:
+				recall_sum = recall_sum + retrieval_evaluation.chunk_evaluation.recall
+				mrr_sum = mrr_sum + retrieval_evaluation.chunk_evaluation.mrr
+			mean_recall = recall_sum / len(setup_retrieval_evaluations)
+			mean_mrr = mrr_sum / len(setup_retrieval_evaluations)
 
 			reranking = setup[4]
 			if reranking:
@@ -88,36 +88,36 @@ class RetrievalEvaluation:
 			else:
 				plain_setup_scores.append((mean_recall, mean_mrr, setup))
 
-		# 3. Keep the best n_retrieval_quality of each. Equal recall and MRR fall back to the setup order
-		best_plain_setup_scores = sorted(plain_setup_scores, reverse=True)[:n_retrieval_quality]
-		best_reranked_setup_scores = sorted(reranked_setup_scores, reverse=True)[:n_retrieval_quality]
+		# 3. Keep the best n_retrieval_evaluation of each. Equal recall and MRR fall back to the setup order
+		best_plain_setup_scores = sorted(plain_setup_scores, reverse=True)[:n_retrieval_evaluation]
+		best_reranked_setup_scores = sorted(reranked_setup_scores, reverse=True)[:n_retrieval_evaluation]
 
-		# 4. Collect the qualities of the kept setups, best first
-		kept_retrieval_qualities = []
+		# 4. Collect the evaluations of the kept setups, best first
+		kept_retrieval_evaluations = []
 		for mean_recall, mean_mrr, setup in best_plain_setup_scores:
-			kept_retrieval_qualities.extend(retrieval_qualities_by_setup[setup])
+			kept_retrieval_evaluations.extend(retrieval_evaluations_by_setup[setup])
 		for mean_recall, mean_mrr, setup in best_reranked_setup_scores:
-			kept_retrieval_qualities.extend(retrieval_qualities_by_setup[setup])
+			kept_retrieval_evaluations.extend(retrieval_evaluations_by_setup[setup])
 
 		# 5. Skip duplicates: the same question with the same chunks, in the same order, as one already kept
-		filtered_retrieval_qualities = []
+		filtered_retrieval_evaluations = []
 		kept_question_chunks = set()
 		duplicate_count = 0
-		for retrieved, retrieval_quality in kept_retrieval_qualities:
+		for retrieved, retrieval_evaluation in kept_retrieval_evaluations:
 			question_chunks = (retrieved.id, tuple(retrieved.chunk_ids))
 			if question_chunks in kept_question_chunks:
 				duplicate_count = duplicate_count + 1
 				continue
 			kept_question_chunks.add(question_chunks)
-			filtered_retrieval_qualities.append((retrieved, retrieval_quality))
+			filtered_retrieval_evaluations.append((retrieved, retrieval_evaluation))
 
-		print(f"\n\nFiltered retrieved outputs : {len(filtered_retrieval_qualities)} ({duplicate_count} duplicates skipped)")
-		return filtered_retrieval_qualities
+		print(f"\n\nFiltered retrieved outputs : {len(filtered_retrieval_evaluations)} ({duplicate_count} duplicates skipped)")
+		return filtered_retrieval_evaluations
 
-	def compute_chunk_quality(self, retrieved: Retrieved, chunks: dict[str, Chunk], eval_qna_item: EvalQnA, k: int) -> Quality:
+	def compute_chunk_evaluation(self, retrieved: Retrieved, chunks: dict[str, Chunk], eval_qna_item: EvalQnA, k: int) -> Evaluation:
 		"""
 		Input: one Retrieved, the l2 chunks, its eval question and k.
-		Output: the Quality at chunk level.
+		Output: the Evaluation at chunk level.
 		What it does: a chunk is relevant if it comes from a gold doc and at least CHUNK_CONTEXT_OVERLAP_THRESHOLD of
 		its words are in one of the context passages. Recall is the share of context passages found.
 		"""
@@ -176,7 +176,7 @@ class RetrievalEvaluation:
 		if len(passage_word_sets) > 0:
 			recall = len(found_passage_positions) / len(passage_word_sets)
 
-		return Quality(
+		return Evaluation(
 			hit=hit,
 			precision=relevant_count / k,
 			recall=recall,
@@ -185,10 +185,10 @@ class RetrievalEvaluation:
 			first_relevant_rank=first_relevant_rank
 		)
 
-	def compute_doc_quality(self, retrieved: Retrieved, eval_qna_item: EvalQnA, k: int) -> Quality:
+	def compute_doc_evaluation(self, retrieved: Retrieved, eval_qna_item: EvalQnA, k: int) -> Evaluation:
 		"""
 		Input: one Retrieved, its eval question and k.
-		Output: the Quality at doc level.
+		Output: the Evaluation at doc level.
 		What it does: a chunk is relevant if it comes from a gold doc. Recall is the share of gold docs found.
 		"""
 		# 1. Go over the chunks best first, counting the relevant ones and the gold docs they come from
@@ -226,7 +226,7 @@ class RetrievalEvaluation:
 		if len(eval_qna_item.doc_ids) > 0:
 			recall = len(found_doc_ids) / len(set(eval_qna_item.doc_ids))
 
-		return Quality(
+		return Evaluation(
 			hit=hit,
 			precision=relevant_count / k,
 			recall=recall,
