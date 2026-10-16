@@ -1,3 +1,55 @@
+## configs
+
+### Overview
+
+Every setting of a run is in one file, `configs/input_args.yaml`. To run the project, edit that file and run a script; no code or script needs to change:
+
+```bash
+bash scripts/build.sh                       # build the RAG indexes
+bash scripts/eval.sh                        # evaluate the build
+bash scripts/build.sh --dataset_size 20     # any setting can be overridden for one run
+ALLOW_PAID_API=1 bash scripts/eval.sh       # when a layer uses a paid LLM and its cache does not exist
+```
+
+The file has three top-level parts:
+
+- **`models`**: each LLM model name and its normal and batch prices in US dollars per million tokens, written once as YAML anchors (`sonnet: &sonnet claude-sonnet-5-5`). It holds no settings itself; the eval layers reuse the values with `*sonnet`.
+- **`build`**: the `ingestion`, `chunking` and `indexing` settings. `build.py` reads only this part.
+- **`eval`**: the `llm`, `qna`, `query`, `retrieval` and `generation` settings. `eval.py` reads the `build` and `eval` parts, so eval always uses the settings the build was made with, and each setting is written once.
+
+The sections inside a part (`ingestion:`, `chunking:` and so on) are only for reading; each key under them is one command line argument of the same name. API keys are not in this file; they stay in `.env`, which is not committed.
+
+### How it is read
+
+`build.sh` and `eval.sh` run `python3 src/build.py --config configs/input_args.yaml "$@"` (or `eval.py`). `parse_config_arguments()` in `src/common/args.py` loads the YAML with PyYAML and turns every setting back into its command line flag: `dataset_size: 5000` becomes `--dataset_size 5000`, a list such as `chunk_types: [fixed, sentence, semantic]` becomes `--chunk_types fixed sentence semantic`, and `true` / `false` become the strings `"true"` / `"false"`. argparse then parses these flags as before, so all type, choice and list checks still apply, and `build.py`, `eval.py`, the `*Args` dataclasses and the layers did not change. Flags given after `--config` are parsed after the file's, so they replace the file's values for that run.
+
+Design choices and why:
+
+- **YAML read by Python, not values in the `.sh` files.** Before, every setting was a variable in `build.sh` or `eval.sh`, so changing one meant reading shell code, and the build settings were written in both scripts, where they could drift apart (`DATASET_SIZE` was 100 in one and 5000 in the other). A config file read by the code is the usual way ML projects keep run settings, and the file is committed so any run can be reproduced.
+- **One file with `build` and `eval` parts.** Eval has to use the exact build settings to find the build's caches. With one copy, a build setting changed for `build.sh` is also what `eval.sh` evaluates.
+- **The flags stay the interface.** The file is turned into the same flags the scripts passed before, so argparse's checks, the help text and the `make_*_args` functions are reused, and a single setting can still be overridden on the command line.
+- **Every argument must be in the file.** Some arguments have defaults in `constants.py`, but a run that silently used a default would not be fully described by its file, so a missing key stops the run.
+- **`allow_abbrev=False` on both parsers.** argparse otherwise accepts a unique prefix of a flag, so a misspelled `chunk_type:` was taken as `chunk_types`. With it off, every key must match an argument exactly.
+
+A wrong file stops the run before any layer starts:
+
+| Problem in the file | Error |
+|---|---|
+| A key is missing | `configs/input_args.yaml: pdf_parser is missing` |
+| A key is misspelled | `unrecognized arguments: --chunk_type fixed sentence semantic` |
+| A key has no value | `configs/input_args.yaml: model_name has no value` |
+| A value has the wrong type | `argument --dataset_size: invalid int value: 'abc'` |
+| The `eval` part is missing (eval only) | `configs/input_args.yaml: part eval is missing` |
+| A misspelled override flag | `unrecognized arguments: --dataset_sise 20` |
+
+Values that have the right type but are not allowed, such as an unknown `pdf_parser` or chunk type, are caught by the layers' own `validate.py` checks, as before. Changing a value never needs code; a new setting does, because a key the code does not know is an unrecognized argument: it needs an `add_argument`, a field in its `*Args` dataclass and `make_*_args`, and the code that uses it.
+
+### Architecture
+
+- **`configs/input_args.yaml`**: every setting of `build.sh` and `eval.sh`, in its `models`, `build` and `eval` parts.
+- **`src/common/args.py`**: the `*Args` dataclasses; `parse_config_arguments()`, which reads the file; `parse_build_args()` and `parse_eval_args()`, which each add their arguments with one `add_*_arguments()` function per YAML section (`ingest`, `chunking`, `index`, `llm`, `eval_qna`, `query`, `retrieval`, `generation`) and read their parts; and the `make_*_args()` functions that turn the parsed arguments into each layer's settings.
+- **`scripts/build.sh` and `scripts/eval.sh`**: activate the environment, load `.env` and run `build.py` or `eval.py` with the file and any override flags, writing the log to `log/log.txt` or `log/eval_log.txt`.
+
 ## Claude Code project setup
 
 This project is developed with Claude Code. `CLAUDE.md` holds the code style, environment and project structure rules. The project's own skills are in `.claude/skills/` and its hook is in `.claude/settings.json`; both are loaded by every Claude Code session started in this repository.
@@ -8,7 +60,7 @@ A skill is a set of instructions Claude follows for one kind of task. Claude use
 
 - **`git-commit`** — Writes a commit message, commits and pushes to the remote. Used whenever a commit is asked for.
 - **`layer-readme-section`** — Writes or updates one pipeline layer's section of this README: an overview, one line per module from the structure in `CLAUDE.md`, and run results taken only from the logs.
-- **`qdrant-docker`** — Checks that the Qdrant server is up on `localhost:6333` and, if not, starts Docker Desktop and the Qdrant container. Used before `scripts/run.sh` or anything that builds or queries the l4 Qdrant index. It never removes a container, image, volume or collection.
+- **`qdrant-docker`** — Checks that the Qdrant server is up on `localhost:6333` and, if not, starts Docker Desktop and the Qdrant container. Used before `scripts/build.sh` or anything that builds or queries the l4 Qdrant index. It never removes a container, image, volume or collection.
 - **`paid-api-run-approval`** — Requires the user's explicit approval before every run that can call a paid LLM API. Paid runs through the project code must be started with `ALLOW_PAID_API=1` (e.g. `ALLOW_PAID_API=1 bash scripts/eval.sh`), because `llm.get_llm()` refuses to build a Claude LLM without it; direct API requests also count. Before the run Claude shows the command, the model, the settings that drive the cost, whether a cache file already exists and a cost estimate if one is known. One approval covers one run: a retry or a changed setting needs a new approval. After the run Claude reports the cost it printed.
 
 ### Hooks
@@ -250,9 +302,11 @@ Index size on disk, built-in → LangChain (bytes):
 
 ### Overview
 
-`llm` gives every layer that calls an LLM the same interface, for four providers: `claude`, `chatgpt`, `gemini` and `ollama`. A layer's LLM settings come from the command line: `eval.sh` sets the provider, model and prices for each layer (`QNA_*`, `QNA_KG_*`, `QUERY_*`, `GENERATION_*`) from a models block at the top, plus one `LLM_MAX_TOKENS` and `LLM_TIMEOUT_SECONDS` shared by all layers. `eval.py` turns each layer's settings into an `LLM` object with `make_llm_args`, and passes that object to the layer. The layer calls `validate_llm(llm_args)` only when its cache is missing, and then calls `get_llm(llm_args)`, which returns the provider's LLM class: `ClaudeLLM`, `ChatGPTLLM`, `GeminiLLM` or `OllamaLLM`. Every class has the same four things: `chat_model` (a LangChain chat model), `json_chat_model` (the same model forced to reply in JSON), `generate(system_prompt, user_prompt)`, which returns the reply text, and `compute_cost()`, which prints and returns the cost of its calls. `qna` hands `json_chat_model` of its two LLMs to RAGAS. `l5_query` calls `generate("", prompt)`. No layer knows which provider or model it got.
+`llm` gives every layer that calls an LLM the same interface, for four providers: `claude`, `chatgpt`, `gemini` and `ollama`. A layer's LLM settings come from `configs/input_args.yaml` (see `configs`): the provider, model and prices for each layer (`qna_*`, `qna_kg_*`, `query_*`, `generation_*`), taken from its `models` part, plus one `llm_max_tokens` and `llm_timeout_seconds` shared by all layers. `eval.py` turns each layer's settings into an `LLMArgs` object (in `common/args.py`, like every other layer's settings) with `make_llm_args`, and passes that object to the layer. The layer calls `validate_llm(llm_args)` only when its cache is missing, and then calls `get_llm(llm_args)`, which returns the provider's LLM class: `ClaudeLLM`, `ChatGPTLLM`, `GeminiLLM` or `OllamaLLM`. Every class has the same five things: `chat_model` (a LangChain chat model), `json_chat_model` (the same model forced to reply in JSON), `generate(system_prompt, user_prompt)`, which returns an `LLMResponse`, `generate_batch(requests, ...)`, which sends many prompts as one batch at the batch price and returns an `LLMResponse` per request id, and `compute_cost()`, which prints and returns an `LLMCost`. `qna` hands `json_chat_model` of its two LLMs to RAGAS. `l5_query` calls `generate("", prompt)` and reads its `.text`. l9 calls `generate_batch()`.
 
-The models block in `eval.sh`, one model name and price pair per model:
+The layer's output schema in `schema.py`: `LLMModel` (`llm`, `llm_model`) says which model made an output; `LLMCost` extends it with `number_of_calls`, the input and output tokens and their costs and `total_cost`; `LLMResponse` extends it with `request_id`, `text` and the input and output tokens of that reply. They extend `LLMModel` rather than holding it, so each record stays flat. No layer knows which provider or model it got.
+
+The `models` part of `configs/input_args.yaml`, one model name and price pair per model (the batch prices, used by l9, are set at 50% of these):
 
 | Provider | Model | Price per million tokens (input / output) | Used for |
 |---|---|---|---|
@@ -268,9 +322,9 @@ Each provider has a cheaper model for the many knowledge graph calls, which send
 
 Design choices and why:
 
-- **One `LLM` object per layer.** Its fields are `llm`, `llm_model`, `input_price`, `output_price`, `max_tokens` and `timeout_seconds`. Changing a layer's model is one line in `eval.sh`, with no code change. Cache names use the model name, not the provider (e.g. `eval_qna_100_200_claude-sonnet-5-5_…`), so a cache made by one model is never loaded for another.
+- **One `LLMArgs` object per layer.** Its fields are `llm`, `llm_model`, `input_price`, `output_price`, `max_tokens` and `timeout_seconds`. Changing a layer's model is one line in `configs/input_args.yaml`, with no code change. Cache names use the model name, not the provider (e.g. `eval_qna_100_200_claude-sonnet-5-5_…`), so a cache made by one model is never loaded for another.
 - **Prices come from the command line.** The providers' list-models APIs do not return prices, so a price table would have to be kept by hand in the code anyway. `compute_cost()` multiplies the counted tokens by `input_price` and `output_price`. A paid model must have both prices above 0, so the cost of every paid run is printed. A wrong price cannot be detected, only a missing one.
-- **General code in `llm.py`, `schema.py` and `validate.py`, provider code in the provider's own file.** Each provider file holds its settings, its `validate_<provider>()` and its LLM class, written out in full rather than sharing a base class, so each provider's flow reads top to bottom in one place, and a fix for one provider changes only its file. The only shared piece is `TokenCounter`, because LangChain reports token usage in the same `usage_metadata` for every provider.
+- **General code in `llm.py` and `validate.py`, provider code in the provider's own file.** Each provider file holds its settings, its `validate_<provider>()` and its LLM class, written out in full rather than sharing a base class, so each provider's flow reads top to bottom in one place, and a fix for one provider changes only its file. The only shared piece is `TokenCounter`, because LangChain reports token usage in the same `usage_metadata` for every provider.
 - **Checks run only when an LLM is needed.** `validate_llm` checks the settings every provider shares (model name, prices, `max_tokens`, `timeout_seconds`), then calls the provider's check: API key set and the model listed by the provider for the paid ones, server running and model pulled for Ollama. QnA and l5 run it only on a cache miss, so a cached run needs no API key, no `ALLOW_PAID_API` and no Ollama server. A listed model is not always usable: Google lists `gemini-2.5-flash` and `gemini-2.5-flash-lite`, but rejects them for new accounts (`404 NOT_FOUND: … no longer available to new users`), which only a real call shows. A failed call raises an error and stops the run.
 - **Paid calls need `ALLOW_PAID_API=1`.** Each paid provider's check tests it, and each paid LLM class tests it again when it is built, so a paid LLM cannot be built by a caller that skipped `validate_llm`.
 - **API keys are read from `CLAUDE_API_KEY`, `CHATGPT_API_KEY` and `GEMINI_API_KEY` in `.env`,** named after the providers, and each class passes its key to its LangChain client. LangChain's clients look for `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `GOOGLE_API_KEY` on their own, so passing the key keeps a key set under those names for something else from being used.
@@ -286,7 +340,7 @@ Ollama choices and limits:
 - **Temperature 0**, so the same prompt gives the same reply on every run.
 - **Ollama is used for l5 queries, not for eval QnA.** l5 prompts are one question plus an instruction, far below 32768 tokens. RAGAS sends whole documents, and this dataset has documents much longer than 32768 tokens (75,450 in the 20-document check set), which do not fit. Eval QnA uses Claude.
 
-`scripts/check_llms.sh <provider>` runs `src/llm/check_llms.py` (as `python3 -m llm.check_llms`, so `src/llm/llm.py` does not hide the `llm` package) to check the layers that use an LLM end to end with one provider. It is a developer check, not part of the pipeline: `eval.sh` and `build.sh` never run it. It builds a 20-document dataset under `outputs/llm_check/<provider>/`, keeps only documents of at most 8000 tokens so every provider gets the same documents and they fit in Ollama's context window, deletes its own QnA, knowledge graph and query caches, generates 2 QnA items from 3 documents and their queries, checks the records, the `llm` and `llm_model` fields and the cache files, and runs both layers again to check they load from the cache without writing it again. It never writes under the real `outputs/<dataset>/` caches. `ollama` is free; `claude`, `chatgpt` and `gemini` need `ALLOW_PAID_API=1`. Each provider uses its cheaper model for the knowledge graph and the queries, and its stronger one for the questions and answers. QnA and query passed with all four providers (below), so those steps are now commented out in `check_llms.py`, to not pay for them again; removing the `#` in front of steps 2 to 6 turns them back on.
+`scripts/check_llms.sh <provider>` runs `src/llm/check_llms.py` (as `python3 -m llm.check_llms`, so `src/llm/llm.py` does not hide the `llm` package) to check the layers that use an LLM end to end with one provider. It is a developer check, not part of the pipeline: `eval.sh` and `build.sh` never run it, and it keeps its own settings in `check_llms.sh` rather than `configs/input_args.yaml`. It builds a 20-document dataset under `outputs/llm_check/<provider>/`, keeps only documents of at most 8000 tokens so every provider gets the same documents and they fit in Ollama's context window, deletes its own QnA, knowledge graph and query caches, generates 2 QnA items from 3 documents and their queries, checks the records, the `llm` and `llm_model` fields and the cache files, and runs both layers again to check they load from the cache without writing it again. It never writes under the real `outputs/<dataset>/` caches. `ollama` is free; `claude`, `chatgpt` and `gemini` need `ALLOW_PAID_API=1`. Each provider uses its cheaper model for the knowledge graph and the queries, and its stronger one for the questions and answers. QnA and query passed with all four providers (below), so those steps are now commented out in `check_llms.py`, to not pay for them again; removing the `#` in front of steps 2 to 6 turns them back on.
 
 ### Architecture
 
@@ -339,7 +393,7 @@ The knowledge graph steps make most of the calls (25 to 31 of 32 to 38) and send
 
 ### Overview
 
-`qna` builds the eval question-answer set the RAG pipeline is scored against. `src/eval.py` calls `get_eval_qna(output_path, documents, eval_qna_args, qna_llm_args, qna_kg_llm_args)` after loading the l1 documents (`doc_id` to `Document`). `EvalQnAArgs` holds `--eval_qna_model` (the local SentenceTransformer RAGAS uses to link related documents, `all-MiniLM-L6-v2`), `--n_sample_documents` and `--n_sample_evals`. The two LLMs are `LLM` objects (see `llm`) made from `eval.sh`: `qna_llm_args` from `QNA_LLM`, `QNA_LLM_MODEL` and its prices, which writes the questions and answers, and `qna_kg_llm_args` from the `QNA_KG_*` settings, which builds the knowledge graph. They can be any of the four providers; the project uses `claude-sonnet-5-5` and `claude-haiku-5-5`. It returns a list of `EvalQnA`, each with the question, the reference answer, the source passages, the RAGAS question type, the `doc_ids` and source paths of the documents the passages came from, and the `llm` and `llm_model` that wrote it.
+`qna` builds the eval question-answer set the RAG pipeline is scored against. `src/eval.py` calls `get_eval_qna(output_path, documents, eval_qna_args, qna_llm_args, qna_kg_llm_args)` after loading the l1 documents (`doc_id` to `Document`). `EvalQnAArgs` holds `--eval_qna_model` (the local SentenceTransformer RAGAS uses to link related documents, `all-MiniLM-L6-v2`), `--n_sample_documents` and `--n_sample_evals`. The two LLMs are `LLMArgs` objects (see `llm`) made from the `qna` section of `configs/input_args.yaml`: `qna_llm_args` from `qna_llm`, `qna_llm_model` and its prices, which writes the questions and answers, and `qna_kg_llm_args` from the `qna_kg_*` settings, which builds the knowledge graph. They can be any of the four providers; the project uses `claude-sonnet-5-5` and `claude-haiku-5-5`. It returns a list of `EvalQnA`, each with the question, the reference answer, the source passages, the RAGAS question type, the `doc_ids` and source paths of the documents the passages came from, and the `llm` and `llm_model` that wrote it.
 
 `get_eval_qna()` first validates `EvalQnAArgs`, before any LLM call. The cache file is `{output folder}/eval_qna_{n_sample_documents}_{n_sample_evals}_{qna_llm_model}_{eval_qna_model}.json`, named by the model that writes the questions, so an eval set from one model is never loaded for another. It does not include the dataset size, so one eval set made once is reused at every corpus size (5k, 50k, 100k) as long as its source documents are in the corpus. If that file exists it is loaded and returned, even if it holds fewer items than asked for, and no LLM is checked or built, so a cached run needs no API key. Otherwise `validate_llm` checks both LLMs and `generate_eval_qna()`:
 
@@ -363,7 +417,7 @@ The LLMs come from the `llm` module (see below). The cache file path is built in
 
 ### Run results
 
-**5000 documents, 100 sample documents, 200 eval QnA: the eval set used for the project** (from `log/qna/qna_5k_100_200_log.txt`). This is the eval set the retrieval and generation layers are scored against. It was made from the same 5000 `pixparse/pdfa-eng-wds` documents the build phase used, through a one-off script that calls `get_eval_qna()` with `--eval_qna_llm claude --eval_qna_model all-MiniLM-L6-v2 --n_sample_documents 100 --n_sample_evals 200` (the arguments at the time; the models were then fixed in the code to `claude-haiku-5-5` for the knowledge graph and `claude-sonnet-5-5` for the questions, the same as `QNA_KG_LLM_MODEL` and `QNA_LLM_MODEL` in `eval.sh` now). l1 loaded all 5000 documents from its cache in 8.529310777000319s.
+**5000 documents, 100 sample documents, 200 eval QnA: the eval set used for the project** (from `log/qna/qna_5k_100_200_log.txt`). This is the eval set the retrieval and generation layers are scored against. It was made from the same 5000 `pixparse/pdfa-eng-wds` documents the build phase used, through a one-off script that calls `get_eval_qna()` with `--eval_qna_llm claude --eval_qna_model all-MiniLM-L6-v2 --n_sample_documents 100 --n_sample_evals 200` (the arguments at the time; the models were then fixed in the code to `claude-haiku-5-5` for the knowledge graph and `claude-sonnet-5-5` for the questions, the same as `qna_kg_llm_model` and `qna_llm_model` in `configs/input_args.yaml` now). l1 loaded all 5000 documents from its cache in 8.529310777000319s.
 
 | | |
 |---|---|
@@ -456,7 +510,7 @@ The two generated items are one `single_hop_specific_query_synthesizer` question
 
 ### Overview
 
-`l5_query` turns each eval question into the queries the retrieval layer searches with. `src/eval.py` calls `get_queries(output_path, eval_qna, eval_qna_args, query_args, query_llm_args)` after loading the eval QnA. `QueryArgs` holds the build's embedding model (`embedding_model`, taken from `--model_name` so it always matches the chunk embeddings) and `--n_multi_qus` (3). `query_llm_args` is an `LLM` object (see `llm`) made from `QUERY_LLM`, `QUERY_LLM_MODEL` and its prices in `eval.sh`; it can be any of the four providers, and the project uses `llama3.1:8b` on Ollama. It returns one `Query` per eval question, with the same `id` as its `EvalQnA` and the `llm` and `llm_model` that wrote it, holding four ways of searching for it: the original question (`original_qus`), an LLM rewrite (`rewritten_qus`), `n_multi_qus` LLM phrasings (`multi_qus`) and a HyDE hypothetical answer passage (`hyde_ans`). Each question (`Qus`) has its text, its BM25 tokens (lowercased and split on whitespace, the same as the l4 BM25 chunks) and its embedding; the HyDE answer (`Ans`) has its text and embedding only, because it is searched by embedding alone.
+`l5_query` turns each eval question into the queries the retrieval layer searches with. `src/eval.py` calls `get_queries(output_path, eval_qna, eval_qna_args, query_args, query_llm_args)` after loading the eval QnA. `QueryArgs` holds the build's embedding model (`embedding_model`, taken from `--model_name` so it always matches the chunk embeddings) and `--n_multi_qus` (3). `query_llm_args` is an `LLMArgs` object (see `llm`) made from `query_llm`, `query_llm_model` and its prices in `configs/input_args.yaml`; it can be any of the four providers, and the project uses `llama3.1:8b` on Ollama. It returns one `Query` per eval question, with the same `id` as its `EvalQnA` and the `llm` and `llm_model` that wrote it, holding four ways of searching for it: the original question (`original_qus`), an LLM rewrite (`rewritten_qus`), `n_multi_qus` LLM phrasings (`multi_qus`) and a HyDE hypothetical answer passage (`hyde_ans`). Each question (`Qus`) has its text, its BM25 tokens (lowercased and split on whitespace, the same as the l4 BM25 chunks) and its embedding; the HyDE answer (`Ans`) has its text and embedding only, because it is searched by embedding alone.
 
 `get_queries()` first validates `QueryArgs`. The cache folder is `{output folder}/queries/{n_sample_documents}_{n_sample_evals}_{qna_llm_model}_{eval_qna_model}_{embedding_model}_{query_llm_model}_{n_multi_qus}`, with `/` and `:` in model names replaced by `-`. `qna_llm_model` is read from the eval QnA records, which hold the model that wrote them, so queries made for one eval set are never loaded for another. The name does not include the dataset size, so one set of queries is reused at every corpus size. If the folder holds both cache files they are loaded and returned, and no LLM is checked or built, so a cached run needs no Ollama server or API key. Otherwise `validate_llm` checks the query LLM and `generate_queries()`:
 

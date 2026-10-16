@@ -2,10 +2,14 @@
 args.py
 
 The settings of each layer as dataclasses, and the command line arguments of build.py and eval.py that fill them.
+The arguments come from the YAML file configs/input_args.yaml (--config): build.py reads its build part and eval.py
+its build and eval parts, so each setting is written once. Any flag given after --config overrides its value.
 """
 
 import argparse
 import dataclasses
+
+import yaml
 
 from common import constants
 
@@ -90,6 +94,99 @@ class GenerationArgs:
 	batch_timeout_seconds: int
 
 # ------ Command line arguments
+def parse_config_arguments(parser: argparse.ArgumentParser, config_parts: list[str]) -> argparse.Namespace:
+	"""
+	Input: parser, the argument parser of build.py or eval.py with all its arguments added; config_parts, the top-level
+	parts of the YAML file to read: ["build"] for build.py, ["build", "eval"] for eval.py.
+	Output: an argparse.Namespace with one attribute per argument.
+	What it does: reads those parts of the YAML file given by --config, turns every setting into its command line flag
+	and parses them with parser, so the usual type and required checks apply. Flags given after --config override the
+	file. Every argument of parser must be in the file, so the file is the full record of a run.
+	"""
+	# 1. Get the config file path. The other command line flags are overrides, kept for step 3
+	config_parser = argparse.ArgumentParser(add_help=False)
+	config_parser.add_argument("--config", type=str, required=True, help="YAML config file, e.g. configs/input_args.yaml")
+	config_args, override_arguments = config_parser.parse_known_args()
+
+	with open(config_args.config, encoding="utf-8") as f:
+		config = yaml.safe_load(f)
+
+	# 2. Turn each setting of the parts into its flag. Each part holds sections, whose names are only for reading
+	config_arguments = []
+	config_keys = []
+	for part_name in config_parts:
+		if part_name not in config or not isinstance(config[part_name], dict):
+			parser.error(f"{config_args.config}: part {part_name} is missing")
+		part = config[part_name]
+
+		for section_name in part:
+			section = part[section_name]
+			if not isinstance(section, dict):
+				parser.error(f"{config_args.config}: section {part_name}.{section_name} must hold settings as key: value lines")
+
+			for key in section:
+				value = section[key]
+				config_keys.append(key)
+				config_arguments.append("--" + key)
+				if value is None:
+					parser.error(f"{config_args.config}: {key} has no value")
+				# A list is passed as one flag followed by its values, e.g. --chunk_types fixed sentence
+				if isinstance(value, list):
+					for item in value:
+						config_arguments.append(str(item))
+				# YAML reads true and false as booleans, and the arguments take them as the strings "true" and "false"
+				elif isinstance(value, bool):
+					if value:
+						config_arguments.append("true")
+					else:
+						config_arguments.append("false")
+				else:
+					config_arguments.append(str(value))
+
+	# 3. Parse the file's flags and then the overrides, so an override replaces the file's value.
+	# A misspelled key is not an argument of parser, so it stops with "unrecognized arguments". The parsers are made
+	# with allow_abbrev=False, so a shortened or misspelled key such as chunk_type is never taken as chunk_types
+	parsed_args = parser.parse_args(config_arguments + override_arguments)
+
+	# 4. Every argument must come from the file, so no setting falls back to a default without being written down
+	for argument_name in vars(parsed_args):
+		if argument_name not in config_keys:
+			parser.error(f"{config_args.config}: {argument_name} is missing")
+
+	return parsed_args
+
+def parse_build_args():
+	"""
+	Input: none. Reads --config and any override flags passed to build.py.
+	Output: an argparse.Namespace with one attribute per argument.
+	What it does: defines the ingestion, chunking and indexing arguments and parses them from the build part of the
+	config file.
+	"""
+	parser = argparse.ArgumentParser(description="RAG-Eval build parameters", allow_abbrev=False)
+	add_ingest_arguments(parser)
+	add_chunking_arguments(parser)
+	add_index_arguments(parser)
+	return parse_config_arguments(parser, ["build"])
+
+def parse_eval_args():
+	"""
+	Input: none. Reads --config and any override flags passed to eval.py.
+	Output: an argparse.Namespace with one attribute per argument.
+	What it does: defines the arguments of the build to evaluate, which must have the values the build was run
+	with, and the LLM, eval QnA, query, retrieval and generation arguments, and parses them from the build and
+	eval parts of the config file, so eval always uses the settings the build was made with.
+	"""
+	parser = argparse.ArgumentParser(description="RAG-Eval evaluation parameters", allow_abbrev=False)
+	add_ingest_arguments(parser)
+	add_chunking_arguments(parser)
+	add_index_arguments(parser)
+	add_llm_arguments(parser)
+	add_eval_qna_arguments(parser)
+	add_query_arguments(parser)
+	add_retrieval_arguments(parser)
+	add_generation_arguments(parser)
+	return parse_config_arguments(parser, ["build", "eval"])
+
 def add_ingest_arguments(parser: argparse.ArgumentParser) -> None:
 	"""
 	Input: parser, the argument parser of build.py or eval.py.
@@ -263,35 +360,29 @@ def add_index_arguments(parser: argparse.ArgumentParser) -> None:
 		default=constants.QDRANT_BATCH_SIZE,
 		help="Number of vectors sent to Qdrant per upsert")
 
-def parse_build_args():
+def add_llm_arguments(parser: argparse.ArgumentParser) -> None:
 	"""
-	Input: none. Reads the command line arguments passed to build.py.
-	Output: an argparse.Namespace with one attribute per argument.
-	What it does: defines the ingestion, chunking and indexing arguments and parses them.
+	Input: parser, the argument parser of eval.py.
+	Output: nothing.
+	What it does: adds the LLM call arguments, the same for every layer that uses an LLM.
 	"""
-	parser = argparse.ArgumentParser(description="RAG-Eval build parameters")
-	add_ingest_arguments(parser)
-	add_chunking_arguments(parser)
-	add_index_arguments(parser)
-	return parser.parse_args()
-
-def parse_eval_args():
-	"""
-	Input: none. Reads the command line arguments passed to eval.py.
-	Output: an argparse.Namespace with one attribute per argument.
-	What it does: defines the arguments of the build to evaluate, which must have the values the build was run
-	with, and the eval QnA, query, retrieval and tuning arguments, and parses them.
-	"""
-	parser = argparse.ArgumentParser(description="RAG-Eval evaluation parameters")
-	add_ingest_arguments(parser)
-	add_chunking_arguments(parser)
-	add_index_arguments(parser)
 	parser.add_argument(
-		"--n_sample_evals",
+		"--llm_max_tokens",
 		type=int,
-		required=False,
-		default=constants.N_EVAL_SAMPLES,
-		help="Number of eval QnA items to load or generate")
+		required=True,
+		help="Maximum output tokens per LLM call, the same for every layer")
+	parser.add_argument(
+		"--llm_timeout_seconds",
+		type=int,
+		required=True,
+		help="Seconds before one LLM call times out, the same for every layer")
+
+def add_eval_qna_arguments(parser: argparse.ArgumentParser) -> None:
+	"""
+	Input: parser, the argument parser of eval.py.
+	Output: nothing.
+	What it does: adds the eval QnA arguments: the two QnA LLMs, the embedding model and the sample sizes.
+	"""
 	parser.add_argument(
 		"--qna_llm",
 		type=str,
@@ -345,6 +436,19 @@ def parse_eval_args():
 		default=constants.SAMPLE_DOCUMENTS,
 		help="Number of documents randomly picked for RAGAS to generate the eval QnA from")
 	parser.add_argument(
+		"--n_sample_evals",
+		type=int,
+		required=False,
+		default=constants.N_EVAL_SAMPLES,
+		help="Number of eval QnA items to load or generate")
+
+def add_query_arguments(parser: argparse.ArgumentParser) -> None:
+	"""
+	Input: parser, the argument parser of eval.py.
+	Output: nothing.
+	What it does: adds the query arguments: the query LLM and the number of multi-query phrasings.
+	"""
+	parser.add_argument(
 		"--query_llm",
 		type=str,
 		required=True,
@@ -370,6 +474,13 @@ def parse_eval_args():
 		required=False,
 		default=constants.N_MULTI_QUS,
 		help="Number of phrasings the query LLM writes for each eval question")
+
+def add_retrieval_arguments(parser: argparse.ArgumentParser) -> None:
+	"""
+	Input: parser, the argument parser of eval.py.
+	Output: nothing.
+	What it does: adds the retrieval, reranking and tuning arguments.
+	"""
 	parser.add_argument(
 		"--retrieval_types",
 		type=str,
@@ -407,6 +518,13 @@ def parse_eval_args():
 		required=False,
 		default=constants.N_RETRIEVAL_QUALITY,
 		help="Number of best plain setups and of best reranked setups whose retrieved outputs go on to the next layers")
+
+def add_generation_arguments(parser: argparse.ArgumentParser) -> None:
+	"""
+	Input: parser, the argument parser of eval.py.
+	Output: nothing.
+	What it does: adds the generation arguments: the generation LLM and the batch settings.
+	"""
 	parser.add_argument(
 		"--generation_llm",
 		type=str,
@@ -428,16 +546,6 @@ def parse_eval_args():
 		required=True,
 		help="Generation model price in US dollars per million output tokens, 0 for ollama")
 	parser.add_argument(
-		"--llm_max_tokens",
-		type=int,
-		required=True,
-		help="Maximum output tokens per LLM call, the same for every layer")
-	parser.add_argument(
-		"--llm_timeout_seconds",
-		type=int,
-		required=True,
-		help="Seconds before one LLM call times out, the same for every layer")
-	parser.add_argument(
 		"--batch_poll_seconds",
 		type=int,
 		required=True,
@@ -447,8 +555,6 @@ def parse_eval_args():
 		type=int,
 		required=True,
 		help="Seconds to wait for a generation batch before stopping; a later run resumes the same batch")
-
-	return parser.parse_args()
 
 # ------ Layer settings from the parsed arguments
 def make_ingest_args(parsed_args):
@@ -472,7 +578,6 @@ def make_ingest_args(parsed_args):
 	)
 	return ingest_args
 
-
 def make_chunking_args(parsed_args, chunk_type: str):
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args(); chunk_type, one of parsed_args.chunk_types.
@@ -490,7 +595,6 @@ def make_chunking_args(parsed_args, chunk_type: str):
 		semantic_threshold=parsed_args.semantic_threshold
 	)
 	return chunking_args
-
 
 def make_index_args(parsed_args, index_type: str):
 	"""
@@ -526,7 +630,6 @@ def make_eval_qna_args(parsed_args):
 	)
 	return eval_qna_args
 
-
 def make_query_args(parsed_args):
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args().
@@ -539,7 +642,6 @@ def make_query_args(parsed_args):
 		n_multi_qus=parsed_args.n_multi_qus
 	)
 	return query_args
-
 
 def make_retrieval_args(parsed_args):
 	"""

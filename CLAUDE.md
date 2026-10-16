@@ -37,6 +37,9 @@ All commands below assume current working directory is the repo root (`rag-eval/
 ```
 ## Project Structure
 
+configs/
+	input_args.yaml			# Command line args
+
 src/
 	build.py                # CLI entry point for the RAG build pipeline
 	eval.py                 # CLI entry point for the RAG eval pipeline
@@ -138,7 +141,6 @@ src/
 
 
 tests/                  # Test suite
-
 outputs/dataset_name/	# A folder for each dataset
   data/
 	raw/                # Raw input documents

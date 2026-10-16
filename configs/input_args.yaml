@@ -1,0 +1,126 @@
+# Settings of scripts/build.sh and scripts/eval.sh. Every setting must be here; a missing or misspelled one stops the run.
+# build.py reads the build part, eval.py the build and eval parts, so eval always uses the settings the build was made with.
+# Any setting can be overridden for one run, e.g. bash scripts/build.sh --dataset_size 20
+
+# Models: LLM model names and prices in US dollars per million tokens. Not settings themselves: the eval layers below
+# reuse them with *name. Batch prices are the batch API prices, 50% of the normal ones, used by generation
+models:
+  sonnet: &sonnet claude-sonnet-5-5
+  sonnet_input_price: &sonnet_input_price 2.00
+  sonnet_output_price: &sonnet_output_price 10.00
+  sonnet_batch_input_price: &sonnet_batch_input_price 1.00
+  sonnet_batch_output_price: &sonnet_batch_output_price 5.00
+  haiku: &haiku claude-haiku-5-5
+  haiku_input_price: &haiku_input_price 0.10
+  haiku_output_price: &haiku_output_price 0.50
+  haiku_batch_input_price: &haiku_batch_input_price 0.05
+  haiku_batch_output_price: &haiku_batch_output_price 0.25
+
+  llama: &llama llama3.1:8b
+  llama_input_price: &llama_input_price 0
+  llama_output_price: &llama_output_price 0
+
+  # The 2.5 models are listed but no longer available to new users, so the 3.x models are used
+  flash_lite_35: &flash_lite_35 gemini-3.5-flash-lite
+  flash_lite_35_input_price: &flash_lite_35_input_price 0.30
+  flash_lite_35_output_price: &flash_lite_35_output_price 2.50
+  flash_lite_35_batch_input_price: &flash_lite_35_batch_input_price 0.15
+  flash_lite_35_batch_output_price: &flash_lite_35_batch_output_price 1.25
+  flash_lite_31: &flash_lite_31 gemini-3.1-flash-lite
+  flash_lite_31_input_price: &flash_lite_31_input_price 0.25
+  flash_lite_31_output_price: &flash_lite_31_output_price 1.50
+  flash_lite_31_batch_input_price: &flash_lite_31_batch_input_price 0.125
+  flash_lite_31_batch_output_price: &flash_lite_31_batch_output_price 0.75
+
+  gpt_mini: &gpt_mini gpt-4.1-mini
+  gpt_mini_input_price: &gpt_mini_input_price 0.40
+  gpt_mini_output_price: &gpt_mini_output_price 1.60
+  gpt_mini_batch_input_price: &gpt_mini_batch_input_price 0.20
+  gpt_mini_batch_output_price: &gpt_mini_batch_output_price 0.80
+  gpt_nano: &gpt_nano gpt-4.1-nano
+  gpt_nano_input_price: &gpt_nano_input_price 0.10
+  gpt_nano_output_price: &gpt_nano_output_price 0.40
+  gpt_nano_batch_input_price: &gpt_nano_batch_input_price 0.05
+  gpt_nano_batch_output_price: &gpt_nano_batch_output_price 0.20
+
+build:
+  # 1. Ingestion
+  ingestion:
+    dataset_size: 5000
+    input_path: pixparse/pdfa-eng-wds
+    output_path: outputs
+    download_workers: 1
+    max_batch_rows: 1
+    hugging_face_split: train
+    parse_workers: 16
+    parse_timeout_seconds: 0
+    dedup_threshold: 0.0
+    pdf_parser: pypdfium2
+
+  # 2. Chunking
+  chunking:
+    framework: ""                               # langchain or ""
+    model_name: all-MiniLM-L6-v2
+    chunk_types: [fixed, sentence, semantic]    # one or more of fixed, sentence, semantic
+    min_chunk_size: 128
+    max_chunk_size: 256
+    fixed_chunk_overlap: 32
+    semantic_threshold: 0.2
+
+  # 3. Indexing
+  indexing:
+    index_types: [faiss_flatip, faiss_ivf, faiss_hnsw, bm25, qdrant]   # any of faiss_flatip, faiss_ivf, faiss_hnsw, bm25, qdrant
+    ivf_nlist: 256
+    hnsw_m: 32
+    hnsw_ef_construction: 200
+    bm25_k1: 1.5
+    bm25_b: 0.75
+    bm25_tokenizer: whitespace
+    qdrant_batch_size: 256
+
+eval:
+  # Settings of every LLM call, the same for every layer
+  llm:
+    llm_max_tokens: 16000       # Maximum output tokens per call
+    llm_timeout_seconds: 180    # Seconds before one call times out
+
+  # 4. Eval QnA
+  qna:
+    qna_llm: claude             # LLM RAGAS uses to write the eval questions and answers
+    qna_llm_model: *sonnet
+    qna_input_price: *sonnet_input_price
+    qna_output_price: *sonnet_output_price
+    qna_kg_llm: claude          # LLM RAGAS uses to build its knowledge graph
+    qna_kg_llm_model: *haiku
+    qna_kg_input_price: *haiku_input_price
+    qna_kg_output_price: *haiku_output_price
+    eval_qna_model: all-MiniLM-L6-v2   # Local embedding model RAGAS uses to build its knowledge graph
+    n_sample_documents: 100     # Documents randomly picked for RAGAS to generate the eval QnA from
+    n_sample_evals: 200         # Eval QnA items to generate
+
+  # 5. Query
+  query:
+    query_llm: ollama           # LLM that transforms the eval questions
+    query_llm_model: *llama
+    query_input_price: *llama_input_price
+    query_output_price: *llama_output_price
+    n_multi_qus: 3              # Phrasings the query LLM writes for each eval question
+
+  # 6. Retrieval
+  retrieval:
+    retrieval_types: [dense, bm25, hybrid]   # any of dense, bm25, hybrid
+    top_k: 20                   # Chunks each retriever returns for a query
+    reranking: true             # true to also rerank the top_k chunks with the cross-encoder, false not to
+    rerank_top_k: 5             # Chunks kept after the cross-encoder reranks the top_k chunks
+    tuning_queries_size: 150    # Eval questions used for tuning; the rest are held out for one final check
+    n_retrieval_quality: 1      # Best plain setups and best reranked setups whose retrieved outputs go on to the next layers
+
+  # 7. Generation
+  # Always sent as one batch, so a paid model uses its batch prices. Ollama has no batch API and answers one at a time
+  generation:
+    generation_llm: ollama      # LLM that answers the prompts
+    generation_llm_model: *llama
+    generation_input_price: *llama_input_price
+    generation_output_price: *llama_output_price
+    batch_poll_seconds: 60      # Seconds between status checks of a generation batch
+    batch_timeout_seconds: 86400   # Seconds to wait for a batch before stopping; a later run resumes the same batch
