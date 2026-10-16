@@ -818,7 +818,7 @@ In every check, 3 of the 5 prompts were sent: the empty one got `I_DONT_KNOW` wi
 
 `l10_evaluation` measures the pipeline's quality in two parts: retrieval evaluation, which scores each `Retrieved` against its eval question, and answer evaluation, which scores each l9 answer.
 
-`src/eval.py` creates one `RetrievalEvaluator(eval_qna)` before the loops. It stores each eval question by its id. For every plain and reranked `Retrieved`, `compute_retrieval_evaluation(retrieved, chunks)` finds the question by `retrieved.id` and returns a `RetrievalEvaluation`. `eval.py` keeps the `(retrieved, retrieval_evaluation)` pairs in `retrieval_evaluations`. After the loops, `print_retrieval_summary()` groups them by setup (chunk type, retrieval type, index, query type, reranking) and prints the mean of each metric.
+`src/eval.py` creates one `RetrievalEvaluator(eval_qna)` before the loops. It stores each eval question by its id. For every plain and reranked `Retrieved`, `compute_retrieval_evaluation(retrieved, chunks)` finds the question by `retrieved.id` and returns a `RetrievalEvaluation`. `eval.py` keeps the `(retrieved, retrieval_evaluation)` pairs in `retrieval_evaluations`. The `analysis` package averages them per setup (see analysis).
 
 `RetrievalEvaluation` holds `k` and two `Evaluation` records:
 - **`k`:** `top_k` (20) for a plain `Retrieved`, `rerank_top_k` (5) for a reranked one. Chunks missing from a shorter list count as not relevant.
@@ -833,7 +833,7 @@ Each `Evaluation` has these fields:
 - `ndcg`: binary relevance, with the ideal order putting every relevant chunk found at the top.
 - `first_relevant_rank`: 0 for a miss.
 
-**Answer evaluation.** `run_answer_evaluation` in `src/eval.py` takes the eval QnA, `context_list` and `generated_list` and calls `get_answer_evaluations`, which returns one `AnswerEvaluation` per `Generated`, in the same order, so `answer_evaluations[i]` belongs to `generated_list[i]`, `context_list[i]` and `retrieved_list[i]`. Each answer finds its eval question by `generated.id`. `print_answer_summary(retrieved_list, answer_evaluations)` then groups them by the setup of their `Retrieved` and prints the mean of each field.
+**Answer evaluation.** `run_answer_evaluation` in `src/eval.py` takes the eval QnA, `context_list` and `generated_list` and calls `get_answer_evaluations`, which returns one `AnswerEvaluation` per `Generated`, in the same order, so `answer_evaluations[i]` belongs to `generated_list[i]`, `context_list[i]` and `retrieved_list[i]`. Each answer finds its eval question by `generated.id`. The `analysis` package then averages them per setup of their `Retrieved` (see analysis).
 
 `AnswerEvaluation` has these fields:
 - `i_dont_know`: 1 if the answer is `I_DONT_KNOW`. Such an answer gets 0 on the three scores without a judge call.
@@ -850,7 +850,6 @@ The scores are cached per framework and judge model in `{output_path}/answer_eva
 
 - **`retrieval_evaluation.py`**: `RetrievalEvaluator`, with `compute_retrieval_evaluation`, `compute_chunk_evaluation`, `compute_doc_evaluation` and `get_filtered_retrieval_evaluations`.
 - **`schema.py`**: defines `Evaluation`, `RetrievalEvaluation` and `AnswerEvaluation`.
-- **`summary.py`**: `print_retrieval_summary` and `print_answer_summary`, the mean of each metric per setup.
 - **`answer_evaluation.py`**: scores each generated answer with RAGAS and a judge LLM, and keeps the scores in the answer evaluation cache.
 
 ### Run results
@@ -1087,7 +1086,7 @@ These are the best reranked rows (k=5):
 
 **Filtered retrieval evaluation.** The table above has 186 setups, 27,900 `(Retrieved, RetrievalEvaluation)` pairs: 4,650 plain and 4,650 reranked per chunk type. Each `Retrieved` that goes on to the next layers (context, prompt, generation, answer evaluation) becomes one LLM call, and generation and answer evaluation may use a paid API. So only the best few setups go on.
 
-After the summary, `eval.py` calls `retrieval_evaluator.get_filtered_retrieval_evaluations(n_retrieval_evaluation, retrieval_evaluations)` and prints the summary again for what it keeps. The method:
+After retrieval, `eval.py` calls `retrieval_evaluator.get_filtered_retrieval_evaluations(n_retrieval_evaluation, retrieval_evaluations)` to keep the best setups. The method:
 1. **Scores each setup.** It groups the pairs by setup (chunk type, retrieval type, index, query type, reranking) and scores each setup by its mean chunk-level recall, with mean chunk-level MRR breaking ties. Chunk level is used because generation needs the passage that holds the answer, not just the right document. Recall comes first because a missed passage cannot be answered from. MRR breaks ties because the right chunk near the top helps the LLM.
 2. **Keeps the best of each kind.** It keeps the best `--n_retrieval_evaluation` plain setups and, separately, the best `--n_retrieval_evaluation` reranked setups. They are ranked apart because plain setups are scored at k=20 and reranked ones at k=5, so plain would nearly always win a joint ranking only because it has more chunks.
 3. **Skips duplicates.** It drops any `Retrieved` with the same question and the same chunks, in the same order, as one already kept, because it would give the LLM the same prompt and cost a call for nothing. This only happens when n ≥ 2 picks setups that return the same chunks, such as `faiss_flatip` and `qdrant`.
@@ -1348,6 +1347,65 @@ The answer evaluation per setup, averaged over the 150 questions, with `I_DONT_K
 The plain setup gives the LLM 20 chunks and the reranked one 5, so the reranked setup's context more often lacks the answer: it has more `I_DONT_KNOW` answers, and each one is 0 on all three scores. Faithfulness is the highest score in both rows, so when the LLM answers, most of its claims are in the context.
 
 **Small checks with each judge LLM**, 3 hand-written answers, one of them `I_DONT_KNOW`, in a scratchpad output path. Each provider scored the 2 other answers, skipped the `I_DONT_KNOW` one, and loaded both scores from the cache on a second run. The ChatGPT check is in `log/l10_evaluation/check_chatgpt_gpt-4.1-nano.txt`: 12 calls, 11,013 input and 1,545 output tokens, $0.0017. OpenAI returns the 3 relevance questions in one call, so it makes 12 calls where the other providers make 16. The Ollama, Claude and Gemini checks were not saved to a log.
+
+## analysis
+
+### Overview
+
+`analysis` runs after l10, as the last step of `src/eval.py`. `run_analysis` passes it every `(Retrieved, RetrievalEvaluation)`, and `retrieved_list`, `retrieval_evaluation_list`, `generated_list` and `answer_evaluations` in the same order (`run_context` returns `retrieval_evaluation_list` next to `retrieved_list`, so each answer has its own retrieval evaluation), the eval QnA, `AnalysisArgs` and a snapshot of every setting (`vars(args)`). It calls no LLM. `analyze_run` averages the evaluations per setup, diagnoses where answers lose points, lists the worst answers, compares the run with earlier runs, writes everything to a Markdown report, saves the run and prints the report.
+
+The settings are in the `analysis` section of `configs/input_args.yaml`: `n_compare_runs` (5), the most recent runs compared, the current run included, and `n_worst_answers` (10).
+
+Each run is saved to `{output_path}/analysis/runs/{run_id}/` as `run.json`, the `AnalysisRun`, and `report.md`. `run_id` is the run's start time. `AnalysisRun` holds the run id, time, settings, `settings_hash` (the sha256 of the settings), the judge, one `RetrievalSummary` per retrieval setup and one `AnswerSummary` per kept setup. Both summaries name their setup with a `Setup`: chunk type, retrieval type, index type, query type, reranking and k. A run with the same `settings_hash` as a saved one replaces it, so the history holds only runs with different settings.
+
+The report has these sections, in order:
+- **Answer evaluation** per kept setup: n, the share of I don't know answers (`idk`), and mean correctness, faithfulness and relevance, with I don't know answers counted as 0.
+- **Retrieval evaluation of the kept setups**: the chunk-level and doc-level means.
+- **Comparison with earlier runs**: the best setup of this run and of up to `n_compare_runs - 1` earlier runs, newest first, by correctness then faithfulness (chunk recall then MRR for a run without answers). A run judged by another model is marked, and each earlier run lists the settings that differ from this one.
+- **Diagnosis**: the answer scores per kept setup split by whether retrieval hit the source passage (chunk-level hit), and per question type.
+- **Worst answers**: the `n_worst_answers` answers with the lowest correctness, then faithfulness, with setup, question type, question, answer and reference answer. I don't know answers are left out; the `idk` columns count them.
+- **Retrieval evaluation of every setup**.
+
+### Architecture
+
+- **`analysis.py`**: `analyze_run`, the analysis orchestrator.
+- **`schema.py`**: defines `Setup`, `RetrievalSummary`, `AnswerSummary` and `AnalysisRun`.
+- **`summary.py`**: averages the retrieval and answer evaluations per setup.
+- **`diagnosis.py`**: the diagnosis tables and the worst answers.
+- **`comparison.py`**: the comparison of the best setup of each run and the settings that differ.
+- **`report.py`**: the summary tables and the report's title and order.
+- **`cache.py`**: saves and loads the runs and replaces a run with the same settings.
+
+### Run results
+
+**5000 documents, 150 tuning queries, answers judged by RAGAS with `gpt-4.1-mini`** (from `log/analysis/log_5k_analysis_20261016-124503.txt`; report in `outputs/pdfa-eng-wds/analysis/runs/20261016-124503/report.md`). Every layer loaded from its cache, so the run made no LLM call. The analysis built 186 retrieval summaries and 2 answer summaries, compared 1 run, since no run with other settings is saved yet, and replaced the earlier run `20261016-124423`, which had the same settings. It took 0.039s of the 33.87s run: it only averages lists already in memory and writes two files, while most of the run is loading the documents and indexes.
+
+Answer scores by retrieval hit:
+
+| Rerank | k | Source | n | idk | correct | faithful | relevant |
+|---|---|---|---|---|---|---|---|
+| no | 20 | hit | 141 | 0.106 | 0.559 | 0.872 | 0.579 |
+| no | 20 | miss | 9 | 0.444 | 0.342 | 0.556 | 0.288 |
+| yes | 5 | hit | 128 | 0.117 | 0.514 | 0.852 | 0.512 |
+| yes | 5 | miss | 22 | 0.682 | 0.167 | 0.318 | 0.150 |
+
+Answer scores by question type:
+
+| Rerank | k | Question type | n | idk | correct | faithful | relevant |
+|---|---|---|---|---|---|---|---|
+| no | 20 | multi_hop_specific_query_synthesizer | 77 | 0.143 | 0.506 | 0.830 | 0.530 |
+| no | 20 | single_hop_specific_query_synthesizer | 73 | 0.110 | 0.588 | 0.877 | 0.594 |
+| yes | 5 | multi_hop_specific_query_synthesizer | 77 | 0.260 | 0.374 | 0.704 | 0.382 |
+| yes | 5 | single_hop_specific_query_synthesizer | 73 | 0.137 | 0.557 | 0.847 | 0.541 |
+
+Both setups are sentence chunks, hybrid retrieval and original queries: `faiss_flatip+bm25` without reranking (k=20) and `qdrant+bm25` reranked (k=5).
+
+**Observations.**
+- **Retrieval is not where most points are lost.** The plain setup hits the source passage for 141 of 150 questions, and those answers still average 0.559 correctness, so most of the gap is in generation or in the evaluation.
+- **I don't know on a hit is the LLM being over-cautious.** 10.6% of the plain setup's hits and 11.7% of the reranked setup's hits are I don't know, though the source was in the context. On a miss, I don't know is the expected answer: 44.4% and 68.2%.
+- **Reranking to 5 chunks loses the source more often**: 22 misses against 9, and lower scores on hits too.
+- **Multi-hop questions score lower**: 0.506 against 0.588 correctness in the plain setup, and 0.374 against 0.557 with 5 chunks, since a multi-hop question needs passages from several places.
+- **Many of the lowest correctness answers are faithful to their context.** 9 of the 10 worst answers have faithfulness 1.000, with correctness from 0.214 to 0.269. Some questions have more than one valid answer in the documents, while the reference answer comes from one passage: for a Calicut University PG schedule the answer gives the 2020 dates and the reference the 2019 dates, since the question names no year; for the bills sponsored by the Child Care Resource Center the answer names AB 393 and SB 246 and the reference AB 92. Such answers are counted as wrong though the documents support them, so correctness has a ceiling below 1 on this eval set.
 
 ## Dependency notes
 

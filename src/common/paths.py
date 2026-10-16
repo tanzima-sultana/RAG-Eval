@@ -312,3 +312,11 @@ def get_answer_evaluation_path(output_path:str, framework: str, ans_eval_llm_mod
 	ans_eval_llm_model = ans_eval_llm_model.replace("/", "-").replace(":", "-")
 
 	return f"{output_path}/answer_evaluation/{framework}/{ans_eval_llm_model}/answer_evaluation.json"
+
+def get_analysis_runs_path(output_path:str) -> str:
+	"""
+	Input: output_path, the dataset's output folder.
+	Output: the folder holding one subfolder per analysed run, as a string.
+	What it does: builds {output_path}/analysis/runs.
+	"""
+	return f"{output_path}/analysis/runs"

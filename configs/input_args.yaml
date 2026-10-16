@@ -175,3 +175,8 @@ eval:
     ans_eval_cache_write_price: *gpt_mini_cache_write_price
     ans_eval_cache_read_price: *gpt_mini_cache_read_price
     ans_eval_embedding_model: all-MiniLM-L6-v2   # Local embedding model RAGAS uses for answer relevance and correctness
+
+  # 9. Analysis
+  analysis:
+    n_compare_runs: 5           # Most recent runs compared in the report, the current run included
+    n_worst_answers: 10         # Lowest scoring answers listed in the report

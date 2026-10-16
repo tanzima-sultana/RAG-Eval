@@ -13,6 +13,7 @@ from common.args import make_retrieval_args
 from common.args import make_llm_args
 from common.args import make_generation_args
 from common.args import make_answer_eval_args
+from common.args import make_analysis_args
 from l1_ingestion.ingestion import ingestion
 from l2_chunking.cache import load_chunks
 from l4_indexing import cache as index_cache
@@ -22,10 +23,9 @@ from l6_retrieval.retrieval import Retrieval
 from l7_context.context import get_context_list
 from l8_prompt.prompt import get_prompt_list
 from l9_generation.generation import get_generated_list
-from l10_evaluation.summary import print_retrieval_summary
-from l10_evaluation.summary import print_answer_summary
 from l10_evaluation.retrieval_evaluation import RetrievalEvaluator
 from l10_evaluation.answer_evaluation import get_answer_evaluations
+from analysis.analysis import analyze_run
 from l5_query.schema import Query
 from l6_retrieval.schema import Retrieved
 from l7_context.schema import Context
@@ -33,6 +33,7 @@ from l8_prompt.schema import Prompt
 from l9_generation.schema import Generated
 from l10_evaluation.schema import RetrievalEvaluation
 from l10_evaluation.schema import AnswerEvaluation
+from analysis.schema import AnalysisRun
 from qna.schema import EvalQnA
 
 def load_eval_inputs(args, output_path: str):
@@ -199,27 +200,31 @@ def run_retrieval_and_evaluation(args, output_path: str, doc_ids: list[str], tun
 
 	return retrieval_evaluations
 
-def run_context(args, output_path: str, doc_ids: list[str], filtered_retrieval_evaluations: list[tuple[Retrieved, RetrievalEvaluation]]) -> tuple[list[Retrieved], list[Context]]:
+def run_context(args, output_path: str, doc_ids: list[str], filtered_retrieval_evaluations: list[tuple[Retrieved, RetrievalEvaluation]]) -> tuple[list[Retrieved], list[RetrievalEvaluation], list[Context]]:
 	"""
 	Input: args, the parsed eval arguments; output_path; doc_ids, the l1 document ids; and the filtered
 	(Retrieved, RetrievalEvaluation).
-	Output: retrieved_list and context_list, in the same order, so context_list[i] belongs to retrieved_list[i].
+	Output: retrieved_list, retrieval_evaluation_list and context_list, in the same order, so retrieval_evaluation_list[i]
+	and context_list[i] belong to retrieved_list[i].
 	What it does: builds the context of each filtered Retrieved, one chunk type at a time.
 	"""
 	# 21. Context, one chunk type at a time, so only its chunks are in memory
-	# retrieved_list and context_list are filled in the same loop, so context_list[i] belongs to
-	# retrieved_list[i]
+	# retrieved_list, retrieval_evaluation_list and context_list are filled in the same loop, so they stay in the
+	# same order
 	print("\n\nContext")
 	s21 = time.time()
 	retrieved_list = []
+	retrieval_evaluation_list = []
 	context_list = []
 	for chunk_type in args.chunk_types:
 
-		# Load retrieved for a specific chunk type
+		# Load retrieved and its retrieval evaluation for a specific chunk type
 		chunk_type_retrieved_list = []
+		chunk_type_retrieval_evaluation_list = []
 		for retrieved, retrieval_evaluation in filtered_retrieval_evaluations:
 			if retrieved.chunk_type == chunk_type:
 				chunk_type_retrieved_list.append(retrieved)
+				chunk_type_retrieval_evaluation_list.append(retrieval_evaluation)
 		if len(chunk_type_retrieved_list) == 0:
 			continue
 		
@@ -228,17 +233,18 @@ def run_context(args, output_path: str, doc_ids: list[str], filtered_retrieval_e
 		chunks = load_chunks(output_path, chunking_args, doc_ids)
 		chunk_type_context_list = get_context_list(chunk_type_retrieved_list, chunks)
 
-		# Update global retrieved list and context list
+		# Update global retrieved list, retrieval evaluation list and context list
 		retrieved_list.extend(chunk_type_retrieved_list)
+		retrieval_evaluation_list.extend(chunk_type_retrieval_evaluation_list)
 		context_list.extend(chunk_type_context_list)
 		print(f"Contexts built for {chunk_type} : {len(chunk_type_context_list)}")
 
 	print(f"Context list : {len(context_list)}")
 	print("\nContext time : ", time.time() - s21)
 
-	# retrieved_list is returned too, because it is regrouped by chunk type: its order can differ from
-	# filtered_retrieval_evaluations when the kept setups use different chunk types
-	return retrieved_list, context_list
+	# retrieved_list and retrieval_evaluation_list are returned too, because they are regrouped by chunk type: their
+	# order can differ from filtered_retrieval_evaluations when the kept setups use different chunk types
+	return retrieved_list, retrieval_evaluation_list, context_list
 
 def run_prompt(context_list: list[Context], tuning_queries: list[Query]) -> list[Prompt]:
 	"""
@@ -293,6 +299,26 @@ def run_answer_evaluation(args, output_path: str, eval_qna: list[EvalQnA], conte
 
 	return answer_evaluations
 
+def run_analysis(args, output_path: str, retrieval_evaluations: list[tuple[Retrieved, RetrievalEvaluation]], retrieved_list: list[Retrieved], retrieval_evaluation_list: list[RetrievalEvaluation], generated_list: list[Generated], answer_evaluations: list[AnswerEvaluation], eval_qna: list[EvalQnA]) -> AnalysisRun:
+	"""
+	Input: args, the parsed eval arguments; output_path; retrieval_evaluations, every (Retrieved, RetrievalEvaluation);
+	retrieved_list, retrieval_evaluation_list, generated_list and answer_evaluations, in the same order; eval_qna,
+	the eval questions.
+	Output: the run's AnalysisRun.
+	What it does: summarises, diagnoses and compares the run, and saves it with its report.
+	"""
+	# 25. Analysis
+	print("\n\nAnalysis")
+	s25 = time.time()
+	analysis_args = make_analysis_args(args)
+	# Every setting of the run, saved with it so later runs can show which settings changed
+	settings = vars(args)
+	analysis_run = analyze_run(output_path, analysis_args, settings, retrieval_evaluations, retrieved_list, retrieval_evaluation_list, generated_list, answer_evaluations, eval_qna)
+
+	print("\nAnalysis time : ", time.time() - s25)
+
+	return analysis_run
+
 if __name__ == "__main__":
 	print("\n ------------- RAG Eval -------- \n")
 	start = time.time()
@@ -317,29 +343,26 @@ if __name__ == "__main__":
 	# retrieval_evaluations is a list of (Retrieved, RetrievalEvaluation) tuples, one per eval question and setup
 	retrieval_evaluations = run_retrieval_and_evaluation(args, output_path, doc_ids, tuning_queries, retrieval_evaluator)
 
-	# 3. Retrieval evaluation of every setup, averaged over the tuning queries
-	print_retrieval_summary(retrieval_evaluations)
-
-	# 4. Keep the best n_retrieval_evaluation plain setups and the best n_retrieval_evaluation reranked setups
+	# 3. Keep the best n_retrieval_evaluation plain setups and the best n_retrieval_evaluation reranked setups
 	# filtered_retrieval_evaluations is also a list of (Retrieved, RetrievalEvaluation) tuples
 	filtered_retrieval_evaluations = retrieval_evaluator.get_filtered_retrieval_evaluations(args.n_retrieval_evaluation, retrieval_evaluations)
-	print_retrieval_summary(filtered_retrieval_evaluations)
 
-	# 5. Context
-	# retrieved_list holds the filtered Retrieved regrouped by chunk type, in the order of context_list.
-	retrieved_list, context_list = run_context(args, output_path, doc_ids, filtered_retrieval_evaluations)
+	# 4. Context
+	# retrieved_list and retrieval_evaluation_list hold the filtered Retrieved and their RetrievalEvaluation regrouped by
+	# chunk type, in the order of context_list
+	retrieved_list, retrieval_evaluation_list, context_list = run_context(args, output_path, doc_ids, filtered_retrieval_evaluations)
 
-	# 6. Prompt
+	# 5. Prompt
 	prompt_list = run_prompt(context_list, tuning_queries)
 
-	# 7. Generation
+	# 6. Generation
 	generated_list = run_generation(args, output_path, prompt_list)
 
-	# 8. Answer evaluation
+	# 7. Answer evaluation
 	answer_evaluations = run_answer_evaluation(args, output_path, eval_qna, context_list, generated_list)
 
-	# 9. Answer evaluation of every kept setup, averaged over the tuning queries
-	print_answer_summary(retrieved_list, answer_evaluations)
+	# 8. Analysis: summaries, diagnosis, worst answers and comparison with earlier runs, saved with the run's report
+	analysis_run = run_analysis(args, output_path, retrieval_evaluations, retrieved_list, retrieval_evaluation_list, generated_list, answer_evaluations, eval_qna)
 
 	# ---------
 	end = time.time()

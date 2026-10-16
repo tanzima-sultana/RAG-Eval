@@ -107,6 +107,11 @@ class AnswerEvalArgs:
 	llm_args: LLMArgs
 	embedding_model: str
 
+@dataclasses.dataclass
+class AnalysisArgs:
+	n_compare_runs: int
+	n_worst_answers: int
+
 # ------ Command line arguments
 def parse_config_arguments(parser: argparse.ArgumentParser, config_parts: list[str]) -> argparse.Namespace:
 	"""
@@ -187,7 +192,7 @@ def parse_eval_args():
 	Input: none. Reads --config and any override flags passed to eval.py.
 	Output: an argparse.Namespace with one attribute per argument.
 	What it does: defines the arguments of the build to evaluate, which must have the values the build was run
-	with, and the LLM, eval QnA, query, retrieval, generation and answer evaluation arguments, and parses them from the build and
+	with, and the LLM, eval QnA, query, retrieval, generation, answer evaluation and analysis arguments, and parses them from the build and
 	eval parts of the config file, so eval always uses the settings the build was made with.
 	"""
 	parser = argparse.ArgumentParser(description="RAG-Eval evaluation parameters", allow_abbrev=False)
@@ -200,6 +205,7 @@ def parse_eval_args():
 	add_retrieval_arguments(parser)
 	add_generation_arguments(parser)
 	add_answer_eval_arguments(parser)
+	add_analysis_arguments(parser)
 	return parse_config_arguments(parser, ["build", "eval"])
 
 def add_ingest_arguments(parser: argparse.ArgumentParser) -> None:
@@ -663,6 +669,23 @@ def add_answer_eval_arguments(parser: argparse.ArgumentParser) -> None:
 		required=True,
 		help="Local HuggingFace embedding model the answer evaluation framework uses, e.g. all-MiniLM-L6-v2")
 
+def add_analysis_arguments(parser: argparse.ArgumentParser) -> None:
+	"""
+	Input: parser, the argument parser of eval.py.
+	Output: nothing.
+	What it does: adds the analysis arguments: how many runs to compare and how many worst answers to list.
+	"""
+	parser.add_argument(
+		"--n_compare_runs",
+		type=int,
+		required=True,
+		help="Most recent runs compared in the analysis report, the current run included")
+	parser.add_argument(
+		"--n_worst_answers",
+		type=int,
+		required=True,
+		help="Lowest scoring answers listed in the analysis report")
+
 # ------ Layer settings from the parsed arguments
 def make_ingest_args(parsed_args):
 	"""
@@ -833,3 +856,15 @@ def make_answer_eval_args(parsed_args) -> AnswerEvalArgs:
 		embedding_model=parsed_args.ans_eval_embedding_model
 	)
 	return answer_eval_args
+
+def make_analysis_args(parsed_args) -> AnalysisArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args().
+	Output: an AnalysisArgs object holding n_compare_runs and n_worst_answers.
+	What it does: copies the parsed n_compare_runs and n_worst_answers into the matching AnalysisArgs fields.
+	"""
+	analysis_args = AnalysisArgs(
+		n_compare_runs=parsed_args.n_compare_runs,
+		n_worst_answers=parsed_args.n_worst_answers
+	)
+	return analysis_args
