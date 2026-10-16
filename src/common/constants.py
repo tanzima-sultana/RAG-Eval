@@ -18,6 +18,7 @@ PDF_PARSER="pypdf"
 # Chunking frameworks: "" uses the built-in chunkers
 NO_FRAMEWORK=""
 LANGCHAIN_FRAMEWORK="langchain"
+RAGAS_FRAMEWORK="ragas"
 
 FIXED_CHUNKING="fixed"
 SENTENCE_CHUNKING="sentence"

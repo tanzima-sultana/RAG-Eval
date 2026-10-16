@@ -3,52 +3,170 @@ answer_evaluation.py
 
 Measures how good each generated answer is: correctness against the eval question's reference answer, faithfulness
 to the context the LLM was given and relevance to the question.
+
+The scores of one framework and judge model are cached in one JSON file (see common.paths.get_answer_evaluation_path):
+
+answer_evaluation.json: {answer_key: {"correctness": ..., "faithfulness": ..., "relevance": ...}}, where answer_key is
+                        the sha256 of the question, answer, context and reference answer. Two setups that gave the same
+                        answer from the same context share one entry, and a changed answer or context gets a new key.
 """
 
+import hashlib
+import json
+import math
+import os
+
+import torch
+from langchain_huggingface import HuggingFaceEmbeddings
+from ragas import EvaluationDataset
+from ragas import RunConfig
+from ragas import evaluate
+from ragas.dataset_schema import SingleTurnSample
+from ragas.embeddings import LangchainEmbeddingsWrapper
+from ragas.llms import LangchainLLMWrapper
+from ragas.metrics import AnswerCorrectness
+from ragas.metrics import Faithfulness
+from ragas.metrics import ResponseRelevancy
+
 from common import constants
+from common import paths
 from common.args import AnswerEvalArgs
 from l7_context.schema import Context
 from l9_generation.schema import Generated
 from l10_evaluation.schema import AnswerEvaluation
+from llm.llm import get_llm
+from llm.validate import validate_llm
 from qna.schema import EvalQnA
 
 def load_answer_evaluation_cache(answer_evaluation_file: str) -> dict:
 	"""
 	Input: answer_evaluation_file, the answer evaluation cache file of one framework and judge model.
-	Output: the cached {answer_key: AnswerEvaluation fields} dict, or an empty dict if the file does not exist.
+	Output: the cached {answer_key: {"correctness", "faithfulness", "relevance"}} dict, or an empty dict if the file
+	does not exist.
 	What it does: reads the file.
 	"""
-	# TODO: read the JSON file, like l9_generation.cache.load_generated_cache
-	raise NotImplementedError
+	if not os.path.exists(answer_evaluation_file):
+		return {}
+
+	with open(answer_evaluation_file, encoding="utf-8") as f:
+		answer_evaluation_cache = json.load(f)
+
+	return answer_evaluation_cache
 
 def save_answer_evaluation_cache(answer_evaluation_file: str, answer_evaluation_cache: dict) -> None:
 	"""
-	Input: answer_evaluation_file, the answer evaluation cache file; answer_evaluation_cache, its {answer_key: AnswerEvaluation fields} dict.
+	Input: answer_evaluation_file, the answer evaluation cache file; answer_evaluation_cache, its
+	{answer_key: {"correctness", "faithfulness", "relevance"}} dict.
 	Output: nothing.
-	What it does: writes the dict as JSON to answer_evaluation_file, through a temporary file.
+	What it does: writes the dict as JSON to answer_evaluation_file through a temporary file, creating its folder first.
 	"""
-	# TODO: write the JSON file, like l9_generation.cache.save_generated_cache
-	raise NotImplementedError
+	os.makedirs(os.path.dirname(answer_evaluation_file), exist_ok=True)
 
-def evaluate_answers_ragas(eval_qna_by_id: dict[str, EvalQnA], context_list: list[Context], generated_list: list[Generated], answer_eval_args: AnswerEvalArgs, answer_evaluation_cache: dict) -> None:
+	temporary_answer_evaluation_file = answer_evaluation_file + ".tmp"
+	with open(temporary_answer_evaluation_file, "w", encoding="utf-8") as f:
+		json.dump(answer_evaluation_cache, f, indent=2)
+	os.replace(temporary_answer_evaluation_file, answer_evaluation_file)
+
+def get_answer_key(generated: Generated, context: Context, eval_qna_item: EvalQnA) -> str:
+	"""
+	Input: generated, one l9 answer; context, the l7 context it was given; eval_qna_item, its eval question.
+	Output: the answer_key, a sha256 hex string.
+	What it does: hashes the question, answer, context and reference answer, the four inputs every score depends on.
+	"""
+	key_text = json.dumps([generated.qus, generated.answer, context.context, eval_qna_item.ans])
+	answer_key = hashlib.sha256(key_text.encode("utf-8")).hexdigest()
+	return answer_key
+
+def evaluate_answers_ragas(eval_qna_by_id: dict[str, EvalQnA], context_list: list[Context], generated_list: list[Generated], answer_eval_args: AnswerEvalArgs, answer_evaluation_cache: dict) -> int:
 	"""
 	Input: eval_qna_by_id, the eval questions by id; context_list and generated_list, in the same order;
-	answer_eval_args, the framework and judge LLM; answer_evaluation_cache, the cached {answer_key: AnswerEvaluation fields} dict.
-	Output: nothing. The new scores are added to answer_evaluation_cache.
-	What it does: scores every answer not in the cache with RAGAS correctness, faithfulness and relevance.
-	I_DONT_KNOW answers are skipped, since they get 0 without a judge call.
+	answer_eval_args, the framework, judge LLM and embedding model; answer_evaluation_cache, the cached
+	{answer_key: {"correctness", "faithfulness", "relevance"}} dict.
+	Output: the number of answers RAGAS could not score. The new scores are added to answer_evaluation_cache.
+	What it does: scores every answer not in the cache with the RAGAS answer_correctness, faithfulness and
+	answer_relevancy metrics. I_DONT_KNOW answers are skipped, since they get 0 without a judge call.
 	"""
-	# 1. TODO: collect the answers not in the cache and not I_DONT_KNOW, once per answer_key
-	# 2. TODO: build the RAGAS samples: question (generated.qus), response (generated.answer),
-	#    retrieved contexts (context.context), reference (eval_qna_by_id[generated.id].ans)
-	# 3. TODO: run the RAGAS metrics with the judge LLM
-	# 4. TODO: add each sample's scores to answer_evaluation_cache by its answer_key
-	raise NotImplementedError
+	# 1. Collect the answers not in the cache and not I_DONT_KNOW, once per answer_key
+	answer_keys_to_score = []
+	samples = []
+	for index in range(len(generated_list)):
+		generated = generated_list[index]
+		if generated.answer == constants.I_DONT_KNOW:
+			continue
+		context = context_list[index]
+		eval_qna_item = eval_qna_by_id[generated.id]
+		answer_key = get_answer_key(generated, context, eval_qna_item)
+		if answer_key in answer_evaluation_cache:
+			continue
+		if answer_key in answer_keys_to_score:
+			continue
+
+		# 2. One RAGAS sample: the question, the answer, the context the LLM was given and the reference answer
+		sample = SingleTurnSample(
+			user_input=generated.qus,
+			response=generated.answer,
+			retrieved_contexts=[context.context],
+			reference=eval_qna_item.ans
+		)
+		answer_keys_to_score.append(answer_key)
+		samples.append(sample)
+	print(f"Answers to score with RAGAS : {len(samples)}")
+
+	# The LLM and embedding model are built only when there is something to score, so a fully cached run needs no
+	# API keys, ALLOW_PAID_API or Ollama server
+	if len(samples) == 0:
+		return 0
+
+	# 3. Get the judge LLM and the embedding model. RAGAS parses every reply as JSON, so it uses the LLM's
+	# json_chat_model. RAGAS sets temperature 0.01 by default, which the Claude 5.5 models reject, so the model's own
+	# temperature is kept
+	validate_llm(answer_eval_args.llm_args)
+	judge_llm = get_llm(answer_eval_args.llm_args)
+	ragas_judge_llm = LangchainLLMWrapper(judge_llm.json_chat_model, bypass_temperature=True)
+
+	device = "cuda" if torch.cuda.is_available() else "cpu"
+	huggingface_embeddings = HuggingFaceEmbeddings(
+		model_name=answer_eval_args.embedding_model,
+		model_kwargs={"device": device},
+		encode_kwargs={"normalize_embeddings": True}
+	)
+	ragas_embeddings = LangchainEmbeddingsWrapper(huggingface_embeddings)
+
+	# 4. Run the three metrics. A sample whose judge reply fails gets NaN instead of stopping the run
+	evaluation_result = evaluate(
+		dataset=EvaluationDataset(samples=samples),
+		metrics=[AnswerCorrectness(), Faithfulness(), ResponseRelevancy()],
+		llm=ragas_judge_llm,
+		embeddings=ragas_embeddings,
+		run_config=RunConfig(timeout=answer_eval_args.llm_args.timeout_seconds),
+		raise_exceptions=False
+	)
+	judge_llm.compute_cost()
+
+	# 5. Add each fully scored sample to the cache. A sample with a NaN score is not cached, so a run again
+	# scores only those
+	failed_count = 0
+	for index in range(len(answer_keys_to_score)):
+		answer_key = answer_keys_to_score[index]
+		sample_scores = evaluation_result.scores[index]
+		correctness = sample_scores["answer_correctness"]
+		faithfulness = sample_scores["faithfulness"]
+		relevance = sample_scores["answer_relevancy"]
+		if math.isnan(correctness) or math.isnan(faithfulness) or math.isnan(relevance):
+			failed_count = failed_count + 1
+			continue
+		answer_evaluation_cache[answer_key] = {
+			"correctness": correctness,
+			"faithfulness": faithfulness,
+			"relevance": relevance
+		}
+
+	return failed_count
 
 def get_answer_evaluations(output_path: str, eval_qna: list[EvalQnA], context_list: list[Context], generated_list: list[Generated], answer_eval_args: AnswerEvalArgs) -> list[AnswerEvaluation]:
 	"""
 	Input: output_path, the dataset's output folder; eval_qna, the eval questions; context_list and generated_list,
-	the l7 contexts and l9 answers, in the same order; answer_eval_args, the framework and judge LLM.
+	the l7 contexts and l9 answers, in the same order; answer_eval_args, the framework, judge LLM and embedding model.
 	Output: one AnswerEvaluation per Generated, in the same order, so answer_evaluations[i] belongs to generated_list[i],
 	context_list[i] and retrieved_list[i].
 	What it does: loads the cached scores, scores the answers not in the cache, saves the cache, then builds the
@@ -59,11 +177,51 @@ def get_answer_evaluations(output_path: str, eval_qna: list[EvalQnA], context_li
 	for eval_qna_item in eval_qna:
 		eval_qna_by_id[eval_qna_item.id] = eval_qna_item
 
-	# 2. TODO: load the cache from the answer evaluation path (built in common.paths from output_path, framework and
-	#    judge model)
+	# 2. Load the cached scores of this framework and judge model
+	answer_evaluation_file = paths.get_answer_evaluation_path(output_path, answer_eval_args.framework, answer_eval_args.llm_args.llm_model)
+	answer_evaluation_cache = load_answer_evaluation_cache(answer_evaluation_file)
+	print(f"Cached answer evaluations : {len(answer_evaluation_cache)} in {answer_evaluation_file}")
 
-	# 3. TODO: score the answers not in the cache, with the method of the chosen framework, then save the cache
+	# 3. Score the answers not in the cache with the chosen framework, then save the cache
+	if answer_eval_args.framework == constants.RAGAS_FRAMEWORK:
+		failed_count = evaluate_answers_ragas(eval_qna_by_id, context_list, generated_list, answer_eval_args, answer_evaluation_cache)
+	else:
+		raise ValueError(f"ans_eval_framework ({answer_eval_args.framework}) is not supported. Use {constants.RAGAS_FRAMEWORK}.")
+	save_answer_evaluation_cache(answer_evaluation_file, answer_evaluation_cache)
 
-	# 4. TODO: build one AnswerEvaluation per Generated, in order: all 0 and i_dont_know 1 for an I_DONT_KNOW answer,
-	#    otherwise from the cache
-	raise NotImplementedError
+	# 4. An answer the framework could not score has no entry. Stop, so a run again scores only those
+	if failed_count > 0:
+		raise ValueError(f"{failed_count} answers could not be scored. The other scores are cached; run again to score only the failed ones.")
+
+	# 5. Build one AnswerEvaluation per Generated, in order: all 0 for an I_DONT_KNOW answer, otherwise from the cache
+	answer_evaluations = []
+	i_dont_know_count = 0
+	for index in range(len(generated_list)):
+		generated = generated_list[index]
+		if generated.answer == constants.I_DONT_KNOW:
+			i_dont_know = 1
+			correctness = 0.0
+			faithfulness = 0.0
+			relevance = 0.0
+			i_dont_know_count = i_dont_know_count + 1
+		else:
+			answer_key = get_answer_key(generated, context_list[index], eval_qna_by_id[generated.id])
+			scores = answer_evaluation_cache[answer_key]
+			i_dont_know = 0
+			correctness = scores["correctness"]
+			faithfulness = scores["faithfulness"]
+			relevance = scores["relevance"]
+
+		answer_evaluation = AnswerEvaluation(
+			i_dont_know=i_dont_know,
+			correctness=correctness,
+			faithfulness=faithfulness,
+			relevance=relevance,
+			framework=answer_eval_args.framework,
+			llm=answer_eval_args.llm_args.llm,
+			llm_model=answer_eval_args.llm_args.llm_model
+		)
+		answer_evaluations.append(answer_evaluation)
+	print(f"I don't know answers, scored 0 : {i_dont_know_count} of {len(generated_list)}")
+
+	return answer_evaluations

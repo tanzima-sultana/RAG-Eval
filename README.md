@@ -816,7 +816,7 @@ In every check, 3 of the 5 prompts were sent: the empty one got `I_DONT_KNOW` wi
 
 ### Overview
 
-`l10_evaluation` measures the pipeline's quality. So far it has retrieval evaluation; answer evaluation comes after generation.
+`l10_evaluation` measures the pipeline's quality in two parts: retrieval evaluation, which scores each `Retrieved` against its eval question, and answer evaluation, which scores each l9 answer.
 
 `src/eval.py` creates one `RetrievalEvaluator(eval_qna)` before the loops. It stores each eval question by its id. For every plain and reranked `Retrieved`, `compute_retrieval_evaluation(retrieved, chunks)` finds the question by `retrieved.id` and returns a `RetrievalEvaluation`. `eval.py` keeps the `(retrieved, retrieval_evaluation)` pairs in `retrieval_evaluations`. After the loops, `print_retrieval_summary()` groups them by setup (chunk type, retrieval type, index, query type, reranking) and prints the mean of each metric.
 
@@ -833,12 +833,25 @@ Each `Evaluation` has these fields:
 - `ndcg`: binary relevance, with the ideal order putting every relevant chunk found at the top.
 - `first_relevant_rank`: 0 for a miss.
 
+**Answer evaluation.** `run_answer_evaluation` in `src/eval.py` takes the eval QnA, `context_list` and `generated_list` and calls `get_answer_evaluations`, which returns one `AnswerEvaluation` per `Generated`, in the same order, so `answer_evaluations[i]` belongs to `generated_list[i]`, `context_list[i]` and `retrieved_list[i]`. Each answer finds its eval question by `generated.id`. `print_answer_summary(retrieved_list, answer_evaluations)` then groups them by the setup of their `Retrieved` and prints the mean of each field.
+
+`AnswerEvaluation` has these fields:
+- `i_dont_know`: 1 if the answer is `I_DONT_KNOW`. Such an answer gets 0 on the three scores without a judge call.
+- `correctness`: RAGAS `answer_correctness` against the EvalQnA reference answer `ans`.
+- `faithfulness`: RAGAS `faithfulness`, the share of the answer's claims the context supports.
+- `relevance`: RAGAS `answer_relevancy`, how well the answer addresses the question.
+- `framework`, `llm`, `llm_model`: the framework and judge model that gave the scores.
+
+The settings are in the `answer_evaluation` section of `configs/input_args.yaml` and reach the layer as `AnswerEvalArgs`: `ans_eval_framework` (`ragas`), the judge LLM and its four prices, and `ans_eval_embedding_model`, the local embedding model RAGAS uses for relevance and correctness. The judge is built with `get_llm()` and handed to RAGAS as its `json_chat_model`, so any of the four providers works with no code change. RAGAS sends normal calls, not a batch, so the judge uses normal prices. The judge and the generation LLM should be different providers, so the judge does not grade its own model's answers.
+
+The scores are cached per framework and judge model in `{output_path}/answer_evaluation/{framework}/{llm_model}/answer_evaluation.json`, keyed by the sha256 of the question, answer, context and reference answer. An answer whose judge reply fails gets NaN from RAGAS, is not cached, and stops the run after the other scores are saved, so a run again scores only those. The cache is saved once, after RAGAS finishes.
+
 ### Architecture
 
 - **`retrieval_evaluation.py`**: `RetrievalEvaluator`, with `compute_retrieval_evaluation`, `compute_chunk_evaluation`, `compute_doc_evaluation` and `get_filtered_retrieval_evaluations`.
-- **`schema.py`**: defines `Evaluation` and `RetrievalEvaluation`.
-- **`summary.py`**: `print_retrieval_summary`, the mean of each metric per setup.
-- **`answer_evaluation.py`**: empty placeholder.
+- **`schema.py`**: defines `Evaluation`, `RetrievalEvaluation` and `AnswerEvaluation`.
+- **`summary.py`**: `print_retrieval_summary` and `print_answer_summary`, the mean of each metric per setup.
+- **`answer_evaluation.py`**: scores each generated answer with RAGAS and a judge LLM, and keeps the scores in the answer evaluation cache.
 
 ### Run results
 
@@ -1309,6 +1322,32 @@ On the 5000-doc built-in run, loaded from the cache in 38.47s (`log/l6_retrieval
 | sentence | hybrid | qdrant+bm25 | rewritten | 5 | 150 | 0.860 | 0.365 | 0.827 | 0.782 | 0.786 | 0.947 | 0.607 | 0.937 | 0.909 | 0.909 |
 
 </details>
+
+**Answer evaluation, 5000 documents, 150 tuning queries, RAGAS with `gpt-4.1-mini` as the judge** (from `log/l10_evaluation/log_5k_answer_eval_gpt-4.1-mini.txt`, run with `ALLOW_PAID_API=1 bash scripts/eval.sh`). The two kept setups give 300 answers, all loaded from the l9 cache with no generation call. 49 are `I_DONT_KNOW` and scored 0, so 251 were sent to RAGAS:
+
+| | |
+|---|---|
+| Answers scored by RAGAS | 251 |
+| Judge calls | 1,506 |
+| Input tokens | 2,963,682 ($1.1855) |
+| Output tokens | 1,432,735 ($2.2924) |
+| Cache written / read tokens | 0 / 0 |
+| Total cost | $3.4778 |
+| Answer evaluation time | 1952.68s |
+| Elapsed time | 1988.98s |
+
+Answer evaluation takes 1952.68s of the 1988.98s run. Every earlier layer loads from its cache: loading the documents takes 9.23s, each chunk type's chunks under 1s, each index under 1.1s, and context, prompt and generation under 0.3s each. RAGAS runs 3 metrics per answer, 753 jobs, each made of LLM calls that extract the claims of the answer and the reference, check them against each other and the context, and write questions back from the answer. The calls go to the OpenAI API, up to 16 at a time, at about 2 to 4s per job. Output tokens are about half the input tokens and two thirds of the cost, because the judge writes a verdict and a reason for every claim. The log also prints `LLM returned 1 generations instead of requested 3` 152 times: `answer_relevancy` asks for 3 questions in one call, and when one comes back, RAGAS scores relevance from that one question.
+
+The answer evaluation per setup, averaged over the 150 questions, with `I_DONT_KNOW` answers counted as 0 (from `log/l10_evaluation/log_5k_answer_eval_gpt-4.1-mini_cached.txt`, the same run again with every score loaded from the cache in 0.02s and no `ALLOW_PAID_API`):
+
+| Chunk | Retrieval | Index | Query | Rerank | k | n | idk | correct | faithful | relevant |
+|---|---|---|---|---|---|---|---|---|---|---|
+| sentence | hybrid | faiss_flatip+bm25 | original | no | 20 | 150 | 0.127 | 0.546 | 0.853 | 0.561 |
+| sentence | hybrid | qdrant+bm25 | original | yes | 5 | 150 | 0.200 | 0.463 | 0.774 | 0.459 |
+
+The plain setup gives the LLM 20 chunks and the reranked one 5, so the reranked setup's context more often lacks the answer: it has more `I_DONT_KNOW` answers, and each one is 0 on all three scores. Faithfulness is the highest score in both rows, so when the LLM answers, most of its claims are in the context.
+
+**Small checks with each judge LLM**, 3 hand-written answers, one of them `I_DONT_KNOW`, in a scratchpad output path. Each provider scored the 2 other answers, skipped the `I_DONT_KNOW` one, and loaded both scores from the cache on a second run. The ChatGPT check is in `log/l10_evaluation/check_chatgpt_gpt-4.1-nano.txt`: 12 calls, 11,013 input and 1,545 output tokens, $0.0017. OpenAI returns the 3 relevance questions in one call, so it makes 12 calls where the other providers make 16. The Ollama, Claude and Gemini checks were not saved to a log.
 
 ## Dependency notes
 

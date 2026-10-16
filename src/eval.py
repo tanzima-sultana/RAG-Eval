@@ -23,6 +23,7 @@ from l7_context.context import get_context_list
 from l8_prompt.prompt import get_prompt_list
 from l9_generation.generation import get_generated_list
 from l10_evaluation.summary import print_retrieval_summary
+from l10_evaluation.summary import print_answer_summary
 from l10_evaluation.retrieval_evaluation import RetrievalEvaluator
 from l10_evaluation.answer_evaluation import get_answer_evaluations
 from l5_query.schema import Query
@@ -89,7 +90,7 @@ def load_eval_inputs(args, output_path: str):
 
 	return documents, eval_qna, tuning_queries, held_out_queries
 
-def run_retrieval(args, output_path: str, doc_ids: list[str], tuning_queries: list[Query], retrieval_evaluator: RetrievalEvaluator) -> list[tuple[Retrieved, RetrievalEvaluation]]:
+def run_retrieval_and_evaluation(args, output_path: str, doc_ids: list[str], tuning_queries: list[Query], retrieval_evaluator: RetrievalEvaluator) -> list[tuple[Retrieved, RetrievalEvaluation]]:
 	"""
 	Input: args, the parsed eval arguments; output_path; doc_ids, the l1 document ids; tuning_queries; and
 	retrieval_evaluator, which scores each Retrieved.
@@ -314,7 +315,7 @@ if __name__ == "__main__":
 
 	# 2. Retrieval, reranking and retrieval evaluation
 	# retrieval_evaluations is a list of (Retrieved, RetrievalEvaluation) tuples, one per eval question and setup
-	retrieval_evaluations = run_retrieval(args, output_path, doc_ids, tuning_queries, retrieval_evaluator)
+	retrieval_evaluations = run_retrieval_and_evaluation(args, output_path, doc_ids, tuning_queries, retrieval_evaluator)
 
 	# 3. Retrieval evaluation of every setup, averaged over the tuning queries
 	print_retrieval_summary(retrieval_evaluations)
@@ -336,6 +337,9 @@ if __name__ == "__main__":
 
 	# 8. Answer evaluation
 	answer_evaluations = run_answer_evaluation(args, output_path, eval_qna, context_list, generated_list)
+
+	# 9. Answer evaluation of every kept setup, averaged over the tuning queries
+	print_answer_summary(retrieved_list, answer_evaluations)
 
 	# ---------
 	end = time.time()

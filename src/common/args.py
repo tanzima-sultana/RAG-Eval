@@ -105,6 +105,7 @@ class GenerationArgs:
 class AnswerEvalArgs:
 	framework: str
 	llm_args: LLMArgs
+	embedding_model: str
 
 # ------ Command line arguments
 def parse_config_arguments(parser: argparse.ArgumentParser, config_parts: list[str]) -> argparse.Namespace:
@@ -619,7 +620,7 @@ def add_answer_eval_arguments(parser: argparse.ArgumentParser) -> None:
 	"""
 	Input: parser, the argument parser of eval.py.
 	Output: nothing.
-	What it does: adds the answer evaluation arguments: the framework and the judge LLM.
+	What it does: adds the answer evaluation arguments: the framework, the judge LLM and the embedding model.
 	"""
 	parser.add_argument(
 		"--ans_eval_framework",
@@ -656,6 +657,11 @@ def add_answer_eval_arguments(parser: argparse.ArgumentParser) -> None:
 		type=float,
 		required=True,
 		help="Answer evaluation model price in US dollars per million input tokens read from the prompt cache, 0 for ollama")
+	parser.add_argument(
+		"--ans_eval_embedding_model",
+		type=str,
+		required=True,
+		help="Local HuggingFace embedding model the answer evaluation framework uses, e.g. all-MiniLM-L6-v2")
 
 # ------ Layer settings from the parsed arguments
 def make_ingest_args(parsed_args):
@@ -807,8 +813,8 @@ def make_generation_args(parsed_args) -> GenerationArgs:
 def make_answer_eval_args(parsed_args) -> AnswerEvalArgs:
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args().
-	Output: an AnswerEvalArgs object holding the answer evaluation framework and the judge LLM.
-	What it does: makes the judge LLM with make_llm_args and copies ans_eval_framework.
+	Output: an AnswerEvalArgs object holding the answer evaluation framework, the judge LLM and the embedding model.
+	What it does: makes the judge LLM with make_llm_args and copies ans_eval_framework and ans_eval_embedding_model.
 	"""
 	ans_eval_llm_args = make_llm_args(
 		parsed_args.ans_eval_llm,
@@ -823,6 +829,7 @@ def make_answer_eval_args(parsed_args) -> AnswerEvalArgs:
 	)
 	answer_eval_args = AnswerEvalArgs(
 		framework=parsed_args.ans_eval_framework,
-		llm_args=ans_eval_llm_args
+		llm_args=ans_eval_llm_args,
+		embedding_model=parsed_args.ans_eval_embedding_model
 	)
 	return answer_eval_args

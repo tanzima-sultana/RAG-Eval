@@ -300,3 +300,15 @@ def get_generated_batch_id_path(output_path:str, generation_llm_model: str) -> s
 	generation_llm_model = generation_llm_model.replace("/", "-").replace(":", "-")
 
 	return f"{output_path}/generated/{generation_llm_model}/batch_id.txt"
+
+def get_answer_evaluation_path(output_path:str, framework: str, ans_eval_llm_model: str) -> str:
+	"""
+	Input: output_path, the dataset's output folder; framework, the answer evaluation framework; ans_eval_llm_model,
+	the model that judges the answers.
+	Output: the answer evaluation cache file path as a string.
+	What it does: builds {output_path}/answer_evaluation/{framework}/{ans_eval_llm_model}/answer_evaluation.json, with
+	any "/" or ":" in the model name replaced by "-".
+	"""
+	ans_eval_llm_model = ans_eval_llm_model.replace("/", "-").replace(":", "-")
+
+	return f"{output_path}/answer_evaluation/{framework}/{ans_eval_llm_model}/answer_evaluation.json"

@@ -1,10 +1,12 @@
 """
 summary.py
 
-Prints the retrieval evaluation of every retrieval setup as one table row, averaged over its eval questions.
+Prints the retrieval evaluation and the answer evaluation of every retrieval setup as one table row, averaged over its
+eval questions.
 """
 
 from l6_retrieval.schema import Retrieved
+from l10_evaluation.schema import AnswerEvaluation
 from l10_evaluation.schema import RetrievalEvaluation
 
 def print_retrieval_summary(retrieval_evaluations: list[tuple[Retrieved, RetrievalEvaluation]]) -> None:
@@ -74,5 +76,64 @@ def print_retrieval_summary(retrieval_evaluations: list[tuple[Retrieved, Retriev
 			f"{doc_hit_sum / question_count:>6.3f}{doc_precision_sum / question_count:>7.3f}"
 			f"{doc_recall_sum / question_count:>6.3f}{doc_mrr_sum / question_count:>6.3f}"
 			f"{doc_ndcg_sum / question_count:>7.3f}"
+		)
+		print(row)
+
+def print_answer_summary(retrieved_list: list[Retrieved], answer_evaluations: list[AnswerEvaluation]) -> None:
+	"""
+	Input: retrieved_list and answer_evaluations, in the same order, so answer_evaluations[i] belongs to retrieved_list[i].
+	Output: nothing. Prints the table.
+	What it does: groups the answer evaluations by the setup of their Retrieved and prints, per setup, the share of
+	I_DONT_KNOW answers and the mean correctness, faithfulness and relevance. I_DONT_KNOW answers count as 0.
+	"""
+	# 1. Group the answer evaluations by setup, and keep each setup's k: rerank_top_k for a reranked setup, else top_k
+	evaluations_by_setup = {}
+	k_by_setup = {}
+	for index in range(len(retrieved_list)):
+		retrieved = retrieved_list[index]
+		setup = (retrieved.chunk_type, retrieved.retrieval_type, retrieved.index_type, retrieved.query_type, retrieved.reranking)
+		if setup not in evaluations_by_setup:
+			evaluations_by_setup[setup] = []
+			if retrieved.reranking:
+				k_by_setup[setup] = retrieved.rerank_top_k
+			else:
+				k_by_setup[setup] = retrieved.top_k
+		evaluations_by_setup[setup].append(answer_evaluations[index])
+
+	# 2. Print the header, with the judge of the answers
+	first_answer_evaluation = answer_evaluations[0]
+	print(f"\n\nAnswer evaluation per setup (mean over the eval questions), judged by {first_answer_evaluation.framework} with {first_answer_evaluation.llm_model}")
+	header = (
+		f"{'chunk':<9}{'retrieval':<10}{'index':<19}{'query':<10}{'rerank':<7}{'k':>3}{'n':>5}  "
+		f"{'idk':>6}{'correct':>9}{'faithful':>10}{'relevant':>10}"
+	)
+	print(header)
+
+	# 3. Print one row per setup, in setup order
+	for setup in sorted(evaluations_by_setup):
+		chunk_type, retrieval_type, index_type, query_type, reranking = setup
+		answer_evaluation_list = evaluations_by_setup[setup]
+		question_count = len(answer_evaluation_list)
+
+		i_dont_know_sum = 0.0
+		correctness_sum = 0.0
+		faithfulness_sum = 0.0
+		relevance_sum = 0.0
+		for answer_evaluation in answer_evaluation_list:
+			i_dont_know_sum = i_dont_know_sum + answer_evaluation.i_dont_know
+			correctness_sum = correctness_sum + answer_evaluation.correctness
+			faithfulness_sum = faithfulness_sum + answer_evaluation.faithfulness
+			relevance_sum = relevance_sum + answer_evaluation.relevance
+
+		k = k_by_setup[setup]
+		if reranking:
+			rerank_text = "yes"
+		else:
+			rerank_text = "no"
+
+		row = (
+			f"{chunk_type:<9}{retrieval_type:<10}{index_type:<19}{query_type:<10}{rerank_text:<7}{k:>3}{question_count:>5}  "
+			f"{i_dont_know_sum / question_count:>6.3f}{correctness_sum / question_count:>9.3f}"
+			f"{faithfulness_sum / question_count:>10.3f}{relevance_sum / question_count:>10.3f}"
 		)
 		print(row)

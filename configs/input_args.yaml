@@ -168,9 +168,10 @@ eval:
   # 8. Answer evaluation
   answer_evaluation:
     ans_eval_framework: ragas       # Framework that scores the answers
-    ans_eval_llm: ollama            # LLM that judges the answers
-    ans_eval_llm_model: *llama
-    ans_eval_input_price: *llama_input_price
-    ans_eval_output_price: *llama_output_price
-    ans_eval_cache_write_price: *llama_cache_write_price
-    ans_eval_cache_read_price: *llama_cache_read_price
+    ans_eval_llm: chatgpt           # LLM that judges the answers. RAGAS sends normal calls, not a batch, so normal prices
+    ans_eval_llm_model: *gpt_mini
+    ans_eval_input_price: *gpt_mini_input_price
+    ans_eval_output_price: *gpt_mini_output_price
+    ans_eval_cache_write_price: *gpt_mini_cache_write_price
+    ans_eval_cache_read_price: *gpt_mini_cache_read_price
+    ans_eval_embedding_model: all-MiniLM-L6-v2   # Local embedding model RAGAS uses for answer relevance and correctness
