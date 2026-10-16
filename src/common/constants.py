@@ -53,12 +53,6 @@ QDRANT_URL="http://localhost:6333"
 # Number of eval QnA items, saved as {output_path}/eval_qna_{SAMPLE_DOCUMENTS}_{N_EVAL_SAMPLES}_{qna_llm_model}_{EVAL_QNA_MODEL}.json
 N_EVAL_SAMPLES=50
 
-# Claude LLM provider name
-CLAUDE_LLM="claude"
-# ChatGPT (OpenAI) LLM provider name
-CHATGPT_LLM="chatgpt"
-# Gemini (Google) LLM provider name
-GEMINI_LLM="gemini"
 # Local HuggingFace SentenceTransformer model RAGAS uses to build its knowledge graph
 EVAL_QNA_MODEL="all-MiniLM-L6-v2"
 # Number of documents randomly picked from the dataset for RAGAS to generate the eval QnA from
@@ -74,8 +68,6 @@ EVAL_PASSAGE_MATCH_CHARS=80
 
 # 5. Query
 
-# Ollama (local) LLM provider name
-OLLAMA_LLM="ollama"
 # Number of phrasings the query LLM writes for each eval question
 N_MULTI_QUS=3
 # Stored as the HyDE answer when the query LLM still refuses to write one, so l6 skips it

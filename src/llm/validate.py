@@ -1,12 +1,12 @@
-from common.constants import CLAUDE_LLM
-from common.constants import CHATGPT_LLM
-from common.constants import GEMINI_LLM
-from common.constants import OLLAMA_LLM
+from llm.constants import CLAUDE_LLM
+from llm.constants import CHATGPT_LLM
+from llm.constants import GEMINI_LLM
+from llm.constants import OLLAMA_LLM
 from llm.chatgpt import validate_chatgpt
 from llm.claude import validate_claude
 from llm.gemini import validate_gemini
 from llm.ollama import validate_ollama
-from common.args import LLMArgs
+from llm.schema import LLMArgs
 
 def validate_llm(llm_args: LLMArgs) -> bool:
 	"""

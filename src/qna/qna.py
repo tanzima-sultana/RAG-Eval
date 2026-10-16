@@ -20,7 +20,7 @@ from ragas.utils import num_tokens_from_string
 
 from common import paths
 from common.args import EvalQnAArgs
-from common.args import LLMArgs
+from llm.schema import LLMArgs
 from common.constants import SAMPLE_DOCUMENTS_SEED
 from common.constants import EVAL_MIN_DOCUMENT_TOKENS
 from common.constants import EVAL_PASSAGE_MATCH_CHARS

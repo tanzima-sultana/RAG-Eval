@@ -2,7 +2,7 @@
 check_llms.py
 
 Checks the QnA and query layers end to end with the LLMs passed on the command line, on a few documents.
-Run through scripts/check_llms.sh (python3 -m llm.check_llms), which picks the models of one provider.
+Run through scripts/check_llms.sh (python3 src/check_llms.py), which picks the models of one provider.
 
 For each layer it deletes this check's cache, generates with the LLM, checks the records and the cache file, then
 runs again and checks the cache is loaded instead of generating. It only writes under --output_path, which must be

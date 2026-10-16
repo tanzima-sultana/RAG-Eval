@@ -7,7 +7,7 @@ Tests for l9_generation.validate.validate_generation_args.
 import pytest
 
 from common.args import GenerationArgs
-from common.args import LLMArgs
+from llm.schema import LLMArgs
 from l9_generation.validate import validate_generation_args
 
 

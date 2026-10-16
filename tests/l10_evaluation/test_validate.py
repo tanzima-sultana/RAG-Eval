@@ -7,7 +7,7 @@ Tests for l10_evaluation.validate.validate_n_retrieval_evaluation and validate_a
 import pytest
 
 from common.args import AnswerEvalArgs
-from common.args import LLMArgs
+from llm.schema import LLMArgs
 from l10_evaluation.validate import validate_answer_eval_args
 from l10_evaluation.validate import validate_n_retrieval_evaluation
 

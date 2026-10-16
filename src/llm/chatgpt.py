@@ -8,7 +8,7 @@ import httpx
 import openai
 from langchain_openai import ChatOpenAI
 
-from common.args import LLMArgs
+from llm.schema import LLMArgs
 from llm.schema import LLMCost
 from llm.schema import LLMResponse
 

@@ -4,7 +4,7 @@ from sentence_transformers import SentenceTransformer
 from common import paths
 from common.args import EvalQnAArgs
 from common.args import QueryArgs
-from common.args import LLMArgs
+from llm.schema import LLMArgs
 from common.constants import I_DONT_KNOW
 from l5_query.schema import Ans
 from l5_query.schema import Qus

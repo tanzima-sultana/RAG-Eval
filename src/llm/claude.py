@@ -7,7 +7,7 @@ import urllib.request
 import anthropic
 from langchain_anthropic import ChatAnthropic
 
-from common.args import LLMArgs
+from llm.schema import LLMArgs
 from llm.schema import LLMCost
 from llm.schema import LLMResponse
 

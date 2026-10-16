@@ -4,7 +4,7 @@ import urllib.request
 
 from langchain_ollama import ChatOllama
 
-from common.args import LLMArgs
+from llm.schema import LLMArgs
 from llm.schema import LLMCost
 from llm.schema import LLMResponse
 

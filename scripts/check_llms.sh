@@ -182,7 +182,7 @@ N_MULTI_QUS=3
 
 # run
 
-python3 -m llm.check_llms \
+python3 src/check_llms.py \
   --dataset_size "$DATASET_SIZE" \
   --input_path "$INPUT_PATH" \
   --output_path "$OUTPUT_PATH" \

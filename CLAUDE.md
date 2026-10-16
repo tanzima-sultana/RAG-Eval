@@ -42,6 +42,7 @@ src/
 	pipeline.py				# CLI entry point for the entire RAG pipeline
 	build.py                # CLI entry point for the RAG build phase
 	eval.py                 # CLI entry point for the RAG eval phase
+	check_llms.py			# Check llm and llm_models works or not (dev)
 
 	api/
 
@@ -57,7 +58,7 @@ src/
 
 	llm/
 		llm.py		        # LLM orchatrator, decides which llm to return
-		check_llms.py		# Check llm and llm_models works or not (dev)
+		constants.py        # Hardcoded LLM related constants
 		schema.py		    # LLMModel, LLMCost and LLMResponse.
 		validate.py		    # Validate LLM, model and prices
 		ollama.py 			# Local llama

@@ -11,13 +11,7 @@ venv/
 .pytest_cache/
 
 # Data
-data/
-chunks/
-embeddings/
-indexes/
-queries/
-retrieved/
-generated/
+outputs/
 log/
 json/
 

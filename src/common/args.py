@@ -12,6 +12,7 @@ import dataclasses
 import yaml
 
 from common import constants
+from llm.schema import LLMArgs
 
 @dataclasses.dataclass
 class IngestArgs:
@@ -67,34 +68,6 @@ class RetrievalArgs:
 	top_k: int
 	reranking: bool
 	rerank_top_k: int
-
-@dataclasses.dataclass
-class LLMArgs:
-	"""
-	The LLM settings of one layer, from the command line.
-
-	Fields:
-		llm:             The LLM provider: claude, chatgpt, gemini or ollama.
-		llm_model:       The model the provider runs, e.g. claude-sonnet-5-5 or llama3.1:8b.
-		input_price:       US dollars per million input tokens. 0 for ollama.
-		output_price:      US dollars per million output tokens. 0 for ollama.
-		cache_write_price: US dollars per million input tokens written to the provider's prompt cache. The input price
-		                   for providers that do not charge extra to write it. 0 for ollama.
-		cache_read_price:  US dollars per million input tokens read from the provider's prompt cache. 0 for ollama.
-		max_tokens:        Maximum output tokens per call.
-		timeout_seconds:   Seconds before one call times out.
-		cache_ttl:         How long Claude keeps a cached prompt: 5m or 1h. Its cache_write_price must be the price of
-		                   this lifetime.
-	"""
-	llm: str
-	llm_model: str
-	input_price: float
-	output_price: float
-	cache_write_price: float
-	cache_read_price: float
-	max_tokens: int
-	timeout_seconds: int
-	cache_ttl: str
 
 @dataclasses.dataclass
 class GenerationArgs:

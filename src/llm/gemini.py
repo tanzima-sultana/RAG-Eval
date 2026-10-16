@@ -8,7 +8,7 @@ import urllib.request
 from google import genai
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from common.args import LLMArgs
+from llm.schema import LLMArgs
 from llm.schema import LLMCost
 from llm.schema import LLMResponse
 

@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from common.args import make_llm_args
+from llm.schema import LLMArgs
 
 
 class FakeHttpResponse:
@@ -139,8 +139,17 @@ def make_test_llm_args():
         Output: an LLMArgs.
         What it does: builds the settings of one LLM.
         """
-        return make_llm_args(llm, llm_model, input_price, output_price, cache_write_price, cache_read_price, max_tokens,
-                             timeout_seconds, cache_ttl)
+        return LLMArgs(
+            llm=llm,
+            llm_model=llm_model,
+            input_price=input_price,
+            output_price=output_price,
+            cache_write_price=cache_write_price,
+            cache_read_price=cache_read_price,
+            max_tokens=max_tokens,
+            timeout_seconds=timeout_seconds,
+            cache_ttl=cache_ttl
+        )
 
     return build_llm_args
 
