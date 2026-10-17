@@ -17,3 +17,6 @@ json/
 
 # OS
 .DS_Store
+
+# Personal notes
+docs/notebook.md
