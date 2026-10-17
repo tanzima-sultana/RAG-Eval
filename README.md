@@ -21,7 +21,7 @@ It runs on real-world PDF data and compares 3 chunking strategies, 5 indexes (FA
 The pipeline has two phases. The build phase turns the documents into searchable indexes. The eval phase asks questions, retrieves chunks, generates answers and scores them. Each layer is its own package under `src/` and saves its output, so a re-run loads what has not changed instead of computing it again.
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph BUILD["Build phase"]
         direction TB
         L1["l1_ingestion<br/>parse PDFs"] --> L2["l2_chunking<br/>fixed / sentence / semantic"]
