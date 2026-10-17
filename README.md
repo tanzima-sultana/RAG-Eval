@@ -20,56 +20,7 @@ It runs on real-world PDF data and compares 3 chunking strategies, 5 indexes (FA
 
 The build phase turns the documents into searchable indexes. In parallel, the question phase creates the eval questions and the search queries made from them, with the LLM layer. The eval phase retrieves chunks for each query, generates answers and scores both, and the analysis phase turns the scores into a report. Each layer saves its output, so a re-run loads what has not changed instead of computing it again.
 
-```mermaid
-flowchart TB
-    subgraph BUILD["Build phase"]
-        direction TB
-        L1["Ingestion<br/>parse PDFs"] --> L2["Chunking<br/>fixed / sentence / semantic"]
-        L2 --> L3["Embedding<br/>chunk embeddings"]
-        L3 --> L4["Indexing<br/>FAISS / BM25 / Qdrant"]
-    end
-
-    subgraph PREP["Question phase"]
-        direction TB
-        QNA["Eval question set<br/>questions and reference answers"] --> L5["Query transformation<br/>rewritten / multi-query / HyDE"]
-        LLM(["LLM layer<br/>Claude / Gemini / ChatGPT / Ollama"])
-    end
-
-    subgraph EVAL["Eval phase"]
-        direction TB
-        L6["Retrieval<br/>dense / BM25 / hybrid + rerank"] --> RE["Retrieval scoring<br/>keep the best setups"]
-        RE --> L7["Context<br/>join the retrieved chunks"]
-        L7 --> L8["Prompt<br/>system and user prompt"]
-        L8 --> L9["Generation<br/>answer in one batch"]
-        L9 --> AE["Answer scoring<br/>RAGAS with a judge LLM"]
-    end
-
-    subgraph ANALYSIS["Analysis phase"]
-        AN["Summaries, diagnosis,<br/>run comparison and report"]
-    end
-
-    L4 --> L6
-    L5 --> L6
-    AE --> AN
-    LLM -.-> QNA
-    LLM -.-> L5
-    LLM -.-> L9
-    LLM -.-> AE
-
-    classDef build fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
-    classDef prep fill:#f3e8ff,stroke:#9333ea,color:#581c87
-    classDef eval fill:#dcfce7,stroke:#16a34a,color:#14532d
-    classDef out fill:#fef3c7,stroke:#d97706,color:#78350f
-    class L1,L2,L3,L4 build
-    class QNA,L5,LLM prep
-    class L6,RE,L7,L8,L9,AE eval
-    class AN out
-
-    style BUILD fill:#eff6ff,stroke:#2563eb,stroke-width:2px,color:#1d4ed8,font-weight:bold
-    style PREP fill:#faf5ff,stroke:#9333ea,stroke-width:2px,color:#7e22ce,font-weight:bold
-    style EVAL fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#15803d,font-weight:bold
-    style ANALYSIS fill:#fffbeb,stroke:#d97706,stroke-width:2px,color:#b45309,font-weight:bold
-```
+<p align="center"><img src="docs/architecture.svg" alt="Architecture: build, question, eval and analysis phases" width="820"></p>
 
 There are three entry points, all reading the same `config.yaml`:
 
