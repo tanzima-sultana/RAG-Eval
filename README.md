@@ -18,32 +18,38 @@ It runs on real-world PDF data and compares 3 chunking strategies, 5 indexes (FA
 - **Cost:** $4.88 to generate the 200-question eval set, $9.16 for the three tuning runs on the validation set, and $0.78 for the test run. Cached re-runs cost nothing.
 ## Architecture
 
-The pipeline has two phases. The build phase turns the documents into searchable indexes. The eval phase asks questions, retrieves chunks, generates answers and scores them. Each layer is its own package under `src/` and saves its output, so a re-run loads what has not changed instead of computing it again.
+The build phase turns the documents into searchable indexes. In parallel, the question phase creates the eval questions and the search queries made from them, with the LLM layer. The eval phase retrieves chunks for each query, generates answers and scores both, and the analysis phase turns the scores into a report. Each layer saves its output, so a re-run loads what has not changed instead of computing it again.
 
 ```mermaid
 flowchart TB
     subgraph BUILD["Build phase"]
         direction TB
-        L1["l1_ingestion<br/>parse PDFs"] --> L2["l2_chunking<br/>fixed / sentence / semantic"]
-        L2 --> L3["l3_embedding<br/>chunk embeddings"]
-        L3 --> L4["l4_indexing<br/>FAISS / BM25 / Qdrant"]
+        L1["Ingestion<br/>parse PDFs"] --> L2["Chunking<br/>fixed / sentence / semantic"]
+        L2 --> L3["Embedding<br/>chunk embeddings"]
+        L3 --> L4["Indexing<br/>FAISS / BM25 / Qdrant"]
+    end
+
+    subgraph PREP["Question phase"]
+        direction TB
+        QNA["Eval question set<br/>questions and reference answers"] --> L5["Query transformation<br/>rewritten / multi-query / HyDE"]
+        LLM(["LLM layer<br/>Claude / Gemini / ChatGPT / Ollama"])
     end
 
     subgraph EVAL["Eval phase"]
         direction TB
-        QNA["qna<br/>eval question set"] --> L5["l5_query<br/>rewritten / multi / HyDE"]
-        L5 --> L6["l6_retrieval<br/>dense / BM25 / hybrid + rerank"]
-        L6 --> RE["l10_evaluation<br/>score retrieval, keep best setups"]
-        RE --> L7["l7_context<br/>build context"]
-        L7 --> L8["l8_prompt<br/>build prompts"]
-        L8 --> L9["l9_generation<br/>answer in one batch"]
-        L9 --> AE["l10_evaluation<br/>score answers with RAGAS"]
+        L6["Retrieval<br/>dense / BM25 / hybrid + rerank"] --> RE["Retrieval scoring<br/>keep the best setups"]
+        RE --> L7["Context<br/>join the retrieved chunks"]
+        L7 --> L8["Prompt<br/>system and user prompt"]
+        L8 --> L9["Generation<br/>answer in one batch"]
+        L9 --> AE["Answer scoring<br/>RAGAS with a judge LLM"]
     end
 
-    AN["analysis<br/>summaries, diagnosis,<br/>run comparison, report"]
-    LLM(["llm<br/>Claude / Gemini / ChatGPT / Ollama"])
+    subgraph ANALYSIS["Analysis phase"]
+        AN["Summaries, diagnosis,<br/>run comparison and report"]
+    end
 
     L4 --> L6
+    L5 --> L6
     AE --> AN
     LLM -.-> QNA
     LLM -.-> L5
@@ -51,13 +57,18 @@ flowchart TB
     LLM -.-> AE
 
     classDef build fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef prep fill:#f3e8ff,stroke:#9333ea,color:#581c87
     classDef eval fill:#dcfce7,stroke:#16a34a,color:#14532d
     classDef out fill:#fef3c7,stroke:#d97706,color:#78350f
-    classDef llm fill:#f3e8ff,stroke:#9333ea,color:#581c87
     class L1,L2,L3,L4 build
-    class QNA,L5,L6,RE,L7,L8,L9,AE eval
+    class QNA,L5,LLM prep
+    class L6,RE,L7,L8,L9,AE eval
     class AN out
-    class LLM llm
+
+    style BUILD fill:#eff6ff,stroke:#2563eb,stroke-width:2px,color:#1d4ed8,font-weight:bold
+    style PREP fill:#faf5ff,stroke:#9333ea,stroke-width:2px,color:#7e22ce,font-weight:bold
+    style EVAL fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#15803d,font-weight:bold
+    style ANALYSIS fill:#fffbeb,stroke:#d97706,stroke-width:2px,color:#b45309,font-weight:bold
 ```
 
 There are three entry points, all reading the same `config.yaml`:
