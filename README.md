@@ -18,7 +18,7 @@ It runs on real-world PDF data and compares 3 chunking strategies, 5 indexes (FA
 - **Cost:** $4.88 to generate the 200-question eval set, $9.16 for the three tuning runs on the validation set, and $0.78 for the test run. Cached re-runs cost nothing.
 ## Architecture
 
-The build phase turns the documents into searchable indexes. In parallel, the question phase creates the eval questions and the search queries made from them, with the LLM layer. The eval phase retrieves chunks for each query, generates answers and scores both, and the analysis phase turns the scores into a report. Each layer saves its output, so a re-run loads what has not changed instead of computing it again.
+The build phase turns the documents into searchable indexes. In parallel, the question phase creates the eval questions and the search queries made from them. The eval phase retrieves chunks for each query, generates answers and scores both, and the analysis phase turns the scores into a report. Every step that needs an LLM calls it through one shared LLM layer, so any step can use any of the four providers. Each layer saves its output, so a re-run loads what has not changed instead of computing it again.
 
 <p align="center"><img src="docs/architecture.svg" alt="Architecture: build, question, eval and analysis phases" width="820"></p>
 
