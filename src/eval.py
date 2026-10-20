@@ -10,19 +10,16 @@ from common.args import make_index_args
 from common.args import make_retrieval_args
 from common.args import make_generation_args
 from common.args import make_answer_eval_args
-from common.args import make_analysis_args
 from question import run_question
 from stages.build.chunking.cache import load_chunks
 from stages.build.indexing import cache as index_cache
 from stages.evaluation.retrieval.retrieval import Retrieval
 from stages.evaluation.context.context import get_context_list
 from stages.evaluation.prompt.prompt import get_prompt_list
-from stages.evaluation.prompt.prompt_template import SYSTEM_PROMPT
-from stages.evaluation.prompt.prompt_template import USER_PROMPT_TEMPLATE
 from stages.evaluation.generation.generation import get_generated_list
 from stages.evaluation.evaluation.retrieval_evaluation import RetrievalEvaluator
 from stages.evaluation.evaluation.answer_evaluation import get_answer_evaluations
-from stages.analysis.analysis import analyze_run
+from stages.evaluation.evaluation import cache as eval_cache
 from stages.question.query.schema import Query
 from stages.evaluation.retrieval.schema import Retrieved
 from stages.evaluation.context.schema import Context
@@ -30,7 +27,7 @@ from stages.evaluation.prompt.schema import Prompt
 from stages.evaluation.generation.schema import Generated
 from stages.evaluation.evaluation.schema import RetrievalEvaluation
 from stages.evaluation.evaluation.schema import AnswerEvaluation
-from stages.analysis.schema import AnalysisRun
+from stages.evaluation.evaluation.schema import EvalResults
 from stages.question.qna.schema import EvalQnA
 
 def load_eval_inputs(args):
@@ -278,35 +275,12 @@ def run_answer_evaluation(args, output_path: str, eval_qna: list[EvalQnA], conte
 
 	return answer_evaluations
 
-def run_analysis(args, output_path: str, retrieval_evaluations: list[tuple[Retrieved, RetrievalEvaluation]], retrieved_list: list[Retrieved], retrieval_evaluation_list: list[RetrievalEvaluation], generated_list: list[Generated], answer_evaluations: list[AnswerEvaluation], eval_qna: list[EvalQnA]) -> AnalysisRun:
-	"""
-	Input: args, the parsed eval arguments; output_path; retrieval_evaluations, every (Retrieved, RetrievalEvaluation);
-	retrieved_list, retrieval_evaluation_list, generated_list and answer_evaluations, in the same order; eval_qna,
-	the eval questions.
-	Output: the run's AnalysisRun.
-	What it does: summarises, diagnoses and compares the run, and saves it with its report.
-	"""
-	# 25. Analysis
-	print("\n\nAnalysis")
-	s25 = time.time()
-	analysis_args = make_analysis_args(args)
-	# Every setting of the run, saved with it so later runs can show which settings changed. The prompts are not
-	# settings in the config, so they are added, and a run with another prompt counts as a different experiment
-	settings = dict(vars(args))
-	settings["system_prompt"] = SYSTEM_PROMPT
-	settings["user_prompt_template"] = USER_PROMPT_TEMPLATE
-	analysis_run = analyze_run(output_path, analysis_args, settings, retrieval_evaluations, retrieved_list, retrieval_evaluation_list, generated_list, answer_evaluations, eval_qna)
-
-	print("\nAnalysis time : ", time.time() - s25)
-
-	return analysis_run
-
-def run_eval(args) -> AnalysisRun:
+def run_eval(args) -> EvalResults:
 	"""
 	Input: args, the parsed eval arguments, holding the settings of the build to evaluate.
-	Output: the run's AnalysisRun.
-	What it does: loads the build, eval QnA and queries, then runs retrieval to evaluation and the analysis on
-	the query split chosen by query_split.
+	Output: the run's EvalResults.
+	What it does: loads the build, eval QnA and queries, then runs retrieval to answer evaluation on the query split
+	chosen by query_split, and saves the results for the analysis stage.
 	"""
 	ingest_args = make_ingest_args(args)
 	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
@@ -357,10 +331,22 @@ def run_eval(args) -> AnalysisRun:
 	# 7. Answer evaluation
 	answer_evaluations = run_answer_evaluation(args, output_path, eval_qna, context_list, generated_list)
 
-	# 8. Analysis: summaries, diagnosis, worst answers and comparison with earlier runs, saved with the run's report
-	analysis_run = run_analysis(args, output_path, retrieval_evaluations, retrieved_list, retrieval_evaluation_list, generated_list, answer_evaluations, eval_qna)
+	# 8. Save the results for the analysis stage, as one file per settings
+	settings = eval_cache.get_eval_settings(args)
+	eval_results = EvalResults(
+		settings=settings,
+		settings_hash=eval_cache.get_settings_hash(settings),
+		retrieval_evaluations=retrieval_evaluations,
+		retrieved_list=retrieved_list,
+		retrieval_evaluation_list=retrieval_evaluation_list,
+		generated_list=generated_list,
+		answer_evaluations=answer_evaluations,
+		eval_qna=eval_qna
+	)
+	eval_results_file = eval_cache.save_eval_results(output_path, eval_results)
+	print(f"\nEval results saved : {eval_results_file}")
 
-	return analysis_run
+	return eval_results
 
 if __name__ == "__main__":
 	print("\n ------------- RAG Eval -------- \n")

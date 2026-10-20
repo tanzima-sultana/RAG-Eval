@@ -327,6 +327,14 @@ def get_answer_evaluation_path(output_path:str, framework: str, ans_eval_llm_mod
 
 	return f"{output_path}/answer_evaluation/{framework}/{ans_eval_llm_model}/answer_evaluation.json"
 
+def get_eval_results_path(output_path:str, settings_hash: str) -> str:
+	"""
+	Input: output_path, the dataset's output folder; settings_hash, the sha256 of the eval run's settings.
+	Output: the eval results file path, as a string.
+	What it does: builds {output_path}/eval_results/{settings_hash}.json.
+	"""
+	return f"{output_path}/eval_results/{settings_hash}.json"
+
 def get_analysis_runs_path(output_path:str) -> str:
 	"""
 	Input: output_path, the dataset's output folder.

@@ -3,6 +3,7 @@ import time
 from build import run_build
 from common.args import parse_eval_args
 from eval import run_eval
+from analysis import run_analysis
 
 if __name__ == "__main__":
 	print("\n ------------- RAG Pipeline -------- \n")
@@ -18,11 +19,17 @@ if __name__ == "__main__":
 	run_build(args)
 	print("\nBuild time : ", time.time() - s1)
 
-	# 2. Eval: eval QnA, query transformation to evaluation and the analysis
+	# 2. Eval: eval QnA, query transformation to evaluation. Saves the results for the analysis
 	print("\n\n========== Eval ==========")
 	s2 = time.time()
 	run_eval(args)
 	print("\nEval time : ", time.time() - s2)
+
+	# 3. Analysis: on the results the eval just saved
+	print("\n\n========== Analysis ==========")
+	s3 = time.time()
+	run_analysis(args)
+	print("\nAnalysis time : ", time.time() - s3)
 
 	# ---------
 	end = time.time()

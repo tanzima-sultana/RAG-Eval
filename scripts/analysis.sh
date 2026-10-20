@@ -1,4 +1,5 @@
-# Compares the newest n_compare_runs runs that eval saved, with the settings in the build and eval parts of config.yaml.
+# Analyses the eval results saved for the settings in the build and eval parts of config.yaml: summaries, diagnosis,
+# worst answers and a comparison with earlier runs. Pass the same overrides as the eval.sh run to analyse.
 #
 # Usage:
 #   bash scripts/analysis.sh                    # the build and eval settings in config.yaml

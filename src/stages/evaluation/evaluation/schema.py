@@ -1,5 +1,9 @@
 import dataclasses
 
+from stages.evaluation.retrieval.schema import Retrieved
+from stages.evaluation.generation.schema import Generated
+from stages.question.qna.schema import EvalQnA
+
 @dataclasses.dataclass
 class Evaluation:
 	"""
@@ -62,3 +66,30 @@ class AnswerEvaluation:
 	framework: str
 	llm: str
 	llm_model: str
+
+@dataclasses.dataclass
+class EvalResults:
+	"""
+	Everything one eval run hands to the analysis stage, saved as one file per settings.
+	retrieved_list, retrieval_evaluation_list, generated_list and answer_evaluations are in the same order, so their
+	i-th items belong to the same kept setup and eval question.
+
+	Fields:
+		settings:                  Every setting of the run, as {setting name: value}, with the system prompt and user
+		                           prompt template added.
+		settings_hash:             The sha256 of settings, the same for two runs with the same settings.
+		retrieval_evaluations:     Every (Retrieved, RetrievalEvaluation) of the run, one per eval question and setup.
+		retrieved_list:            The Retrieved of the kept setups, the ones answers were generated for.
+		retrieval_evaluation_list: The RetrievalEvaluation of each of those Retrieved.
+		generated_list:            The answer of each of those Retrieved.
+		answer_evaluations:        The AnswerEvaluation of each of those answers.
+		eval_qna:                  The eval questions.
+	"""
+	settings: dict
+	settings_hash: str
+	retrieval_evaluations: list[tuple[Retrieved, RetrievalEvaluation]]
+	retrieved_list: list[Retrieved]
+	retrieval_evaluation_list: list[RetrievalEvaluation]
+	generated_list: list[Generated]
+	answer_evaluations: list[AnswerEvaluation]
+	eval_qna: list[EvalQnA]

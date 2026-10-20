@@ -1,14 +1,12 @@
 """
 analysis.py
 
-Analysis orchestrator. Runs after evaluation: summarises the run's retrieval and answer evaluations, diagnoses where answers
-lose points, lists the worst answers, saves the run and compares it with the most recent earlier runs, then writes
-everything to the run's report.
+Analysis orchestrator. Runs on the results the evaluation stage saved: summarises the run's retrieval and answer
+evaluations, diagnoses where answers lose points, lists the worst answers, saves the run and compares it with the
+most recent earlier runs, then writes everything to the run's report.
 """
 
 import datetime
-import hashlib
-import json
 
 from stages.analysis.cache import load_analysis_runs
 from stages.analysis.cache import save_analysis_run
@@ -24,22 +22,26 @@ from stages.analysis.summary import get_retrieval_summaries
 from stages.analysis.validate import validate_analysis_args
 from common import paths
 from common.args import AnalysisArgs
-from stages.evaluation.retrieval.schema import Retrieved
-from stages.evaluation.generation.schema import Generated
-from stages.evaluation.evaluation.schema import AnswerEvaluation
-from stages.evaluation.evaluation.schema import RetrievalEvaluation
-from stages.question.qna.schema import EvalQnA
+from stages.evaluation.evaluation.schema import EvalResults
 
-def analyze_run(output_path: str, analysis_args: AnalysisArgs, settings: dict, retrieval_evaluations: list[tuple[Retrieved, RetrievalEvaluation]], retrieved_list: list[Retrieved], retrieval_evaluation_list: list[RetrievalEvaluation], generated_list: list[Generated], answer_evaluations: list[AnswerEvaluation], eval_qna: list[EvalQnA]) -> AnalysisRun:
+def analyze_run(output_path: str, analysis_args: AnalysisArgs, eval_results: EvalResults) -> AnalysisRun:
 	"""
-	Input: output_path, the dataset's output folder; analysis_args, n_compare_runs and n_worst_answers; settings, every
-	setting of the run; retrieval_evaluations, every (Retrieved, RetrievalEvaluation); retrieved_list,
-	retrieval_evaluation_list, generated_list and answer_evaluations, in the same order; eval_qna, the eval questions.
+	Input: output_path, the dataset's output folder; analysis_args, n_compare_runs and n_worst_answers; eval_results,
+	the saved results of one eval run: its settings, every (Retrieved, RetrievalEvaluation), the kept setups' Retrieved,
+	RetrievalEvaluation, answers and answer evaluations in the same order, and the eval questions.
 	Output: the run's AnalysisRun.
 	What it does: builds the summaries, diagnosis, worst answers and comparison, saves the run with its report and
 	prints the report.
 	"""
 	validate_analysis_args(analysis_args)
+	settings = eval_results.settings
+	settings_hash = eval_results.settings_hash
+	retrieval_evaluations = eval_results.retrieval_evaluations
+	retrieved_list = eval_results.retrieved_list
+	retrieval_evaluation_list = eval_results.retrieval_evaluation_list
+	generated_list = eval_results.generated_list
+	answer_evaluations = eval_results.answer_evaluations
+	eval_qna = eval_results.eval_qna
 
 	# 1. Summaries: one RetrievalSummary per retrieval setup, one AnswerSummary per kept setup
 	retrieval_summaries = get_retrieval_summaries(retrieval_evaluations)
@@ -48,12 +50,10 @@ def analyze_run(output_path: str, analysis_args: AnalysisArgs, settings: dict, r
 	print(f"Answer summaries : {len(answer_summaries)}")
 
 	# 2. The run record. The run id comes from the current time. Two runs with the same settings get the same
-	# settings_hash; default=str writes any setting JSON cannot hold as text
+	# settings_hash, made by the evaluation stage
 	now = datetime.datetime.now()
 	run_id = now.strftime("%Y%m%d-%H%M%S")
 	created_at = now.isoformat(timespec="seconds")
-	settings_text = json.dumps(settings, sort_keys=True, default=str)
-	settings_hash = hashlib.sha256(settings_text.encode("utf-8")).hexdigest()
 
 	# Every answer of one run is judged by the same framework and model
 	if len(answer_evaluations) > 0:
