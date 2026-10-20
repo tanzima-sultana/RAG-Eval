@@ -10,7 +10,7 @@ class Context:
 	Fields:
 		id:          Same as the Retrieved, Query and EvalQnA id, linking the context to its eval question.
 		context:     The text sent to the LLM.
-		token_count: The sum of the l2 chunk sizes of the chunks used, in embedding-model tokens. An estimate of the
+		token_count: The sum of the chunk sizes of the chunks used, in embedding-model tokens. An estimate of the
 		             prompt size, not the generation LLM's own count.
 	"""
 	id: str

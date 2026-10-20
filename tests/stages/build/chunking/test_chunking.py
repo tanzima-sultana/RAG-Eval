@@ -1,7 +1,7 @@
 """
 test_chunking.py
 
-Tests for l2_chunking.chunking.Chunking, the l2 orchestrator. The real
+Tests for stages.build.chunking.chunking.Chunking, the chunking orchestrator. The real
 SentenceTransformer is replaced by the conftest FakeSentenceTransformer,
 and chunks are written under pytest's tmp_path.
 """
@@ -12,7 +12,7 @@ import os
 import pytest
 
 from common.paths import get_chunk_path
-from l2_chunking.chunking import Chunking
+from stages.build.chunking.chunking import Chunking
 
 
 def make_documents(make_document):

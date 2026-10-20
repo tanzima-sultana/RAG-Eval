@@ -70,7 +70,7 @@ def save_eval_qna(output_path: str, eval_qna_args: EvalQnAArgs, qna_llm_args: LL
 
 def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna_args: EvalQnAArgs, qna_llm_args: LLMArgs, qna_kg_llm_args: LLMArgs) -> list[EvalQnA]:
 	"""
-	Input: output_path, the dataset's output folder; documents, a dict of doc_id to l1 Document; eval_qna_args, the eval QnA settings;
+	Input: output_path, the dataset's output folder; documents, a dict of doc_id to ingested Document; eval_qna_args, the eval QnA settings;
 	qna_llm_args, the LLM that writes the questions and answers; qna_kg_llm_args, the LLM that builds the knowledge graph.
 	Output: a list of EvalQnA. Raises ValueError if RAGAS generates none.
 	What it does: samples documents long enough for RAGAS, builds or loads the RAGAS knowledge graph,
@@ -225,7 +225,7 @@ def generate_eval_qna(output_path: str, documents: dict[str, Document], eval_qna
 
 def get_eval_qna(output_path: str, documents: dict[str, Document], eval_qna_args: EvalQnAArgs, qna_llm_args: LLMArgs, qna_kg_llm_args: LLMArgs) -> list[EvalQnA]:
 	"""
-	Input: output_path, the dataset's output folder; documents, a dict of doc_id to l1 Document; eval_qna_args, the eval QnA settings;
+	Input: output_path, the dataset's output folder; documents, a dict of doc_id to ingested Document; eval_qna_args, the eval QnA settings;
 	qna_llm_args, the LLM that writes the questions and answers; qna_kg_llm_args, the LLM that builds the knowledge graph.
 	Output: a list of EvalQnA.
 	What it does: validates eval_qna_args, then returns the cached eval QnA if it exists,

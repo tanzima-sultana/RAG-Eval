@@ -1,7 +1,7 @@
 """
 test_langchain.py
 
-Tests for l2_chunking.langchain.Langchain, the LangChain-based chunker.
+Tests for stages.build.chunking.langchain.Langchain, the LangChain-based chunker.
 The SentenceTransformer that LangChain loads is replaced with a fake whose
 tokenizer gives one token per word, so no model is downloaded.
 """
@@ -13,10 +13,10 @@ import pytest
 import sentence_transformers
 
 from common.paths import get_chunk_path
-from l2_chunking.chunkers.sentence import SentenceChunking
-from l2_chunking.chunking import Chunking
-from l2_chunking.langchain import Langchain
-from l2_chunking.langchain import SentenceTransformerEmbeddings
+from stages.build.chunking.chunkers.sentence import SentenceChunking
+from stages.build.chunking.chunking import Chunking
+from stages.build.chunking.langchain import Langchain
+from stages.build.chunking.langchain import SentenceTransformerEmbeddings
 
 
 class FakeLangchainTokenizer:

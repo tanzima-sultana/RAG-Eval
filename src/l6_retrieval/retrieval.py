@@ -12,7 +12,7 @@ from common.constants import CROSS_ENCODER_MODEL
 from common.constants import LANGCHAIN_FRAMEWORK
 from common.constants import DENSE_RETRIEVAL, BM25_RETRIEVAL, HYBRID_RETRIEVAL
 from common.constants import FAISS_FLATIP_INDEX, FAISS_HNSW_INDEX, FAISS_IVF_INDEX, BM25_INDEX, QDRANT_INDEX
-from l2_chunking.schema import Chunk
+from stages.build.chunking.schema import Chunk
 from l4_indexing.schema import FaissIndex
 from l4_indexing.schema import Bm25Index
 from l4_indexing.schema import QdrantIndex
@@ -144,7 +144,7 @@ class Retrieval:
 
 	def get_reranked_dense_retrieval(self, queries: list[Query], chunks: dict[str, Chunk], index_type: str, dense_outputs: list[Retrieved]) -> list[Retrieved]:
 		"""
-		Input: l5 queries, the l2 chunks, the dense index type, and that index's dense outputs.
+		Input: the queries, the chunks, the dense index type, and that index's dense outputs.
 		Output: one reranked Retrieved per dense output, holding the best rerank_top_k chunks.
 		What it does: loads the reranked outputs from cache, or reranks the chunks of each dense output with the
 		cross-encoder and saves them.
@@ -168,7 +168,7 @@ class Retrieval:
 
 	def get_reranked_bm25_retrieval(self, queries: list[Query], chunks: dict[str, Chunk], bm25_outputs: list[Retrieved]) -> list[Retrieved]:
 		"""
-		Input: l5 queries, the l2 chunks, and the BM25 outputs.
+		Input: the queries, the chunks, and the BM25 outputs.
 		Output: one reranked Retrieved per BM25 output, holding the best rerank_top_k chunks.
 		What it does: loads the reranked outputs from cache, or reranks the chunks of each BM25 output with the
 		cross-encoder and saves them.
@@ -192,7 +192,7 @@ class Retrieval:
 
 	def get_reranked_hybrid_retrieval(self, queries: list[Query], chunks: dict[str, Chunk], dense_index_type: str, hybrid_outputs: list[Retrieved]) -> list[Retrieved]:
 		"""
-		Input: l5 queries, the l2 chunks, the dense index type of the hybrid pair, and its hybrid outputs.
+		Input: the queries, the chunks, the dense index type of the hybrid pair, and its hybrid outputs.
 		Output: one reranked Retrieved per hybrid output, holding the best rerank_top_k chunks.
 		What it does: loads the reranked outputs from cache, or reranks the chunks of each hybrid output with the
 		cross-encoder and saves them.

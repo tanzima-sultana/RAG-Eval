@@ -6,7 +6,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from common.args import ChunkingArgs
 from common import paths
 
-from l2_chunking.schema import Chunk
+from stages.build.chunking.schema import Chunk
 from l3_embedding.schema import Embedded
 from l3_embedding import cache
 
@@ -33,7 +33,7 @@ class Langchain:
 
 	def compute_embeddings(self, chunks: dict[str, Chunk], output_path:str) -> dict[str, Embedded]:
 		"""
-		Input: chunks, a dict of chunk_id to Chunk from l2_chunking;
+		Input: chunks, a dict of chunk_id to Chunk from stages.build.chunking;
 		output_path, the dataset's output folder the embedding folder is built under.
 		Output: a dict of chunk_id to Embedded.
 		What it does: loads the cached embeddings of each chunk's document

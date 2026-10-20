@@ -12,7 +12,7 @@ if __name__ == "__main__":
 	args = parse_eval_args()
 	print(args)
 
-	# 1. Build: l1 ingestion to l4 indexing. A cached layer is loaded, not built again
+	# 1. Build: ingestion to indexing. A cached layer is loaded, not built again
 	print("\n\n========== Build ==========")
 	s1 = time.time()
 	run_build(args)

@@ -16,7 +16,7 @@ import os
 
 from common import paths
 from common.args import ChunkingArgs
-from l2_chunking.schema import Chunk
+from stages.build.chunking.schema import Chunk
 
 def chunk_to_json_dict(chunk: Chunk) -> dict:
 	"""
@@ -93,7 +93,7 @@ def load_chunks(output_path: str, chunking_args: ChunkingArgs, doc_ids: list[str
 	"""
 	Input: output_path, the dataset's output folder; chunking_args, the
 	settings the chunks were made with; doc_ids, the documents whose chunks
-	to load, for example the ids of the documents returned by l1 ingestion.
+	to load, for example the ids of the documents returned by ingestion.
 	Output: a dict of chunk_id to Chunk with every chunk of those
 	documents, document by document in the order of doc_ids.
 	What it does: load-only, never chunks anything. Reads the {doc_id}.json

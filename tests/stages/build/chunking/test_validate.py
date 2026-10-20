@@ -1,12 +1,12 @@
 """
 test_validate.py
 
-Tests for l2_chunking.validate.validate_chunking_args.
+Tests for stages.build.chunking.validate.validate_chunking_args.
 """
 
 import pytest
 
-from l2_chunking.validate import validate_chunking_args
+from stages.build.chunking.validate import validate_chunking_args
 
 
 @pytest.mark.parametrize("chunk_type", ["fixed", "sentence", "semantic"])

@@ -18,7 +18,7 @@ class EvalQnA:
 
 	Project fields:
 		id:        Unique identifier of this item.
-		doc_ids:   Ids of the l1 documents the context came from.
+		doc_ids:   Ids of the ingested documents the context came from.
 		           A list, because a multi-hop question can span several documents.
 		doc_paths: Paths of those same documents, in the same order as doc_ids.
 		llm:       The LLM provider that wrote the question and answer, e.g. claude.

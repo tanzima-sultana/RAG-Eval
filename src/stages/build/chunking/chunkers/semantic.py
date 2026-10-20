@@ -2,8 +2,8 @@ import numpy as np
 from nltk.tokenize import sent_tokenize
 
 from common.constants import SEMANTIC_CHUNKING
-from l2_chunking.chunker import Chunker
-from l2_chunking.schema import Chunk
+from stages.build.chunking.chunker import Chunker
+from stages.build.chunking.schema import Chunk
 
 class SemanticChunking(Chunker):
 	chunk_type = SEMANTIC_CHUNKING

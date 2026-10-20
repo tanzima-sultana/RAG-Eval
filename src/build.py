@@ -6,7 +6,7 @@ from common.args import make_ingest_args
 from common.args import make_chunking_args
 from common.args import make_index_args
 from stages.build.ingestion.ingestion import ingestion
-from l2_chunking.chunking import Chunking
+from stages.build.chunking.chunking import Chunking
 from l3_embedding.embedding import Embedding
 from l4_indexing.indexing import Indexing
 
@@ -14,7 +14,7 @@ def run_build(args) -> None:
 	"""
 	Input: args, the parsed build arguments.
 	Output: nothing. The documents, chunks, embeddings and indexes are saved under the dataset's output folder.
-	What it does: runs l1 ingestion, then l2 chunking, l3 embedding and l4 indexing once per chunk type.
+	What it does: runs ingestion, then chunking, embedding and indexing once per chunk type.
 	"""
 	# 1. Ingestion
 	print("\n\nIngestion")

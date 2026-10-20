@@ -1,7 +1,7 @@
 import abc
 
-from l2_chunking.schema import Chunk
-from l2_chunking.chunking import Chunking
+from stages.build.chunking.schema import Chunk
+from stages.build.chunking.chunking import Chunking
 
 class Chunker(abc.ABC):
 	# The chunk_type (e.g. "fixed") this strategy is registered under
@@ -132,9 +132,9 @@ def get_chunker(chunk_type: str) -> type[Chunker]:
 	Returns the Chunker subclass registered for chunk_type.
 	"""
 	from common.constants import FIXED_CHUNKING, SENTENCE_CHUNKING, SEMANTIC_CHUNKING
-	from l2_chunking.chunkers.fixed import FixedChunking
-	from l2_chunking.chunkers.sentence import SentenceChunking
-	from l2_chunking.chunkers.semantic import SemanticChunking
+	from stages.build.chunking.chunkers.fixed import FixedChunking
+	from stages.build.chunking.chunkers.sentence import SentenceChunking
+	from stages.build.chunking.chunkers.semantic import SemanticChunking
 	# imported here, not at module level, to avoid a circular import:
 	# each strategy module will subclass Chunker, so importing them at
 	# module level would make this module depend on them before Chunker

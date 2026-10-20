@@ -15,7 +15,7 @@ from common.args import make_generation_args
 from common.args import make_answer_eval_args
 from common.args import make_analysis_args
 from stages.build.ingestion.ingestion import ingestion
-from l2_chunking.cache import load_chunks
+from stages.build.chunking.cache import load_chunks
 from l4_indexing import cache as index_cache
 from qna.qna import get_eval_qna
 from l5_query.query import get_queries
@@ -41,7 +41,7 @@ from qna.schema import EvalQnA
 def load_eval_inputs(args, output_path: str):
 	"""
 	Input: args, the parsed eval arguments; output_path, the dataset's output folder.
-	Output: the l1 documents, the eval QnA, the tuning queries and the held-out queries.
+	Output: the ingested documents, the eval QnA, the tuning queries and the held-out queries.
 	What it does: loads the documents, eval QnA and l5 queries from their caches and splits the queries.
 	"""
 	ingest_args = make_ingest_args(args)
@@ -51,8 +51,8 @@ def load_eval_inputs(args, output_path: str):
 	query_args = make_query_args(args)
 	query_llm_args = make_llm_args(args.query_llm, args.query_llm_model, args.query_input_price, args.query_output_price, args.query_cache_write_price, args.query_cache_read_price, args.llm_max_tokens, args.llm_timeout_seconds, args.llm_cache_ttl)
 
-	# 1. Load the l1 documents
-	# The same ingestion call as build.py; it returns the documents from the l1 cache
+	# 1. Load the ingested documents
+	# The same ingestion call as build.py; it returns the documents from the ingestion cache
 	print("\n\nLoading documents")
 	s1 = time.time()
 	documents = ingestion(ingest_args)
@@ -95,7 +95,7 @@ def load_eval_inputs(args, output_path: str):
 
 def run_retrieval_and_evaluation(args, output_path: str, doc_ids: list[str], queries: list[Query], retrieval_evaluator: RetrievalEvaluator) -> list[tuple[Retrieved, RetrievalEvaluation]]:
 	"""
-	Input: args, the parsed eval arguments; output_path; doc_ids, the l1 document ids; queries, the l5 queries of this
+	Input: args, the parsed eval arguments; output_path; doc_ids, the ingested document ids; queries, the queries of this
 	run, tuning or held-out; and retrieval_evaluator, which scores each Retrieved.
 	Output: one (Retrieved, RetrievalEvaluation) per query and setup, plain and reranked.
 	What it does: retrieves, reranks and scores, one chunk type and one index at a time.
@@ -118,7 +118,7 @@ def run_retrieval_and_evaluation(args, output_path: str, doc_ids: list[str], que
 		print(f"\n\n========== Chunk type : {chunk_type} ==========")
 		chunking_args = make_chunking_args(args, chunk_type)
 
-		# 5. Load the l2 chunks
+		# 5. Load the chunks
 		# Load-only; raises an error if a document has no chunk file
 		print("\n\nLoading chunks")
 		s5 = time.time()
@@ -215,7 +215,7 @@ def run_retrieval_and_evaluation(args, output_path: str, doc_ids: list[str], que
 
 def run_context(args, output_path: str, doc_ids: list[str], filtered_retrieval_evaluations: list[tuple[Retrieved, RetrievalEvaluation]]) -> tuple[list[Retrieved], list[RetrievalEvaluation], list[Context]]:
 	"""
-	Input: args, the parsed eval arguments; output_path; doc_ids, the l1 document ids; and the filtered
+	Input: args, the parsed eval arguments; output_path; doc_ids, the ingested document ids; and the filtered
 	(Retrieved, RetrievalEvaluation).
 	Output: retrieved_list, retrieval_evaluation_list and context_list, in the same order, so retrieval_evaluation_list[i]
 	and context_list[i] belong to retrieved_list[i].
@@ -261,7 +261,7 @@ def run_context(args, output_path: str, doc_ids: list[str], filtered_retrieval_e
 
 def run_prompt(context_list: list[Context], queries: list[Query]) -> list[Prompt]:
 	"""
-	Input: context_list, the l7 contexts; queries, the l5 queries of this run, tuning or held-out.
+	Input: context_list, the l7 contexts; queries, the queries of this run, tuning or held-out.
 	Output: prompt_list, in the same order, so prompt_list[i] belongs to context_list[i] and retrieved_list[i].
 	What it does: builds the system prompt and user prompt of each context, with its original question.
 	"""

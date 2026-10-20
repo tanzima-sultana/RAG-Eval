@@ -2,7 +2,7 @@
 test_langchain.py
 
 Tests for l4_indexing.langchain.Langchain: building the LangChain FAISS,
-BM25 and Qdrant indexes from the l2 chunks and l3 embeddings, and reusing
+BM25 and Qdrant indexes from the chunks and embeddings, and reusing
 saved ones. HuggingFaceEmbeddings is faked and Qdrant runs in memory.
 """
 

@@ -6,9 +6,9 @@ if __name__ == "__main__" block itself is not covered here, since it
 only runs the pipeline end-to-end (already covered at the Embedding
 level in test_embedding.py) and is not exercised on import.
 
-Unlike l2_chunking.main, l3_embedding.main has no validate(): chunk_type/
+Unlike stages.build.chunking.main, l3_embedding.main has no validate(): chunk_type/
 semantic_threshold consistency was already enforced by whichever
-l2_chunking run produced the chunks being embedded here.
+stages.build.chunking run produced the chunks being embedded here.
 """
 
 import pytest

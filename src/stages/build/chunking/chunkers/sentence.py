@@ -1,8 +1,8 @@
 from nltk.tokenize import sent_tokenize
 
 from common.constants import SENTENCE_CHUNKING
-from l2_chunking.chunker import Chunker
-from l2_chunking.schema import Chunk
+from stages.build.chunking.chunker import Chunker
+from stages.build.chunking.schema import Chunk
 
 class SentenceChunking(Chunker):
 	chunk_type = SENTENCE_CHUNKING

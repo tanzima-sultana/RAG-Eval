@@ -3,7 +3,7 @@ from common.args import ChunkingArgs
 from common.args import IndexArgs
 from common import paths
 
-from l2_chunking.schema import Chunk
+from stages.build.chunking.schema import Chunk
 from l3_embedding.schema import Embedded
 from l4_indexing.schema import FaissIndex
 from l4_indexing.schema import Bm25Index
@@ -34,7 +34,7 @@ class Indexing:
 
 	def compute_index(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex | Bm25Index | QdrantIndex | LangchainFaissIndex | LangchainBm25Index | LangchainQdrantIndex:
 		"""
-		Input: chunks and embeddings from l2 and l3; output_path, the dataset's output folder.
+		Input: chunks and embeddings from chunking and embedding; output_path, the dataset's output folder.
 		Output: the index of index_type, built-in or LangChain.
 		What it does: builds the index of index_type, or loads it from cache.
 		"""
@@ -48,7 +48,7 @@ class Indexing:
 
 	def compute_faiss_index(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex | LangchainFaissIndex:
 		"""
-		Input: chunks and embeddings from l2 and l3; output_path, the dataset's output folder.
+		Input: chunks and embeddings from chunking and embedding; output_path, the dataset's output folder.
 		Output: the FAISS index of type index_type, built-in or LangChain.
 		What it does: builds the FAISS index, or loads it from cache.
 		"""
@@ -61,7 +61,7 @@ class Indexing:
 
 	def compute_bm25_index(self, chunks: dict[str, Chunk], output_path: str) -> Bm25Index | LangchainBm25Index:
 		"""
-		Input: chunks from l2; output_path, the dataset's output folder.
+		Input: chunks from chunking; output_path, the dataset's output folder.
 		Output: the BM25 index, built-in or LangChain.
 		What it does: builds the BM25 index, or loads it from cache.
 		"""
@@ -74,7 +74,7 @@ class Indexing:
 
 	def compute_qdrant_index(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> QdrantIndex | LangchainQdrantIndex:
 		"""
-		Input: chunks and embeddings from l2 and l3; output_path, the dataset's output folder.
+		Input: chunks and embeddings from chunking and embedding; output_path, the dataset's output folder.
 		Output: the Qdrant collection, built-in or LangChain.
 		What it does: builds the Qdrant collection, or uses the existing one if it holds the same chunks.
 		"""

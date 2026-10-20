@@ -12,9 +12,9 @@ from common import paths
 from common.args import ChunkingArgs
 
 from stages.build.ingestion.schema import Document
-from l2_chunking.schema import Chunk
-from l2_chunking.langchain import Langchain
-from l2_chunking import validate, cache
+from stages.build.chunking.schema import Chunk
+from stages.build.chunking.langchain import Langchain
+from stages.build.chunking import validate, cache
 
 class Chunking:
 	def __init__(self, chunking_args: ChunkingArgs):
@@ -69,7 +69,7 @@ class Chunking:
 		# import: chunker.py imports Chunking (this class) at module
 		# level for its type hint, so this module cannot also
 		# import chunker.py at module level.
-		from l2_chunking.chunker import get_chunker
+		from stages.build.chunking.chunker import get_chunker
 
 		# Resolved before any chunking work, so an unregistered
 		# chunk_type raises ValueError immediately.

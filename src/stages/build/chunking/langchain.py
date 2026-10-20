@@ -16,8 +16,8 @@ from common import paths
 from common.args import ChunkingArgs
 
 from stages.build.ingestion.schema import Document
-from l2_chunking.schema import Chunk
-from l2_chunking import cache
+from stages.build.chunking.schema import Chunk
+from stages.build.chunking import cache
 
 
 class SentenceTransformerEmbeddings(Embeddings):

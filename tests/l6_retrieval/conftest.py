@@ -18,7 +18,7 @@ from rank_bm25 import BM25Okapi
 from common.args import ChunkingArgs
 from common.args import IndexArgs
 from common.args import RetrievalArgs
-from l2_chunking.schema import Chunk
+from stages.build.chunking.schema import Chunk
 from l4_indexing.schema import Bm25Index
 from l4_indexing.schema import FaissIndex
 from l4_indexing.schema import QdrantIndex
@@ -222,7 +222,7 @@ def make_chunk():
         """
         Input: chunk_id and text.
         Output: a Chunk.
-        What it does: builds the l2 chunk the reranker reads the text of.
+        What it does: builds the chunk the reranker reads the text of.
         """
         return Chunk(id=chunk_id, text=text, size=len(text.split()), type="fixed")
 

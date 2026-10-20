@@ -1,7 +1,7 @@
 """
 test_semantic.py
 
-Tests for l2_chunking.chunkers.semantic.SemanticChunking. Embeddings come
+Tests for stages.build.chunking.chunkers.semantic.SemanticChunking. Embeddings come
 from the conftest FakeSentenceTransformer: sentences with "cat" are
 [1, 0] and all others [0, 1], so a switch between them is a topic change.
 """
@@ -9,8 +9,8 @@ from the conftest FakeSentenceTransformer: sentences with "cat" are
 import numpy as np
 from nltk.tokenize import sent_tokenize
 
-from l2_chunking.chunkers.semantic import SemanticChunking
-from l2_chunking.schema import Chunk
+from stages.build.chunking.chunkers.semantic import SemanticChunking
+from stages.build.chunking.schema import Chunk
 
 
 def get_chunk_texts(chunks):

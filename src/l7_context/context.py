@@ -1,10 +1,10 @@
-from l2_chunking.schema import Chunk
+from stages.build.chunking.schema import Chunk
 from l6_retrieval.schema import Retrieved
 from l7_context.schema import Context
 
 def get_context_list(retrieved_outputs: list[Retrieved], chunks: dict[str, Chunk]) -> list[Context]:
 	"""
-	Input: retrieved_outputs, the filtered Retrieved of one chunk type; chunks, the l2 chunks of that chunk type.
+	Input: retrieved_outputs, the filtered Retrieved of one chunk type; chunks, the chunks of that chunk type.
 	Output: one Context per Retrieved, in the same order. A Retrieved with no chunks gets an empty Context.
 	What it does: joins the text of each Retrieved's chunks, best first, into its context.
 	"""

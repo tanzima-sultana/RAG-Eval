@@ -7,13 +7,13 @@ rerank_top_k chunks.
 
 from sentence_transformers import CrossEncoder
 
-from l2_chunking.schema import Chunk
+from stages.build.chunking.schema import Chunk
 from l5_query.schema import Query
 from l6_retrieval.schema import Retrieved
 
 def get_reranked_outputs(queries: list[Query], chunks: dict[str, Chunk], retrieved_outputs: list[Retrieved], cross_encoder: CrossEncoder, rerank_top_k: int) -> list[Retrieved]:
 	"""
-	Input: l5 queries, the l2 chunks, the not reranked outputs, the cross-encoder and rerank_top_k.
+	Input: the queries, the chunks, the not reranked outputs, the cross-encoder and rerank_top_k.
 	Output: one reranked Retrieved per output, holding the best rerank_top_k chunks.
 	What it does: scores every (question, chunk text) pair with the cross-encoder and sorts each output's chunks
 	by that score.

@@ -6,7 +6,7 @@ Tests for l7_context.context.get_context_list: turning each l6 Retrieved into th
 
 import pytest
 
-from l2_chunking.schema import Chunk
+from stages.build.chunking.schema import Chunk
 from l6_retrieval.schema import Retrieved
 from l7_context.context import get_context_list
 from l7_context.schema import Context
@@ -31,7 +31,7 @@ def make_retrieved(query_id, chunk_ids, query_type="original"):
 def chunks():
     """
     Input: none.
-    Output: three l2 chunks by id, with sizes 4, 3 and 5.
+    Output: three chunks by id, with sizes 4, 3 and 5.
     What it does: gives the tests chunk texts and sizes to build contexts from.
     """
     chunk_list = [

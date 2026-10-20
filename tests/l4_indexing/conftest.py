@@ -17,7 +17,7 @@ from qdrant_client import QdrantClient
 
 from common.args import ChunkingArgs
 from common.args import IndexArgs
-from l2_chunking.schema import Chunk
+from stages.build.chunking.schema import Chunk
 from l3_embedding.schema import Embedded
 from l4_indexing import cache as cache_module
 from l4_indexing import langchain as langchain_module

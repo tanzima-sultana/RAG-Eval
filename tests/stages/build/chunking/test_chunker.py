@@ -1,18 +1,18 @@
 """
 test_chunker.py
 
-Tests for l2_chunking.chunker: the shared Chunker base class helpers and
+Tests for stages.build.chunking.chunker: the shared Chunker base class helpers and
 the get_chunker registry lookup.
 """
 
 import numpy as np
 import pytest
 
-from l2_chunking.chunker import Chunker
-from l2_chunking.chunker import get_chunker
-from l2_chunking.chunkers.fixed import FixedChunking
-from l2_chunking.chunkers.semantic import SemanticChunking
-from l2_chunking.chunkers.sentence import SentenceChunking
+from stages.build.chunking.chunker import Chunker
+from stages.build.chunking.chunker import get_chunker
+from stages.build.chunking.chunkers.fixed import FixedChunking
+from stages.build.chunking.chunkers.semantic import SemanticChunking
+from stages.build.chunking.chunkers.sentence import SentenceChunking
 
 
 class MinimalChunker(Chunker):

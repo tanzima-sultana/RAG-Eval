@@ -2,7 +2,7 @@
 cache.py
 
 Saves and loads the indexes of one indexing run, the same way
-l2_chunking/cache.py and l3_embedding/cache.py do for chunks and
+stages/build/chunking/cache.py and l3_embedding/cache.py do for chunks and
 embeddings. The indexers in indexers/ and langchain.py only build; they
 call this file to check the cache and to save.
 

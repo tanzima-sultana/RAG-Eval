@@ -7,7 +7,7 @@ Measures how well each Retrieved found its eval question's source, at chunk leve
 import math
 
 from common.constants import CHUNK_CONTEXT_OVERLAP_THRESHOLD
-from l2_chunking.schema import Chunk
+from stages.build.chunking.schema import Chunk
 from l6_retrieval.schema import Retrieved
 from l10_evaluation.schema import Evaluation
 from l10_evaluation.schema import RetrievalEvaluation
@@ -27,7 +27,7 @@ class RetrievalEvaluator:
 
 	def compute_retrieval_evaluation(self, retrieved: Retrieved, chunks: dict[str, Chunk]) -> RetrievalEvaluation:
 		"""
-		Input: retrieved, one Retrieved; chunks, the l2 chunks of its chunk type.
+		Input: retrieved, one Retrieved; chunks, the chunks of its chunk type.
 		Output: its RetrievalEvaluation, at chunk level and at doc level.
 		What it does: finds the eval question of retrieved and scores its chunks at both levels.
 		"""
@@ -116,7 +116,7 @@ class RetrievalEvaluator:
 
 	def compute_chunk_evaluation(self, retrieved: Retrieved, chunks: dict[str, Chunk], eval_qna_item: EvalQnA, k: int) -> Evaluation:
 		"""
-		Input: one Retrieved, the l2 chunks, its eval question and k.
+		Input: one Retrieved, the chunks, its eval question and k.
 		Output: the Evaluation at chunk level.
 		What it does: a chunk is relevant if it comes from a gold doc and at least CHUNK_CONTEXT_OVERLAP_THRESHOLD of
 		its words are in one of the context passages. Recall is the share of context passages found.

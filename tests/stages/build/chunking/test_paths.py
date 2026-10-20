@@ -1,7 +1,7 @@
 """
 test_paths.py
 
-Tests for common.paths.get_chunk_path, the folder l2 chunks are saved in.
+Tests for common.paths.get_chunk_path, the folder chunks are saved in.
 """
 
 from common.paths import get_chunk_path

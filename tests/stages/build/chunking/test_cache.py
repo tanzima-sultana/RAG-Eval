@@ -1,15 +1,15 @@
 """
 test_cache.py
 
-Tests for l2_chunking.cache: saving a document's chunks as one JSON file
+Tests for stages.build.chunking.cache: saving a document's chunks as one JSON file
 and loading them back.
 """
 
 import json
 import os
 
-from l2_chunking import cache
-from l2_chunking.schema import Chunk
+from stages.build.chunking import cache
+from stages.build.chunking.schema import Chunk
 
 
 def make_chunks(doc_id, chunk_count):

@@ -10,14 +10,14 @@ import os
 from rank_bm25 import BM25Okapi
 
 from common.args import IndexArgs
-from l2_chunking.schema import Chunk
+from stages.build.chunking.schema import Chunk
 from l4_indexing import cache
 from l4_indexing.schema import Bm25Index
 
 def get_bm25_index(bm25_index_path: str, index_args: IndexArgs, chunks: dict[str, Chunk]) -> Bm25Index:
 	"""
 	Input: bm25_index_path, the BM25 index folder; index_args, the indexing
-	parameters; chunks, a dict of chunk_id to Chunk from l2_chunking.
+	parameters; chunks, a dict of chunk_id to Chunk from stages.build.chunking.
 	Output: a Bm25Index holding the BM25Okapi model.
 	What it does: loads the saved model from bm25_index_path if it holds
 	exactly the same chunk_ids as chunks. Otherwise splits each chunk's

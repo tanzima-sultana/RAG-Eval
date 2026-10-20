@@ -1,10 +1,10 @@
 """
 test_fixed.py
 
-Tests for l2_chunking.chunkers.fixed.FixedChunking.
+Tests for stages.build.chunking.chunkers.fixed.FixedChunking.
 """
 
-from l2_chunking.chunkers.fixed import FixedChunking
+from stages.build.chunking.chunkers.fixed import FixedChunking
 
 
 def get_chunk_texts(chunks):

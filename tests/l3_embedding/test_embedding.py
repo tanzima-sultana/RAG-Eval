@@ -18,7 +18,7 @@ Embedding takes a ChunkConfig (dataset_name, chunk_type,
 min_chunk_size, max_chunk_size, fixed_chunk_overlap,
 semantic_threshold bundled together -- see common.chunk_config) plus
 dataset_size and model_name as constructor arguments, the same shape
-l2_chunking.chunking.Chunking takes. compute_embeddings reads
+stages.build.chunking.chunking.Chunking takes. compute_embeddings reads
 chunk_type off that same chunk_config rather than taking it as its own
 argument.
 """
@@ -32,7 +32,7 @@ import pytest
 
 from common.chunk_config import ChunkConfig
 from common import paths
-from l2_chunking.schema import Chunk
+from stages.build.chunking.schema import Chunk
 from l3_embedding.embedding import Embedding
 from l3_embedding.schema import Embedded
 
@@ -71,7 +71,7 @@ def _touch_processed_document(data_path, doc_id):
     Creates an empty {doc_id}.json file under data_path.
     Embedding.load_document_ids never reads a processed document's
     contents, only its file name, so an empty placeholder is enough to
-    stand in for a real l1_doc_processing output file.
+    stand in for a real ingestion output file.
 
     Returns nothing.
     """
@@ -86,7 +86,7 @@ def _write_chunk_file(chunk_path, chunk):
     chunk_path: directory to write the chunk JSON file into (created
         if missing).
     chunk: the Chunk to persist, written as {chunk.id}.json in the
-        same shape l2_chunking.chunking.Chunking._save_chunks writes,
+        same shape stages.build.chunking.chunking.Chunking._save_chunks writes,
         so Embedding._load_cached_chunks can read it back.
 
     Returns nothing.
@@ -334,7 +334,7 @@ def test_compute_embeddings_raises_value_error_for_unknown_chunk_type_before_loa
     and no processed-documents directory created at all.
     Output: none; compute_embeddings is expected to raise ValueError.
 
-    Checks that chunk_type is validated against the l2_chunking
+    Checks that chunk_type is validated against the stages.build.chunking
     strategy registry before load_document_ids ever runs, so a
     missing processed-documents directory never gets a chance to
     raise its own FileNotFoundError first.

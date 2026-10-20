@@ -15,7 +15,7 @@ acts as the cache; checking and loading it are in l4_indexing/cache.py.
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from common.args import IndexArgs
-from l2_chunking.schema import Chunk
+from stages.build.chunking.schema import Chunk
 from l3_embedding.schema import Embedded
 from l4_indexing import cache
 from l4_indexing.schema import QdrantIndex
@@ -24,7 +24,7 @@ def get_qdrant_index(qdrant_collection_name: str, index_args: IndexArgs, chunks:
 	"""
 	Input: qdrant_collection_name, the collection to use on the Qdrant
 	server; index_args, the indexing parameters; chunks, a dict of
-	chunk_id to Chunk from l2_chunking; embeddings, a dict of chunk_id to
+	chunk_id to Chunk from stages.build.chunking; embeddings, a dict of chunk_id to
 	Embedded from l3_embedding.
 	Output: a QdrantIndex holding the client connected to the server and
 	the collection name.

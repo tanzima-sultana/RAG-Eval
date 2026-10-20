@@ -10,7 +10,7 @@ import os
 import numpy as np
 import pytest
 
-from l2_chunking.schema import Chunk
+from stages.build.chunking.schema import Chunk
 from l4_indexing.indexers import bm25 as bm25_indexer
 
 

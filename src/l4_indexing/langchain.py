@@ -30,7 +30,7 @@ from common.args import ChunkingArgs
 from common.args import IndexArgs
 from common.constants import FAISS_FLATIP_INDEX, FAISS_IVF_INDEX, FAISS_HNSW_INDEX
 
-from l2_chunking.schema import Chunk
+from stages.build.chunking.schema import Chunk
 from l3_embedding.schema import Embedded
 from l4_indexing import cache
 from l4_indexing.indexers.faiss import build_flatip_index, build_ivf_index, build_hnsw_index

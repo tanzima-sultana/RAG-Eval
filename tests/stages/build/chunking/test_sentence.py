@@ -1,11 +1,11 @@
 """
 test_sentence.py
 
-Tests for l2_chunking.chunkers.sentence.SentenceChunking. Token counts use
+Tests for stages.build.chunking.chunkers.sentence.SentenceChunking. Token counts use
 the conftest FakeTokenizer: one token per word, punctuation included.
 """
 
-from l2_chunking.chunkers.sentence import SentenceChunking
+from stages.build.chunking.chunkers.sentence import SentenceChunking
 
 
 def get_chunk_texts(chunks):

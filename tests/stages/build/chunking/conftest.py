@@ -1,7 +1,7 @@
 """
 conftest.py
 
-Shared fakes and fixtures for the l2_chunking test suite.
+Shared fakes and fixtures for the stages.build.chunking test suite.
 
 FakeTokenizer counts one token per whitespace-separated word, so chunk
 sizes are easy to work out by hand. FakeSentenceTransformer replaces the
@@ -17,7 +17,7 @@ from common.args import ChunkingArgs
 from stages.build.ingestion.schema import Document
 from stages.build.ingestion.schema import DocumentType
 from stages.build.ingestion.schema import Metadata
-from l2_chunking import chunking as chunking_module
+from stages.build.chunking import chunking as chunking_module
 
 
 class FakeTokenizer:
