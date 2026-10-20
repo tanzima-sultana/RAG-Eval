@@ -12,7 +12,7 @@ from common.constants import ORIGINAL_QUERY
 from common.constants import REWRITTEN_QUERY
 from stages.build.indexing.schema import Bm25Index
 from stages.question.query.schema import Query
-from l6_retrieval.schema import Retrieved
+from stages.evaluation.retrieval.schema import Retrieved
 
 def get_bm25_outputs(queries: list[Query], chunk_type: str, index_type: str, bm25_index: Bm25Index, top_k: int, query_types: list[str]) -> list[Retrieved]:
 	"""

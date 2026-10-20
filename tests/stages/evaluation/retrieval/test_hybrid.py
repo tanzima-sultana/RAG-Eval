@@ -1,13 +1,13 @@
 """
 test_hybrid.py
 
-Tests for l6_retrieval.retrievars.hybrid: fusing dense and BM25 outputs with reciprocal rank fusion.
+Tests for stages.evaluation.retrieval.retrievars.hybrid: fusing dense and BM25 outputs with reciprocal rank fusion.
 """
 
 import pytest
 
 from common.constants import RRF_K
-from l6_retrieval.retrievars import hybrid
+from stages.evaluation.retrieval.retrievars import hybrid
 
 
 def test_rrf_adds_one_over_k_plus_rank_from_each_list():

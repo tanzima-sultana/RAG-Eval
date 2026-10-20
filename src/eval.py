@@ -19,7 +19,7 @@ from stages.build.chunking.cache import load_chunks
 from stages.build.indexing import cache as index_cache
 from stages.question.qna.qna import get_eval_qna
 from stages.question.query.query import get_queries
-from l6_retrieval.retrieval import Retrieval
+from stages.evaluation.retrieval.retrieval import Retrieval
 from l7_context.context import get_context_list
 from l8_prompt.prompt import get_prompt_list
 from l8_prompt.prompt_template import SYSTEM_PROMPT
@@ -29,7 +29,7 @@ from l10_evaluation.retrieval_evaluation import RetrievalEvaluator
 from l10_evaluation.answer_evaluation import get_answer_evaluations
 from analysis.analysis import analyze_run
 from stages.question.query.schema import Query
-from l6_retrieval.schema import Retrieved
+from stages.evaluation.retrieval.schema import Retrieved
 from l7_context.schema import Context
 from l8_prompt.schema import Prompt
 from l9_generation.schema import Generated
@@ -339,7 +339,7 @@ def run_eval(args) -> AnalysisRun:
 	"""
 	Input: args, the parsed eval arguments, holding the settings of the build to evaluate.
 	Output: the run's AnalysisRun.
-	What it does: loads the build, eval QnA and queries, then runs l6 retrieval to l10 evaluation and the analysis on
+	What it does: loads the build, eval QnA and queries, then runs retrieval to l10 evaluation and the analysis on
 	the query split chosen by query_split.
 	"""
 	ingest_args = make_ingest_args(args)

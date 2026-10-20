@@ -131,7 +131,7 @@ def test_hyde_refusal_is_stored_as_i_dont_know(fake_query_llm, make_query_args, 
     """
     Input: a HyDE reply that starts with a form of "I don't know".
     Output: the hyde_ans of the query and the printed count.
-    What it does: checks the reply is stored as exactly I_DONT_KNOW and counted, so l6 can skip it.
+    What it does: checks the reply is stored as exactly I_DONT_KNOW and counted, so retrieval can skip it.
     """
     created_llms, replies = fake_query_llm
     replies["hyde"]["What is FAISS?"] = hyde_reply

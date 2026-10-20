@@ -1,7 +1,7 @@
 """
 test_langchain.py
 
-Tests for l6_retrieval.langchain.Langchain: retrieval on the LangChain indexes. The vector store is a fake, and
+Tests for stages.evaluation.retrieval.langchain.Langchain: retrieval on the LangChain indexes. The vector store is a fake, and
 the BM25 retriever holds a real in-memory BM25 model.
 """
 
@@ -12,7 +12,7 @@ from langchain_core.documents import Document as LangchainDocument
 from rank_bm25 import BM25Okapi
 
 from common.constants import I_DONT_KNOW
-from l6_retrieval.langchain import Langchain
+from stages.evaluation.retrieval.langchain import Langchain
 
 
 class FakeVectorStore:

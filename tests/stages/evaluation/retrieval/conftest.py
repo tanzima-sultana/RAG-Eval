@@ -1,7 +1,7 @@
 """
 conftest.py
 
-Shared fixtures for the l6_retrieval tests.
+Shared fixtures for the stages.evaluation.retrieval tests.
 
 FAISS and BM25 are real, small, in-memory indexes built from a few chunks with hand-made vectors and texts, so
 the scores and ranks can be worked out. Qdrant, the LangChain stores and the cross-encoder are replaced by fakes,
@@ -25,7 +25,7 @@ from stages.build.indexing.schema import QdrantIndex
 from stages.question.query.schema import Ans
 from stages.question.query.schema import Qus
 from stages.question.query.schema import Query
-from l6_retrieval.schema import Retrieved
+from stages.evaluation.retrieval.schema import Retrieved
 
 
 def unit_vector(values):

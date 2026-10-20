@@ -20,14 +20,14 @@ from stages.build.indexing.schema import LangchainFaissIndex
 from stages.build.indexing.schema import LangchainBm25Index
 from stages.build.indexing.schema import LangchainQdrantIndex
 from stages.question.query.schema import Query
-from l6_retrieval.schema import Retrieved
-from l6_retrieval import validate
-from l6_retrieval.langchain import Langchain
-from l6_retrieval.retrievars import dense
-from l6_retrieval.retrievars import bm25
-from l6_retrieval.retrievars import hybrid
-from l6_retrieval import rerank
-from l6_retrieval import cache
+from stages.evaluation.retrieval.schema import Retrieved
+from stages.evaluation.retrieval import validate
+from stages.evaluation.retrieval.langchain import Langchain
+from stages.evaluation.retrieval.retrievars import dense
+from stages.evaluation.retrieval.retrievars import bm25
+from stages.evaluation.retrieval.retrievars import hybrid
+from stages.evaluation.retrieval import rerank
+from stages.evaluation.retrieval import cache
 
 class Retrieval:
 	def __init__(self, retrieval_args: RetrievalArgs, chunking_args: ChunkingArgs, index_args: IndexArgs, query_split: str, tuning_queries_size: int, output_path: str):

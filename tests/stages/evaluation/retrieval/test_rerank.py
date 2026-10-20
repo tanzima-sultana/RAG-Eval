@@ -1,10 +1,10 @@
 """
 test_rerank.py
 
-Tests for l6_retrieval.rerank.get_reranked_outputs, with a fake cross-encoder.
+Tests for stages.evaluation.retrieval.rerank.get_reranked_outputs, with a fake cross-encoder.
 """
 
-from l6_retrieval import rerank
+from stages.evaluation.retrieval import rerank
 
 
 def test_chunks_are_sorted_by_cross_encoder_score_and_cut(make_query, make_chunk, make_retrieved, fake_cross_encoder):

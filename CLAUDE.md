@@ -114,7 +114,7 @@ src/
 		evaluation/
 			retrieval/
 				schema.py            # Defines the Retrieved dataclass 
-				retrievers/
+				retrievars/
 					dense.py           # Dense retrieval (on faiss and qdrant index)
 					bm25.py            # BM25 retrieval (on bm25 index)
 					hybrid.py          # On both Dense and BM25

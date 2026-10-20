@@ -70,7 +70,7 @@ EVAL_PASSAGE_MATCH_CHARS=80
 
 # Number of phrasings the query LLM writes for each eval question
 N_MULTI_QUS=3
-# Stored as the HyDE answer when the query LLM still refuses to write one, so l6 skips it
+# Stored as the HyDE answer when the query LLM still refuses to write one, so retrieval skips it
 I_DONT_KNOW="I don't know"
 
 # 6. Retrieval

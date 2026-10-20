@@ -7,7 +7,7 @@ Hybrid retrieval: fuses the dense and BM25 outputs of the same queries with reci
 from common.constants import BM25_INDEX
 from common.constants import HYBRID_RETRIEVAL
 from common.constants import RRF_K
-from l6_retrieval.schema import Retrieved
+from stages.evaluation.retrieval.schema import Retrieved
 
 def get_hybrid_outputs(chunk_type: str, dense_index_type: str, dense_outputs: list[Retrieved], bm25_outputs: list[Retrieved], top_k: int) -> list[Retrieved]:
 	"""

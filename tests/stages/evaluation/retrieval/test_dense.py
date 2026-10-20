@@ -1,14 +1,14 @@
 """
 test_dense.py
 
-Tests for l6_retrieval.retrievars.dense: searching a real in-memory FAISS index and a fake Qdrant collection
+Tests for stages.evaluation.retrieval.retrievars.dense: searching a real in-memory FAISS index and a fake Qdrant collection
 with each query type's embeddings.
 """
 
 import pytest
 
 from common.constants import I_DONT_KNOW
-from l6_retrieval.retrievars import dense
+from stages.evaluation.retrieval.retrievars import dense
 
 # Four chunks: three along an axis each, one in between. doc_my_file has "_" in its id
 CHUNK_IDS = ["doc_a_0", "doc_a_1", "doc_b_0", "doc_my_file_2"]

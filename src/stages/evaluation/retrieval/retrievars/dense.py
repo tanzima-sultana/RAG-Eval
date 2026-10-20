@@ -16,7 +16,7 @@ from common.constants import REWRITTEN_QUERY
 from stages.build.indexing.schema import FaissIndex
 from stages.build.indexing.schema import QdrantIndex
 from stages.question.query.schema import Query
-from l6_retrieval.schema import Retrieved
+from stages.evaluation.retrieval.schema import Retrieved
 
 def get_dense_outputs(queries: list[Query], chunk_type: str, index_type: str, index: FaissIndex | QdrantIndex, top_k: int, query_types: list[str]) -> list[Retrieved]:
 	"""

@@ -1,12 +1,12 @@
 """
 test_validate.py
 
-Tests for l6_retrieval.validate.validate_retrieval_args.
+Tests for stages.evaluation.retrieval.validate.validate_retrieval_args.
 """
 
 import pytest
 
-from l6_retrieval.validate import validate_retrieval_args
+from stages.evaluation.retrieval.validate import validate_retrieval_args
 
 
 def test_valid_args_pass(make_retrieval_args):

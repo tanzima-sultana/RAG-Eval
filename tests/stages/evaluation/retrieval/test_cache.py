@@ -1,13 +1,13 @@
 """
 test_cache.py
 
-Tests for l6_retrieval.cache: saving a Retrieved list as one JSON file and loading it back.
+Tests for stages.evaluation.retrieval.cache: saving a Retrieved list as one JSON file and loading it back.
 """
 
 import json
 import os
 
-from l6_retrieval import cache
+from stages.evaluation.retrieval import cache
 
 
 def test_missing_file_returns_none(tmp_path):

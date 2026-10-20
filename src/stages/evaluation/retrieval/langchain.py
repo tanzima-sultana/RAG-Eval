@@ -14,9 +14,9 @@ from stages.build.indexing.schema import LangchainFaissIndex
 from stages.build.indexing.schema import LangchainBm25Index
 from stages.build.indexing.schema import LangchainQdrantIndex
 from stages.question.query.schema import Query
-from l6_retrieval.schema import Retrieved
-from l6_retrieval.retrievars.dense import make_dense_retrieved
-from l6_retrieval.retrievars.bm25 import make_bm25_retrieved
+from stages.evaluation.retrieval.schema import Retrieved
+from stages.evaluation.retrieval.retrievars.dense import make_dense_retrieved
+from stages.evaluation.retrieval.retrievars.bm25 import make_bm25_retrieved
 
 class Langchain:
 	def __init__(self, top_k: int, query_types: list[str]):

@@ -24,7 +24,7 @@ from analysis.summary import get_retrieval_summaries
 from analysis.validate import validate_analysis_args
 from common import paths
 from common.args import AnalysisArgs
-from l6_retrieval.schema import Retrieved
+from stages.evaluation.retrieval.schema import Retrieved
 from l9_generation.schema import Generated
 from l10_evaluation.schema import AnswerEvaluation
 from l10_evaluation.schema import RetrievalEvaluation

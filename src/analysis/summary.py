@@ -8,7 +8,7 @@ setup and one AnswerSummary per kept setup.
 from analysis.schema import AnswerSummary
 from analysis.schema import RetrievalSummary
 from analysis.schema import Setup
-from l6_retrieval.schema import Retrieved
+from stages.evaluation.retrieval.schema import Retrieved
 from l10_evaluation.schema import AnswerEvaluation
 from l10_evaluation.schema import RetrievalEvaluation
 

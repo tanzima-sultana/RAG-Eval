@@ -1,12 +1,12 @@
 """
 test_bm25.py
 
-Tests for l6_retrieval.retrievars.bm25: searching a real in-memory BM25 index with each query type's tokens.
+Tests for stages.evaluation.retrieval.retrievars.bm25: searching a real in-memory BM25 index with each query type's tokens.
 """
 
 import pytest
 
-from l6_retrieval.retrievars import bm25
+from stages.evaluation.retrieval.retrievars import bm25
 
 # BM25 gives a word in half or more of the chunks an IDF of 0 or less, so "refund" is in only 2 of 6 chunks
 CHUNK_IDS = ["doc_a_0", "doc_a_1", "doc_b_0", "doc_c_0", "doc_d_0", "doc_e_0"]

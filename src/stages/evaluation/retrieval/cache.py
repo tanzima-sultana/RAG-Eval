@@ -19,7 +19,7 @@ import dataclasses
 import json
 import os
 
-from l6_retrieval.schema import Retrieved
+from stages.evaluation.retrieval.schema import Retrieved
 
 def load_cached_retrieved(retrieved_file: str) -> list[Retrieved] | None:
 	"""

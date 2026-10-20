@@ -64,7 +64,7 @@ def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs, query_llm_a
 		# 3. Hypithetical ans
 		hyde_ans_str = query_llm.generate("", HYDE_PROMPT.format(qus=qna_item.qus)).text.strip()
 		# The prompt asks for a passage even when unsure, but if the LLM still refuses, the reply is stored as exactly
-		# I_DONT_KNOW, so l6 can skip it. The reply may add a full stop or a reason after it
+		# I_DONT_KNOW, so retrieval can skip it. The reply may add a full stop or a reason after it
 		hyde_ans_lower = hyde_ans_str.lower().replace("\u2019", "'")
 		if hyde_ans_lower.startswith("i don't know") or hyde_ans_lower.startswith("i do not know"):
 			hyde_ans_str = I_DONT_KNOW

@@ -8,7 +8,7 @@ import math
 
 from common.constants import CHUNK_CONTEXT_OVERLAP_THRESHOLD
 from stages.build.chunking.schema import Chunk
-from l6_retrieval.schema import Retrieved
+from stages.evaluation.retrieval.schema import Retrieved
 from l10_evaluation.schema import Evaluation
 from l10_evaluation.schema import RetrievalEvaluation
 from l10_evaluation.validate import validate_n_retrieval_evaluation

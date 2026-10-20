@@ -1,7 +1,7 @@
 """
 test_retrieval.py
 
-Tests for l6_retrieval.retrieval.Retrieval: which retrievals run for which index, the cache file of each, the
+Tests for stages.evaluation.retrieval.retrieval.Retrieval: which retrievals run for which index, the cache file of each, the
 LangChain hand-off and reranking. The FAISS and BM25 indexes are real and small; the cross-encoder is a fake.
 """
 
@@ -11,9 +11,9 @@ import os
 import pytest
 
 from common import paths
-from l6_retrieval import retrieval as retrieval_module
-from l6_retrieval.retrievars import dense
-from l6_retrieval.retrieval import Retrieval
+from stages.evaluation.retrieval import retrieval as retrieval_module
+from stages.evaluation.retrieval.retrievars import dense
+from stages.evaluation.retrieval.retrieval import Retrieval
 
 CROSS_ENCODER_FILE_NAME = "cross-encoder-ms-marco-MiniLM-L-6-v2"
 
