@@ -1,19 +1,19 @@
 """
 test_main.py
 
-Tests for l3_embedding.main's CLI argument parsing. The
+Tests for stages.build.embedding.main's CLI argument parsing. The
 if __name__ == "__main__" block itself is not covered here, since it
 only runs the pipeline end-to-end (already covered at the Embedding
 level in test_embedding.py) and is not exercised on import.
 
-Unlike stages.build.chunking.main, l3_embedding.main has no validate(): chunk_type/
+Unlike stages.build.chunking.main, stages.build.embedding.main has no validate(): chunk_type/
 semantic_threshold consistency was already enforced by whichever
 stages.build.chunking run produced the chunks being embedded here.
 """
 
 import pytest
 
-from l3_embedding.main import parse_args
+from stages.build.embedding.main import parse_args
 
 
 def test_parse_args_parses_required_and_optional_arguments(monkeypatch):

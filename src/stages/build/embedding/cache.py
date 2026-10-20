@@ -17,7 +17,7 @@ import os
 
 import numpy as np
 
-from l3_embedding.schema import Embedded
+from stages.build.embedding.schema import Embedded
 
 def _load_cached_embeddings(embedding_path: str, doc_id: str) -> dict[str, Embedded] | None:
 	"""

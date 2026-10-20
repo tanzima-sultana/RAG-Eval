@@ -1,14 +1,14 @@
 """
 test_qdrant.py
 
-Tests for l4_indexing.indexers.qdrant.get_qdrant_index: creating the
+Tests for stages.build.indexing.indexers.qdrant.get_qdrant_index: creating the
 collection, uploading in batches, and reusing an existing collection.
 Qdrant runs in memory (see memory_qdrant_client in conftest.py).
 """
 
 import pytest
 
-from l4_indexing.indexers import qdrant as qdrant_indexer
+from stages.build.indexing.indexers import qdrant as qdrant_indexer
 
 
 def read_payloads(qdrant_client, collection_name):

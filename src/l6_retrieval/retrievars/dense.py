@@ -13,8 +13,8 @@ from common.constants import MULTI_QUERY
 from common.constants import ORIGINAL_QUERY
 from common.constants import QDRANT_INDEX
 from common.constants import REWRITTEN_QUERY
-from l4_indexing.schema import FaissIndex
-from l4_indexing.schema import QdrantIndex
+from stages.build.indexing.schema import FaissIndex
+from stages.build.indexing.schema import QdrantIndex
 from l5_query.schema import Query
 from l6_retrieval.schema import Retrieved
 

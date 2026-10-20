@@ -2,8 +2,8 @@
 faiss.py
 
 Builds the FAISS index of one indexing run: a flat, IVF or HNSW index
-over the l3 embedding vectors, with inner product distance. Saving and
-loading are in l4_indexing/cache.py.
+over the embedding vectors, with inner product distance. Saving and
+loading are in stages/build/indexing/cache.py.
 """
 
 import os
@@ -13,20 +13,20 @@ import numpy as np
 
 from common.args import IndexArgs
 from common.constants import FAISS_FLATIP_INDEX, FAISS_IVF_INDEX, FAISS_HNSW_INDEX
-from l3_embedding.schema import Embedded
-from l4_indexing import cache
-from l4_indexing.schema import FaissIndex
+from stages.build.embedding.schema import Embedded
+from stages.build.indexing import cache
+from stages.build.indexing.schema import FaissIndex
 
 def get_faiss_index(faiss_index_path: str, index_args: IndexArgs, embeddings: dict[str, Embedded]) -> FaissIndex:
 	"""
 	Input: faiss_index_path, the FAISS index folder; index_args, the
-	indexing parameters; embeddings, a dict of chunk_id to Embedded from l3_embedding.
+	indexing parameters; embeddings, a dict of chunk_id to Embedded from stages.build.embedding.
 	Output: a FaissIndex holding the FAISS index of type faiss_index_type.
 	What it does: loads the saved index from faiss_index_path if it holds
 	exactly the same chunk_ids as embeddings. Otherwise builds a new index
 	from all the embedding vectors with the method that matches
 	index_type, saves it, and returns it. The vectors are normalized
-	by l3_embedding, so inner product is the same as cosine similarity.
+	by stages.build.embedding, so inner product is the same as cosine similarity.
 	"""
 	if len(embeddings) == 0:
 		raise ValueError("embeddings is empty. There is nothing to index.")

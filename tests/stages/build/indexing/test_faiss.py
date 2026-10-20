@@ -1,7 +1,7 @@
 """
 test_faiss.py
 
-Tests for l4_indexing.indexers.faiss: building the flat, IVF and HNSW
+Tests for stages.build.indexing.indexers.faiss: building the flat, IVF and HNSW
 indexes, and get_faiss_index's build, save and cache reuse.
 """
 
@@ -10,7 +10,7 @@ import os
 import numpy as np
 import pytest
 
-from l4_indexing.indexers import faiss as faiss_indexer
+from stages.build.indexing.indexers import faiss as faiss_indexer
 
 
 def make_vectors(embeddings):

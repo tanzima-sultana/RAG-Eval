@@ -13,12 +13,12 @@ from common.constants import LANGCHAIN_FRAMEWORK
 from common.constants import DENSE_RETRIEVAL, BM25_RETRIEVAL, HYBRID_RETRIEVAL
 from common.constants import FAISS_FLATIP_INDEX, FAISS_HNSW_INDEX, FAISS_IVF_INDEX, BM25_INDEX, QDRANT_INDEX
 from stages.build.chunking.schema import Chunk
-from l4_indexing.schema import FaissIndex
-from l4_indexing.schema import Bm25Index
-from l4_indexing.schema import QdrantIndex
-from l4_indexing.schema import LangchainFaissIndex
-from l4_indexing.schema import LangchainBm25Index
-from l4_indexing.schema import LangchainQdrantIndex
+from stages.build.indexing.schema import FaissIndex
+from stages.build.indexing.schema import Bm25Index
+from stages.build.indexing.schema import QdrantIndex
+from stages.build.indexing.schema import LangchainFaissIndex
+from stages.build.indexing.schema import LangchainBm25Index
+from stages.build.indexing.schema import LangchainQdrantIndex
 from l5_query.schema import Query
 from l6_retrieval.schema import Retrieved
 from l6_retrieval import validate
@@ -59,7 +59,7 @@ class Retrieval:
 
 	def compute_dense_retrieval(self, queries: list[Query], chunk_type: str, index_type: str, index: FaissIndex | QdrantIndex | LangchainFaissIndex | LangchainQdrantIndex) -> list[Retrieved]:
 		"""
-		Input: l5 queries, the chunk type, and one l4 index with its index type.
+		Input: the queries, the chunk type, and one index with its index type.
 		Output: one Retrieved per query and query type. Empty if neither dense nor hybrid is in retrieval_types, or the
 		index is not FAISS or Qdrant. Hybrid fuses the dense outputs, so they are also computed for hybrid alone.
 		What it does: loads the outputs from cache, or searches the FAISS or Qdrant index with the query embeddings
@@ -90,7 +90,7 @@ class Retrieval:
 	
 	def compute_bm25_retrieval(self, queries: list[Query], chunk_type: str, index_type: str, index: Bm25Index | LangchainBm25Index) -> list[Retrieved]:
 		"""
-		Input: l5 queries, the chunk type, and one l4 index with its index type.
+		Input: the queries, the chunk type, and one index with its index type.
 		Output: one Retrieved per query and query type. Empty if neither bm25 nor hybrid is in retrieval_types, or the
 		index is not BM25. Hybrid fuses the BM25 outputs, so they are also computed for hybrid alone.
 		What it does: loads the outputs from cache, or searches the BM25 index with the query tokens and saves them.

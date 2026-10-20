@@ -1,7 +1,7 @@
 """
 conftest.py
 
-Shared pytest fixtures for the l3_embedding test suite.
+Shared pytest fixtures for the stages.build.embedding test suite.
 """
 
 import numpy as np
@@ -62,11 +62,11 @@ def fake_sentence_transformer_class(monkeypatch):
     monkeypatch: pytest's built-in fixture for reverting changes after
         the test.
 
-    Replaces l3_embedding.embedding.SentenceTransformer with
+    Replaces stages.build.embedding.embedding.SentenceTransformer with
     FakeSentenceTransformer, so constructing an Embedding instance
     never downloads or loads a real embedding model.
 
     Returns the FakeSentenceTransformer class.
     """
-    monkeypatch.setattr("l3_embedding.embedding.SentenceTransformer", FakeSentenceTransformer)
+    monkeypatch.setattr("stages.build.embedding.embedding.SentenceTransformer", FakeSentenceTransformer)
     return FakeSentenceTransformer

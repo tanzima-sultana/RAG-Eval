@@ -16,7 +16,7 @@ from common.args import make_answer_eval_args
 from common.args import make_analysis_args
 from stages.build.ingestion.ingestion import ingestion
 from stages.build.chunking.cache import load_chunks
-from l4_indexing import cache as index_cache
+from stages.build.indexing import cache as index_cache
 from qna.qna import get_eval_qna
 from l5_query.query import get_queries
 from l6_retrieval.retrieval import Retrieval
@@ -136,7 +136,7 @@ def run_retrieval_and_evaluation(args, output_path: str, doc_ids: list[str], que
 
 		# One index at a time, so only one index is in memory
 		for index_type in args.index_types:
-			# 6. Load the l4 index
+			# 6. Load the index
 			# Raises an error if the index is missing or was built with a different dataset size
 			print(f"\n\nLoading index : {index_type}")
 			s6 = time.time()

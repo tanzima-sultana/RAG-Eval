@@ -1,7 +1,7 @@
 """
 test_schema.py
 
-Tests for l3_embedding.schema.Embedded, the plain dataclass one
+Tests for stages.build.embedding.schema.Embedded, the plain dataclass one
 embedding vector is held in.
 """
 
@@ -10,7 +10,7 @@ import dataclasses
 import numpy as np
 import pytest
 
-from l3_embedding.schema import Embedded
+from stages.build.embedding.schema import Embedded
 
 
 def test_embedded_holds_every_field_it_is_constructed_with():

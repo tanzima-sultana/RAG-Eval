@@ -19,9 +19,9 @@ from common.args import ChunkingArgs
 from common.args import IndexArgs
 from common.args import RetrievalArgs
 from stages.build.chunking.schema import Chunk
-from l4_indexing.schema import Bm25Index
-from l4_indexing.schema import FaissIndex
-from l4_indexing.schema import QdrantIndex
+from stages.build.indexing.schema import Bm25Index
+from stages.build.indexing.schema import FaissIndex
+from stages.build.indexing.schema import QdrantIndex
 from l5_query.schema import Ans
 from l5_query.schema import Qus
 from l5_query.schema import Query
@@ -32,7 +32,7 @@ def unit_vector(values):
     """
     Input: values, a list of numbers.
     Output: a float32 numpy vector of length 1 in the same direction.
-    What it does: normalizes the vector like l3 and l5 do, so a dot product is the cosine similarity.
+    What it does: normalizes the vector like embedding and query transformation do, so a dot product is the cosine similarity.
     """
     vector = np.array(values, dtype=np.float32)
     return vector / np.linalg.norm(vector)
@@ -88,7 +88,7 @@ def make_faiss_index():
     """
     Input: none.
     Output: a function that builds a real in-memory FaissIndex.
-    What it does: returns a builder that adds the given vectors to a flat inner-product index, like l4's flatip.
+    What it does: returns a builder that adds the given vectors to a flat inner-product index, like the faiss_flatip index.
     """
     def build_faiss_index(chunk_ids, vectors):
         """
@@ -113,7 +113,7 @@ def make_bm25_index():
     """
     Input: none.
     Output: a function that builds a real in-memory Bm25Index.
-    What it does: returns a builder that indexes the given texts like l4: lowercased and split on whitespace.
+    What it does: returns a builder that indexes the given texts like BM25 indexing: lowercased and split on whitespace.
     """
     def build_bm25_index(chunk_ids, texts):
         """

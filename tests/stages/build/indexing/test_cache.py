@@ -1,7 +1,7 @@
 """
 test_cache.py
 
-Tests for l4_indexing.cache: saving the built-in indexes, the
+Tests for stages.build.indexing.cache: saving the built-in indexes, the
 _load_cached_* checks used while building, and the load-only functions
 used by eval, including load_index choosing the right loader.
 """
@@ -13,16 +13,16 @@ import numpy as np
 import pytest
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
-from l4_indexing import cache
-from l4_indexing.indexers import bm25 as bm25_indexer
-from l4_indexing.indexers import faiss as faiss_indexer
-from l4_indexing.indexing import Indexing
-from l4_indexing.schema import FaissIndex
-from l4_indexing.schema import Bm25Index
-from l4_indexing.schema import QdrantIndex
-from l4_indexing.schema import LangchainFaissIndex
-from l4_indexing.schema import LangchainBm25Index
-from l4_indexing.schema import LangchainQdrantIndex
+from stages.build.indexing import cache
+from stages.build.indexing.indexers import bm25 as bm25_indexer
+from stages.build.indexing.indexers import faiss as faiss_indexer
+from stages.build.indexing.indexing import Indexing
+from stages.build.indexing.schema import FaissIndex
+from stages.build.indexing.schema import Bm25Index
+from stages.build.indexing.schema import QdrantIndex
+from stages.build.indexing.schema import LangchainFaissIndex
+from stages.build.indexing.schema import LangchainBm25Index
+from stages.build.indexing.schema import LangchainQdrantIndex
 
 
 def save_flatip_index(faiss_index_path, embeddings):

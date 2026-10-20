@@ -9,23 +9,23 @@ Each point in the collection has an integer id, the chunk's embedding as
 its vector, and {"chunk_id": chunk_id, "text": chunk text} as its payload,
 so a search returns the chunk_id and its text directly. The server keeps
 the collection on disk, so an existing collection with the same chunks
-acts as the cache; checking and loading it are in l4_indexing/cache.py.
+acts as the cache; checking and loading it are in stages/build/indexing/cache.py.
 """
 
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from common.args import IndexArgs
 from stages.build.chunking.schema import Chunk
-from l3_embedding.schema import Embedded
-from l4_indexing import cache
-from l4_indexing.schema import QdrantIndex
+from stages.build.embedding.schema import Embedded
+from stages.build.indexing import cache
+from stages.build.indexing.schema import QdrantIndex
 
 def get_qdrant_index(qdrant_collection_name: str, index_args: IndexArgs, chunks: dict[str, Chunk], embeddings: dict[str, Embedded]) -> QdrantIndex:
 	"""
 	Input: qdrant_collection_name, the collection to use on the Qdrant
 	server; index_args, the indexing parameters; chunks, a dict of
 	chunk_id to Chunk from stages.build.chunking; embeddings, a dict of chunk_id to
-	Embedded from l3_embedding.
+	Embedded from stages.build.embedding.
 	Output: a QdrantIndex holding the client connected to the server and
 	the collection name.
 	What it does: connects to the Qdrant server. If the collection already
@@ -61,7 +61,7 @@ def get_qdrant_index(qdrant_collection_name: str, index_args: IndexArgs, chunks:
 		qdrant_client.delete_collection(qdrant_collection_name)
 
 	# 4. Create the collection
-	# The vectors are normalized by l3_embedding, so cosine distance gives
+	# The vectors are normalized by stages.build.embedding, so cosine distance gives
 	# the same ranking as inner product in FAISS
 	qdrant_client.create_collection(
 		collection_name=qdrant_collection_name,

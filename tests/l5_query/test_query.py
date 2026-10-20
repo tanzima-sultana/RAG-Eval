@@ -54,7 +54,7 @@ def test_tokens_are_lowercase_words(fake_query_llm, make_query_args, make_eval_q
     """
     Input: the question "What Is FAISS?".
     Output: the tokens of the original, rewritten and multi qus.
-    What it does: checks tokens are split the same way as the l4 BM25 chunks.
+    What it does: checks tokens are split the same way as the BM25 chunks.
     """
     queries = generate_queries(make_eval_qna(["What Is FAISS?"]), make_query_args(), QUERY_LLM_ARGS)
 

@@ -2,7 +2,7 @@
 bm25.py
 
 Builds the BM25 index of one indexing run: a BM25Okapi model over the
-chunk texts. Saving and loading are in l4_indexing/cache.py.
+chunk texts. Saving and loading are in stages/build/indexing/cache.py.
 """
 
 import os
@@ -11,8 +11,8 @@ from rank_bm25 import BM25Okapi
 
 from common.args import IndexArgs
 from stages.build.chunking.schema import Chunk
-from l4_indexing import cache
-from l4_indexing.schema import Bm25Index
+from stages.build.indexing import cache
+from stages.build.indexing.schema import Bm25Index
 
 def get_bm25_index(bm25_index_path: str, index_args: IndexArgs, chunks: dict[str, Chunk]) -> Bm25Index:
 	"""

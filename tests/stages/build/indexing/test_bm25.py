@@ -1,7 +1,7 @@
 """
 test_bm25.py
 
-Tests for l4_indexing.indexers.bm25.get_bm25_index: building the BM25Okapi
+Tests for stages.build.indexing.indexers.bm25.get_bm25_index: building the BM25Okapi
 model, saving it and reusing the saved one.
 """
 
@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from stages.build.chunking.schema import Chunk
-from l4_indexing.indexers import bm25 as bm25_indexer
+from stages.build.indexing.indexers import bm25 as bm25_indexer
 
 
 def test_get_bm25_index_builds_and_saves(tmp_path, make_index_args, make_chunks_and_embeddings):

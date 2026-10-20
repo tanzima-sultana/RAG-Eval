@@ -82,7 +82,7 @@ def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs, query_llm_a
 	print(f"HyDE I don't know : {hyde_dont_know_count} of {len(eval_qna)}")
 	query_llm.compute_cost()
 
-	# 3. Embed every qus and ans with the build's embedding model, normalized to length 1 like the l3 chunk embeddings
+	# 3. Embed every qus and ans with the build's embedding model, normalized to length 1 like the chunk embeddings
 	# Multi-query phrasings are embedded as one flat list: n_multi_qus rows per question, none for an I don't know
 	flat_multi_qus_list = []
 	for multi_qus_str_list in multi_qus_list:
@@ -96,7 +96,7 @@ def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs, query_llm_a
 	flat_multi_qus_vectors = embedding_model.encode(flat_multi_qus_list, batch_size=256, normalize_embeddings=True)
 	hyde_ans_vectors = embedding_model.encode(hyde_ans_list, batch_size=256, normalize_embeddings=True)
 
-	# 4. Build one Query per question. Tokens are split the same way as the l4 BM25 chunks
+	# 4. Build one Query per question. Tokens are split the same way as the BM25 chunks
 	queries = []
 	# Position of the question's first phrasing in flat_multi_qus_vectors
 	flat_multi_position = 0

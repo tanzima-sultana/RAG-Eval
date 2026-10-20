@@ -1,7 +1,7 @@
 """
 conftest.py
 
-Shared fakes and fixtures for the l4_indexing test suite.
+Shared fakes and fixtures for the stages.build.indexing test suite.
 
 Chunk i of a test set has the text "word{i} shared", so a BM25 search for
 "word3" finds chunk 3 first. Its embedding is a fixed random unit vector,
@@ -18,9 +18,9 @@ from qdrant_client import QdrantClient
 from common.args import ChunkingArgs
 from common.args import IndexArgs
 from stages.build.chunking.schema import Chunk
-from l3_embedding.schema import Embedded
-from l4_indexing import cache as cache_module
-from l4_indexing import langchain as langchain_module
+from stages.build.embedding.schema import Embedded
+from stages.build.indexing import cache as cache_module
+from stages.build.indexing import langchain as langchain_module
 
 DIMENSION = 4
 
@@ -155,7 +155,7 @@ def make_chunks_and_embeddings():
 def memory_qdrant_client(monkeypatch):
     """
     Input: pytest's monkeypatch fixture.
-    Output: the in-memory QdrantClient every l4 call connects to.
+    Output: the in-memory QdrantClient every indexing call connects to.
     What it does: makes cache._connect_qdrant_client return one in-memory
     client, so no Qdrant server is needed.
     """
@@ -178,7 +178,7 @@ def fake_huggingface_embeddings(monkeypatch):
     """
     Input: pytest's monkeypatch fixture.
     Output: the FakeHuggingFaceEmbeddings class.
-    What it does: makes l4 LangChain building and loading use the fake
+    What it does: makes LangChain index building and loading use the fake
     instead of downloading the real model.
     """
     monkeypatch.setattr(langchain_module, "HuggingFaceEmbeddings", FakeHuggingFaceEmbeddings)

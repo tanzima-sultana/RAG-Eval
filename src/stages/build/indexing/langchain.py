@@ -7,10 +7,10 @@ used with --framework langchain: FAISS (langchain_community.vectorstores.FAISS),
 (langchain_qdrant.QdrantVectorStore).
 
 Every index holds LangChain Documents with the chunk text as page_content
-and {"chunk_id": chunk_id} as metadata. The vectors come from l3_embedding,
+and {"chunk_id": chunk_id} as metadata. The vectors come from stages.build.embedding,
 so no chunk is embedded again here. The HuggingFaceEmbeddings model is
 loaded only because the FAISS and Qdrant vector stores need it to embed
-queries at search time. Saving and loading are in l4_indexing/cache.py.
+queries at search time. Saving and loading are in stages/build/indexing/cache.py.
 """
 
 import os
@@ -31,12 +31,12 @@ from common.args import IndexArgs
 from common.constants import FAISS_FLATIP_INDEX, FAISS_IVF_INDEX, FAISS_HNSW_INDEX
 
 from stages.build.chunking.schema import Chunk
-from l3_embedding.schema import Embedded
-from l4_indexing import cache
-from l4_indexing.indexers.faiss import build_flatip_index, build_ivf_index, build_hnsw_index
-from l4_indexing.schema import LangchainFaissIndex
-from l4_indexing.schema import LangchainBm25Index
-from l4_indexing.schema import LangchainQdrantIndex
+from stages.build.embedding.schema import Embedded
+from stages.build.indexing import cache
+from stages.build.indexing.indexers.faiss import build_flatip_index, build_ivf_index, build_hnsw_index
+from stages.build.indexing.schema import LangchainFaissIndex
+from stages.build.indexing.schema import LangchainBm25Index
+from stages.build.indexing.schema import LangchainQdrantIndex
 
 def lowercase_whitespace_tokenize(text: str) -> list[str]:
 	"""
@@ -57,7 +57,7 @@ class Langchain:
 		Output: nothing.
 		What it does: stores both settings and loads LangChain's
 		HuggingFaceEmbeddings with the model named by model_name, normalized
-		like l3_embedding, on the GPU if there is one.
+		like stages.build.embedding, on the GPU if there is one.
 		"""
 		self.index_args = index_args
 		self.chunking_args = chunking_args
@@ -209,7 +209,7 @@ class Langchain:
 		collection already exists and holds exactly the same chunk_ids as
 		embeddings, wraps it as is. Otherwise deletes the old collection if
 		there is one, creates a new one with cosine distance, and uploads the
-		l3 vectors in batches of qdrant_batch_size with the payload layout
+		the embedding vectors in batches of qdrant_batch_size with the payload layout
 		QdrantVectorStore reads: {"page_content": text, "metadata":
 		{"chunk_id": chunk_id}}. The points are uploaded directly, not with
 		QdrantVectorStore.add_texts, because add_texts would embed every

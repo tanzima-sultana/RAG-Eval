@@ -1,7 +1,7 @@
 """
 test_langchain.py
 
-Tests for l4_indexing.langchain.Langchain: building the LangChain FAISS,
+Tests for stages.build.indexing.langchain.Langchain: building the LangChain FAISS,
 BM25 and Qdrant indexes from the chunks and embeddings, and reusing
 saved ones. HuggingFaceEmbeddings is faked and Qdrant runs in memory.
 """
@@ -10,9 +10,9 @@ import os
 
 import pytest
 
-from l4_indexing import langchain as langchain_module
-from l4_indexing.langchain import Langchain
-from l4_indexing.langchain import lowercase_whitespace_tokenize
+from stages.build.indexing import langchain as langchain_module
+from stages.build.indexing.langchain import Langchain
+from stages.build.indexing.langchain import lowercase_whitespace_tokenize
 
 
 def test_lowercase_whitespace_tokenize():
@@ -49,9 +49,9 @@ def test_get_faiss_index_builds_and_saves(tmp_path, fake_huggingface_embeddings,
 
 def test_faiss_search_with_a_chunk_vector_finds_that_chunk(tmp_path, fake_huggingface_embeddings, make_index_args, make_chunking_args, make_chunks_and_embeddings):
     """
-    Input: 10 chunks, searched with chunk "doc1_3"'s l3 vector.
+    Input: 10 chunks, searched with chunk "doc1_3"'s embedding vector.
     Output: the top hit and its score.
-    What it does: checks the l3 vectors are stored at the right positions and the score is cosine similarity.
+    What it does: checks the embedding vectors are stored at the right positions and the score is cosine similarity.
     """
     chunks, embeddings = make_chunks_and_embeddings(10)
     langchain = Langchain(make_index_args(), make_chunking_args(framework="langchain"))

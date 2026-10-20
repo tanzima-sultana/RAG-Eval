@@ -7,8 +7,8 @@ from common.args import ChunkingArgs
 from common import paths
 
 from stages.build.chunking.schema import Chunk
-from l3_embedding.schema import Embedded
-from l3_embedding import cache
+from stages.build.embedding.schema import Embedded
+from stages.build.embedding import cache
 
 class Langchain:
 	def __init__(self, chunking_args: ChunkingArgs):

@@ -1,12 +1,12 @@
 """
 test_validate.py
 
-Tests for l4_indexing.validate.validate_index_args.
+Tests for stages.build.indexing.validate.validate_index_args.
 """
 
 import pytest
 
-from l4_indexing.validate import validate_index_args
+from stages.build.indexing.validate import validate_index_args
 
 
 @pytest.mark.parametrize("index_type", ["faiss_flatip", "faiss_ivf", "faiss_hnsw", "bm25", "qdrant"])

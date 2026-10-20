@@ -10,9 +10,9 @@ from common.constants import I_DONT_KNOW
 from common.constants import MULTI_QUERY
 from common.constants import ORIGINAL_QUERY
 from common.constants import REWRITTEN_QUERY
-from l4_indexing.schema import LangchainFaissIndex
-from l4_indexing.schema import LangchainBm25Index
-from l4_indexing.schema import LangchainQdrantIndex
+from stages.build.indexing.schema import LangchainFaissIndex
+from stages.build.indexing.schema import LangchainBm25Index
+from stages.build.indexing.schema import LangchainQdrantIndex
 from l5_query.schema import Query
 from l6_retrieval.schema import Retrieved
 from l6_retrieval.retrievars.dense import make_dense_retrieved

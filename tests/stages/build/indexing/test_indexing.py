@@ -1,7 +1,7 @@
 """
 test_indexing.py
 
-Tests for l4_indexing.indexing.Indexing: validating the args, choosing the
+Tests for stages.build.indexing.indexing.Indexing: validating the args, choosing the
 index of index_type, and handing the work to Langchain for framework
 "langchain". Qdrant runs in memory and HuggingFaceEmbeddings is faked.
 """
@@ -11,13 +11,13 @@ import os
 import pytest
 
 from common import paths
-from l4_indexing.indexing import Indexing
-from l4_indexing.schema import FaissIndex
-from l4_indexing.schema import Bm25Index
-from l4_indexing.schema import QdrantIndex
-from l4_indexing.schema import LangchainFaissIndex
-from l4_indexing.schema import LangchainBm25Index
-from l4_indexing.schema import LangchainQdrantIndex
+from stages.build.indexing.indexing import Indexing
+from stages.build.indexing.schema import FaissIndex
+from stages.build.indexing.schema import Bm25Index
+from stages.build.indexing.schema import QdrantIndex
+from stages.build.indexing.schema import LangchainFaissIndex
+from stages.build.indexing.schema import LangchainBm25Index
+from stages.build.indexing.schema import LangchainQdrantIndex
 
 
 def test_init_with_invalid_args_raises(make_index_args, make_chunking_args):

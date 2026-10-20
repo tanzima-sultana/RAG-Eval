@@ -10,7 +10,7 @@ from common.constants import BM25_RETRIEVAL
 from common.constants import MULTI_QUERY
 from common.constants import ORIGINAL_QUERY
 from common.constants import REWRITTEN_QUERY
-from l4_indexing.schema import Bm25Index
+from stages.build.indexing.schema import Bm25Index
 from l5_query.schema import Query
 from l6_retrieval.schema import Retrieved
 

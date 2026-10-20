@@ -2,7 +2,7 @@
 cache.py
 
 Saves and loads the indexes of one indexing run, the same way
-stages/build/chunking/cache.py and l3_embedding/cache.py do for chunks and
+stages/build/chunking/cache.py and stages/build/embedding/cache.py do for chunks and
 embeddings. The indexers in indexers/ and langchain.py only build; they
 call this file to check the cache and to save.
 
@@ -48,13 +48,13 @@ from common import paths
 from common.args import ChunkingArgs
 from common.args import IndexArgs
 from common.constants import QDRANT_URL
-from l4_indexing import validate
-from l4_indexing.schema import FaissIndex
-from l4_indexing.schema import Bm25Index
-from l4_indexing.schema import QdrantIndex
-from l4_indexing.schema import LangchainFaissIndex
-from l4_indexing.schema import LangchainBm25Index
-from l4_indexing.schema import LangchainQdrantIndex
+from stages.build.indexing import validate
+from stages.build.indexing.schema import FaissIndex
+from stages.build.indexing.schema import Bm25Index
+from stages.build.indexing.schema import QdrantIndex
+from stages.build.indexing.schema import LangchainFaissIndex
+from stages.build.indexing.schema import LangchainBm25Index
+from stages.build.indexing.schema import LangchainQdrantIndex
 
 # ------ Qdrant connection
 def _connect_qdrant_client() -> QdrantClient:
@@ -617,7 +617,7 @@ def load_langchain_index(output_path: str, chunking_args: ChunkingArgs, index_ar
 		bm25_index_path = paths.get_bm25_index_path(output_path, chunking_args, index_args)
 		return load_langchain_bm25_index(bm25_index_path)
 
-	# The query embedding model, normalized like l3_embedding
+	# The query embedding model, normalized like stages.build.embedding
 	device = "cuda" if torch.cuda.is_available() else "cpu"
 	embedding_model = HuggingFaceEmbeddings(
 		model_name=chunking_args.model_name,

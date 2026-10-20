@@ -7,9 +7,9 @@ from common.args import ChunkingArgs
 from common import paths
 
 from stages.build.chunking.schema import Chunk
-from l3_embedding.schema import Embedded
-from l3_embedding.langchain import Langchain
-from l3_embedding import cache
+from stages.build.embedding.schema import Embedded
+from stages.build.embedding.langchain import Langchain
+from stages.build.embedding import cache
 
 class Embedding:
 	def __init__(self, chunking_args: ChunkingArgs):

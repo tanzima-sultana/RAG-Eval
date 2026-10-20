@@ -8,8 +8,8 @@ class Qus:
 
 	Fields:
 		qus:        The question that is searched.
-		tokens:     qus lowercased and split on whitespace, the same as the l4 BM25 chunks. Used by BM25.
-		embeddings: qus embedded with the l3 embedding model. Used by FAISS and Qdrant.
+		tokens:     qus lowercased and split on whitespace, the same as the BM25 chunks. Used by BM25.
+		embeddings: qus embedded with the build's embedding model. Used by FAISS and Qdrant.
 	"""
 	qus: str
 	tokens: list[str]
@@ -22,7 +22,7 @@ class Ans:
 
 	Fields:
 		ans:        The answer passage written by the LLM.
-		embeddings: ans embedded with the l3 embedding model. Used by FAISS and Qdrant.
+		embeddings: ans embedded with the build's embedding model. Used by FAISS and Qdrant.
 	"""
 	ans: str
 	embeddings: np.ndarray
@@ -39,7 +39,7 @@ class Query:
 		multi_qus:       n_multi_qus phrasings of the question written by the LLM. Empty if the LLM did not return them (I don't know).
 		hyde_ans:        A hypothetical answer passage written by the LLM (HyDE). Its ans is I_DONT_KNOW if the LLM does not know.
 		normalized:      True if every embedding is normalized to length 1.
-		embedding_model: The embedding model that made the embeddings, the same as l3.
+		embedding_model: The embedding model that made the embeddings, the same as the chunk embeddings.
 		llm:             The LLM provider that wrote rewritten_qus, multi_qus and hyde_ans, e.g. ollama.
 		llm_model:       The model that wrote rewritten_qus, multi_qus and hyde_ans.
 	"""

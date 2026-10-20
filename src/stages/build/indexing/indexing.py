@@ -4,16 +4,16 @@ from common.args import IndexArgs
 from common import paths
 
 from stages.build.chunking.schema import Chunk
-from l3_embedding.schema import Embedded
-from l4_indexing.schema import FaissIndex
-from l4_indexing.schema import Bm25Index
-from l4_indexing.schema import QdrantIndex
-from l4_indexing.schema import LangchainFaissIndex
-from l4_indexing.schema import LangchainBm25Index
-from l4_indexing.schema import LangchainQdrantIndex
-from l4_indexing.langchain import Langchain
-from l4_indexing.indexers import faiss, bm25, qdrant
-from l4_indexing import validate
+from stages.build.embedding.schema import Embedded
+from stages.build.indexing.schema import FaissIndex
+from stages.build.indexing.schema import Bm25Index
+from stages.build.indexing.schema import QdrantIndex
+from stages.build.indexing.schema import LangchainFaissIndex
+from stages.build.indexing.schema import LangchainBm25Index
+from stages.build.indexing.schema import LangchainQdrantIndex
+from stages.build.indexing.langchain import Langchain
+from stages.build.indexing.indexers import faiss, bm25, qdrant
+from stages.build.indexing import validate
 
 class Indexing:
 	def __init__(self, index_args: IndexArgs, chunking_args: ChunkingArgs):

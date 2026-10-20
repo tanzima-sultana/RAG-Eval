@@ -1,7 +1,7 @@
 """
 test_embedding.py
 
-Tests for l3_embedding.embedding.Embedding: the orchestrator that
+Tests for stages.build.embedding.embedding.Embedding: the orchestrator that
 loads a dataset's cached chunks, embeds every chunk that has no
 embedding cached yet, and saves/caches the resulting vectors.
 
@@ -33,8 +33,8 @@ import pytest
 from common.chunk_config import ChunkConfig
 from common import paths
 from stages.build.chunking.schema import Chunk
-from l3_embedding.embedding import Embedding
-from l3_embedding.schema import Embedded
+from stages.build.embedding.embedding import Embedding
+from stages.build.embedding.schema import Embedded
 
 
 def _make_embedding(
