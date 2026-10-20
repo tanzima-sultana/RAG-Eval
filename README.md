@@ -398,8 +398,72 @@ retrieval, before any paid call, so the failed try cost nothing.
 *Cause:* Gemini reports thinking tokens apart from the answer tokens, although it bills them as output.
 *Fix:* The cost now adds thinking tokens to the output tokens.
 
+## Setup and how to run
+
+**Prerequisites:** Python 3.10, Docker for the Qdrant server, and Ollama for query transformation. API keys for
+Claude, Gemini and ChatGPT are needed only for runs that call them.
+
+1. **Install the document ingestion library**, `doc_ingest`, from its repository:
+
+   ```bash
+   git clone https://github.com/tanzima-sultana/DocIngestEngine.git
+   pip install -e DocIngestEngine
+   ```
+
+2. **Install the project's other requirements** and the NLTK sentence splitter data:
+
+   ```bash
+   pip install -r requirements.txt
+   python -m nltk.downloader punkt punkt_tab
+   ```
+
+3. **Start Qdrant and Ollama:**
+
+   ```bash
+   docker run -d --name qdrant -p 6333:6333 -v "$(pwd)/qdrant:/qdrant/storage" qdrant/qdrant
+   ollama pull llama3.1:8b
+   ```
+
+4. **Add the API keys** to a `.env` file at the repository root. The scripts load it on every run. `HF_TOKEN` is
+   optional and only makes Hugging Face downloads faster.
+
+   ```bash
+   export HF_TOKEN=...
+   export CLAUDE_API_KEY=...
+   export GEMINI_API_KEY=...
+   export CHATGPT_API_KEY=...
+   ```
+
+5. **Run a script.** Every setting is in `config.yaml`. Any setting can also be changed for one run by adding it
+   after the script name.
+
+   | Script | What it runs |
+   |---|---|
+   | `bash scripts/pipeline.sh` | The whole pipeline: build, question, evaluation and analysis |
+   | `bash scripts/build.sh` | Ingestion, chunking, embedding and indexing |
+   | `bash scripts/question.sh` | The eval question set and query transformation |
+   | `bash scripts/eval.sh` | Retrieval, generation and scoring |
+   | `bash scripts/analysis.sh` | The report and the comparison with earlier runs |
+
+   The documents come from the `input_path` setting. It can be a Hugging Face dataset, like `pixparse/pdfa-eng-wds`
+   used here, or a local file or folder. For example, this builds a small test set from the first 20 documents:
+
+   ```bash
+   bash scripts/build.sh --input_path pixparse/pdfa-eng-wds --dataset_size 20
+   ```
+
+**Paid calls:** The project never calls a paid API by accident. Claude, Gemini and ChatGPT are only called when the
+run is started with `ALLOW_PAID_API=1`. Without it, a run that needs a paid call stops with a message. Cached runs
+make no paid call, so they need neither the switch nor any API key.
+
+```bash
+ALLOW_PAID_API=1 bash scripts/pipeline.sh
+```
+
+**Tests:** `python -m pytest tests`
+
 <!--
-README plan, agreed 2026-10-16. Sections 1 to 8 are done; write the rest in this order, then remove this note.
+README plan, agreed 2026-10-16. Sections 1 to 9 are done; write the rest in this order, then remove this note.
 Design decision 8 (LangChain option) and the Results subsection "Built-in vs LangChain" are done too.
 
 3. Tech stack, grouped:
