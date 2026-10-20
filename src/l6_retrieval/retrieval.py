@@ -19,7 +19,7 @@ from stages.build.indexing.schema import QdrantIndex
 from stages.build.indexing.schema import LangchainFaissIndex
 from stages.build.indexing.schema import LangchainBm25Index
 from stages.build.indexing.schema import LangchainQdrantIndex
-from l5_query.schema import Query
+from stages.question.query.schema import Query
 from l6_retrieval.schema import Retrieved
 from l6_retrieval import validate
 from l6_retrieval.langchain import Langchain

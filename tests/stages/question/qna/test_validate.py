@@ -1,12 +1,12 @@
 """
 test_validate.py
 
-Tests for qna.validate.validate_eval_qna_args.
+Tests for stages.question.qna.validate.validate_eval_qna_args.
 """
 
 import pytest
 
-from qna.validate import validate_eval_qna_args
+from stages.question.qna.validate import validate_eval_qna_args
 
 
 def test_valid_args_pass(make_eval_qna_args):

@@ -8,7 +8,7 @@ rerank_top_k chunks.
 from sentence_transformers import CrossEncoder
 
 from stages.build.chunking.schema import Chunk
-from l5_query.schema import Query
+from stages.question.query.schema import Query
 from l6_retrieval.schema import Retrieved
 
 def get_reranked_outputs(queries: list[Query], chunks: dict[str, Chunk], retrieved_outputs: list[Retrieved], cross_encoder: CrossEncoder, rerank_top_k: int) -> list[Retrieved]:

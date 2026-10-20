@@ -186,7 +186,7 @@ def test_generate_with_empty_system_prompt_sends_only_the_user_prompt(paid_env, 
     """
     Input: system prompt "", and a chat model that reports no usage.
     Output: only the user message is sent, and the response has 0 tokens.
-    What it does: checks l5's prompts without instructions, and a provider that reports no tokens.
+    What it does: checks query transformation's prompts without instructions, and a provider that reports no tokens.
     """
     llm_object = get_llm(make_test_llm_args(llm=provider, llm_model=llm_model))
     llm_object.chat_model = fake_chat_model("A rewritten question?", None)

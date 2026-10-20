@@ -10,9 +10,9 @@ import numpy as np
 import pytest
 
 from common.constants import I_DONT_KNOW
-from l5_query.schema import Ans
-from l5_query.schema import Qus
-from l5_query.schema import Query
+from stages.question.query.schema import Ans
+from stages.question.query.schema import Qus
+from stages.question.query.schema import Query
 from l7_context.schema import Context
 from l8_prompt.prompt import get_prompt_list
 from l8_prompt.prompt_template import SYSTEM_PROMPT
@@ -23,7 +23,7 @@ def make_query(query_id, question):
     """
     Input: query_id and the original question.
     Output: a Query whose rewritten question and HyDE answer differ from the original.
-    What it does: builds the l5 query l8 reads the original question from.
+    What it does: builds the query l8 reads the original question from.
     """
     vector = np.array([1.0, 0.0, 0.0], dtype=np.float32)
     return Query(

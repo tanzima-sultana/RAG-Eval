@@ -22,9 +22,9 @@ from stages.build.chunking.schema import Chunk
 from stages.build.indexing.schema import Bm25Index
 from stages.build.indexing.schema import FaissIndex
 from stages.build.indexing.schema import QdrantIndex
-from l5_query.schema import Ans
-from l5_query.schema import Qus
-from l5_query.schema import Query
+from stages.question.query.schema import Ans
+from stages.question.query.schema import Qus
+from stages.question.query.schema import Query
 from l6_retrieval.schema import Retrieved
 
 
@@ -63,7 +63,7 @@ def make_query():
         Input: the query id; the vector of each query type; hyde_text, the HyDE answer (I_DONT_KNOW if refused);
         question, the original question; and the tokens of the original, rewritten and multi questions.
         Output: a Query.
-        What it does: builds the Query l5 would give, with one multi phrasing per multi vector.
+        What it does: builds the Query that query transformation would give, with one multi phrasing per multi vector.
         """
         multi_qus = []
         for position in range(len(multi)):

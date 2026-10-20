@@ -1,12 +1,12 @@
 """
 test_validate.py
 
-Tests for l5_query.validate.validate_query_args.
+Tests for stages.question.query.validate.validate_query_args.
 """
 
 import pytest
 
-from l5_query.validate import validate_query_args
+from stages.question.query.validate import validate_query_args
 
 
 def test_valid_args_pass(make_query_args):

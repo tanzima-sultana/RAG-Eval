@@ -1,7 +1,7 @@
 """
 test_qna.py
 
-Tests for qna.qna.get_eval_qna and generate_eval_qna. The LLMs and RAGAS are
+Tests for stages.question.qna.qna.get_eval_qna and generate_eval_qna. The LLMs and RAGAS are
 replaced by the fakes in conftest.py, so no model is loaded and no request is
 sent.
 """
@@ -11,10 +11,10 @@ import os
 import pytest
 
 from common import paths
-from qna import qna as qna_module
-from qna.qna import generate_eval_qna
-from qna.qna import get_eval_qna
-from qna.qna import save_eval_qna
+from stages.question.qna import qna as qna_module
+from stages.question.qna.qna import generate_eval_qna
+from stages.question.qna.qna import get_eval_qna
+from stages.question.qna.qna import save_eval_qna
 
 
 def make_long_documents(make_document, long_text):

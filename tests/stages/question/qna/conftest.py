@@ -19,8 +19,8 @@ from stages.build.ingestion.schema import Document
 from stages.build.ingestion.schema import DocumentType
 from stages.build.ingestion.schema import Metadata
 from llm.schema import LLMCost
-from qna import qna as qna_module
-from qna.schema import EvalQnA
+from stages.question.qna import qna as qna_module
+from stages.question.qna.schema import EvalQnA
 
 
 class FakeQnALLM:

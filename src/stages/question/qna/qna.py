@@ -27,8 +27,8 @@ from common.constants import EVAL_PASSAGE_MATCH_CHARS
 from stages.build.ingestion.schema import Document
 from llm.llm import get_llm
 from llm.validate import validate_llm
-from qna.schema import EvalQnA
-from qna import validate
+from stages.question.qna.schema import EvalQnA
+from stages.question.qna import validate
 
 def load_cached_eval_qna(output_path: str, eval_qna_args: EvalQnAArgs, qna_llm_args: LLMArgs) -> list[EvalQnA] | None:
 	"""

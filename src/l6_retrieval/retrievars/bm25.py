@@ -11,16 +11,16 @@ from common.constants import MULTI_QUERY
 from common.constants import ORIGINAL_QUERY
 from common.constants import REWRITTEN_QUERY
 from stages.build.indexing.schema import Bm25Index
-from l5_query.schema import Query
+from stages.question.query.schema import Query
 from l6_retrieval.schema import Retrieved
 
 def get_bm25_outputs(queries: list[Query], chunk_type: str, index_type: str, bm25_index: Bm25Index, top_k: int, query_types: list[str]) -> list[Retrieved]:
 	"""
-	Input: l5 queries, the chunk type, the built-in BM25 index with its index type, top_k, and query_types, the query
+	Input: the queries, the chunk type, the built-in BM25 index with its index type, top_k, and query_types, the query
 	types to search with.
 	Output: one Retrieved per query and query type in query_types (original, rewritten, multi), not reranked.
 	What it does: searches the index with each query type's tokens and keeps the top_k chunks.
-	HyDE has no tokens, because l5 searches it by embedding only, so it is not searched here.
+	HyDE has no tokens, because it is searched by embedding only, so it is not searched here.
 	"""
 	bm25_outputs = []
 

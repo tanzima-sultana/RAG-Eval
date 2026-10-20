@@ -1,7 +1,7 @@
 """
 test_query.py
 
-Tests for l5_query.query: generate_queries turning each eval question
+Tests for stages.question.query.query: generate_queries turning each eval question
 into a rewrite, multi-query phrasings and a HyDE answer with tokens and
 embeddings, and get_queries using the cache. The query LLM and the
 embedding model are faked (see conftest.py), so nothing is downloaded and
@@ -15,8 +15,8 @@ import pytest
 
 from common import paths
 from common.constants import I_DONT_KNOW
-from l5_query.query import generate_queries
-from l5_query.query import get_queries
+from stages.question.query.query import generate_queries
+from stages.question.query.query import get_queries
 from common.args import make_llm_args
 
 # The query LLM settings every test uses. The LLM itself is faked, so no call is made

@@ -1,6 +1,6 @@
 import hashlib
 
-from l5_query.schema import Query
+from stages.question.query.schema import Query
 from l7_context.schema import Context
 from l8_prompt.schema import Prompt
 from l8_prompt.prompt_template import SYSTEM_PROMPT
@@ -8,7 +8,7 @@ from l8_prompt.prompt_template import USER_PROMPT_TEMPLATE
 
 def get_prompt_list(context_list: list[Context], queries: list[Query]) -> list[Prompt]:
 	"""
-	Input: context_list, the l7 contexts; queries, the l5 queries of this run, tuning or held-out.
+	Input: context_list, the l7 contexts; queries, the queries of this run, tuning or held-out.
 	Output: one Prompt per Context, in the same order, so prompt_list[i] belongs to context_list[i].
 	What it does: fills the user prompt template with each context and its original question.
 	An empty context gets an empty user prompt.

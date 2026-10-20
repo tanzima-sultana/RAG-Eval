@@ -17,9 +17,9 @@ import os
 
 import numpy as np
 
-from l5_query.schema import Ans
-from l5_query.schema import Qus
-from l5_query.schema import Query
+from stages.question.query.schema import Ans
+from stages.question.query.schema import Qus
+from stages.question.query.schema import Query
 
 def load_cached_queries(query_path: str) -> list[Query] | None:
 	"""

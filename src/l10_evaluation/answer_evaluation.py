@@ -38,7 +38,7 @@ from l10_evaluation.schema import AnswerEvaluation
 from l10_evaluation.validate import validate_answer_eval_args
 from llm.llm import get_llm
 from llm.validate import validate_llm
-from qna.schema import EvalQnA
+from stages.question.qna.schema import EvalQnA
 
 def load_answer_evaluation_cache(answer_evaluation_file: str) -> dict:
 	"""

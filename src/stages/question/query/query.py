@@ -6,17 +6,17 @@ from common.args import EvalQnAArgs
 from common.args import QueryArgs
 from llm.schema import LLMArgs
 from common.constants import I_DONT_KNOW
-from l5_query.schema import Ans
-from l5_query.schema import Qus
-from l5_query.schema import Query
-from l5_query.prompt import REWRITE_PROMPT
-from l5_query.prompt import MULTI_QUERY_PROMPT
-from l5_query.prompt import HYDE_PROMPT
-from l5_query import cache
-from l5_query import validate
+from stages.question.query.schema import Ans
+from stages.question.query.schema import Qus
+from stages.question.query.schema import Query
+from stages.question.query.prompt import REWRITE_PROMPT
+from stages.question.query.prompt import MULTI_QUERY_PROMPT
+from stages.question.query.prompt import HYDE_PROMPT
+from stages.question.query import cache
+from stages.question.query import validate
 from llm.llm import get_llm
 from llm.validate import validate_llm
-from qna.schema import EvalQnA
+from stages.question.qna.schema import EvalQnA
 
 def generate_queries(eval_qna: list[EvalQnA], query_args: QueryArgs, query_llm_args: LLMArgs) -> list[Query]:
 	"""

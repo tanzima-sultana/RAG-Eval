@@ -1,7 +1,7 @@
 """
 test_cache.py
 
-Tests for qna.qna.save_eval_qna and load_cached_eval_qna: saving the eval QnA
+Tests for stages.question.qna.qna.save_eval_qna and load_cached_eval_qna: saving the eval QnA
 list as one JSON file named by its settings and QnA model, and loading it back.
 """
 
@@ -9,8 +9,8 @@ import json
 import os
 
 from common import paths
-from qna.qna import load_cached_eval_qna
-from qna.qna import save_eval_qna
+from stages.question.qna.qna import load_cached_eval_qna
+from stages.question.qna.qna import save_eval_qna
 
 
 def test_missing_cache_returns_none(tmp_path, make_eval_qna_args, make_qna_llm_args):

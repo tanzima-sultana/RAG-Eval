@@ -18,7 +18,7 @@ if __name__ == "__main__":
 	run_build(args)
 	print("\nBuild time : ", time.time() - s1)
 
-	# 2. Eval: eval QnA, l5 query to l10 evaluation and the analysis
+	# 2. Eval: eval QnA, query transformation to l10 evaluation and the analysis
 	print("\n\n========== Eval ==========")
 	s2 = time.time()
 	run_eval(args)

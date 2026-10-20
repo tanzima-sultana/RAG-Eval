@@ -12,7 +12,7 @@ from l6_retrieval.schema import Retrieved
 from l9_generation.schema import Generated
 from l10_evaluation.schema import AnswerEvaluation
 from l10_evaluation.schema import RetrievalEvaluation
-from qna.schema import EvalQnA
+from stages.question.qna.schema import EvalQnA
 
 def get_answer_score_cells(answer_evaluation_list: list[AnswerEvaluation]) -> str:
 	"""

@@ -75,7 +75,7 @@ I_DONT_KNOW="I don't know"
 
 # 6. Retrieval
 
-# Query types searched for each eval question, one per l5 Query field
+# Query types searched for each eval question, one per Query field
 ORIGINAL_QUERY="original"
 REWRITTEN_QUERY="rewritten"
 MULTI_QUERY="multi"

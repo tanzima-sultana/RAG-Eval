@@ -1,13 +1,13 @@
 """
 test_prompt.py
 
-Tests for l5_query.prompt: each prompt fills with str.format() using only
+Tests for stages.question.query.prompt: each prompt fills with str.format() using only
 the keys query.py passes.
 """
 
-from l5_query.prompt import HYDE_PROMPT
-from l5_query.prompt import MULTI_QUERY_PROMPT
-from l5_query.prompt import REWRITE_PROMPT
+from stages.question.query.prompt import HYDE_PROMPT
+from stages.question.query.prompt import MULTI_QUERY_PROMPT
+from stages.question.query.prompt import REWRITE_PROMPT
 
 
 def test_rewrite_prompt_fills_with_qus():

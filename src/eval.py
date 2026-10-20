@@ -17,8 +17,8 @@ from common.args import make_analysis_args
 from stages.build.ingestion.ingestion import ingestion
 from stages.build.chunking.cache import load_chunks
 from stages.build.indexing import cache as index_cache
-from qna.qna import get_eval_qna
-from l5_query.query import get_queries
+from stages.question.qna.qna import get_eval_qna
+from stages.question.query.query import get_queries
 from l6_retrieval.retrieval import Retrieval
 from l7_context.context import get_context_list
 from l8_prompt.prompt import get_prompt_list
@@ -28,7 +28,7 @@ from l9_generation.generation import get_generated_list
 from l10_evaluation.retrieval_evaluation import RetrievalEvaluator
 from l10_evaluation.answer_evaluation import get_answer_evaluations
 from analysis.analysis import analyze_run
-from l5_query.schema import Query
+from stages.question.query.schema import Query
 from l6_retrieval.schema import Retrieved
 from l7_context.schema import Context
 from l8_prompt.schema import Prompt
@@ -36,13 +36,13 @@ from l9_generation.schema import Generated
 from l10_evaluation.schema import RetrievalEvaluation
 from l10_evaluation.schema import AnswerEvaluation
 from analysis.schema import AnalysisRun
-from qna.schema import EvalQnA
+from stages.question.qna.schema import EvalQnA
 
 def load_eval_inputs(args, output_path: str):
 	"""
 	Input: args, the parsed eval arguments; output_path, the dataset's output folder.
 	Output: the ingested documents, the eval QnA, the tuning queries and the held-out queries.
-	What it does: loads the documents, eval QnA and l5 queries from their caches and splits the queries.
+	What it does: loads the documents, eval QnA and queries from their caches and splits the queries.
 	"""
 	ingest_args = make_ingest_args(args)
 	eval_qna_args = make_eval_qna_args(args)

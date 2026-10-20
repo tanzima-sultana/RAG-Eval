@@ -28,7 +28,7 @@ from l6_retrieval.schema import Retrieved
 from l9_generation.schema import Generated
 from l10_evaluation.schema import AnswerEvaluation
 from l10_evaluation.schema import RetrievalEvaluation
-from qna.schema import EvalQnA
+from stages.question.qna.schema import EvalQnA
 
 def analyze_run(output_path: str, analysis_args: AnalysisArgs, settings: dict, retrieval_evaluations: list[tuple[Retrieved, RetrievalEvaluation]], retrieved_list: list[Retrieved], retrieval_evaluation_list: list[RetrievalEvaluation], generated_list: list[Generated], answer_evaluations: list[AnswerEvaluation], eval_qna: list[EvalQnA]) -> AnalysisRun:
 	"""

@@ -12,7 +12,7 @@ from l6_retrieval.schema import Retrieved
 from l10_evaluation.schema import Evaluation
 from l10_evaluation.schema import RetrievalEvaluation
 from l10_evaluation.validate import validate_n_retrieval_evaluation
-from qna.schema import EvalQnA
+from stages.question.qna.schema import EvalQnA
 
 class RetrievalEvaluator:
 	def __init__(self, eval_qna: list[EvalQnA]):

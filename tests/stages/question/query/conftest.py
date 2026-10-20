@@ -1,7 +1,7 @@
 """
 conftest.py
 
-Shared fakes and fixtures for the l5_query test suite.
+Shared fakes and fixtures for the stages.question.query test suite.
 
 FakeQueryLLM stands in for the query LLM, so no Ollama server or paid API
 is called. It answers each prompt from the replies it is given, and
@@ -14,17 +14,17 @@ import pytest
 
 from common.args import EvalQnAArgs
 from common.args import QueryArgs
-from l5_query import query as query_module
-from l5_query.schema import Ans
-from l5_query.schema import Qus
-from l5_query.schema import Query
+from stages.question.query import query as query_module
+from stages.question.query.schema import Ans
+from stages.question.query.schema import Qus
+from stages.question.query.schema import Query
 from llm.schema import LLMResponse
-from qna.schema import EvalQnA
+from stages.question.qna.schema import EvalQnA
 
 
 def get_prompt_question(prompt):
     """
-    Input: prompt, a filled l5 prompt.
+    Input: prompt, a filled query transformation prompt.
     Output: the question the prompt was filled with.
     What it does: returns the text after "Question: ".
     """
@@ -49,7 +49,7 @@ class FakeQueryLLM:
 
     def generate(self, system_prompt, user_prompt):
         """
-        Input: system_prompt ("" for l5); user_prompt, a filled rewrite, multi-query or HyDE prompt.
+        Input: system_prompt ("" for query transformation); user_prompt, a filled rewrite, multi-query or HyDE prompt.
         Output: an LLMResponse with the reply for that prompt and question, like the real LLMs return.
         What it does: records the prompt and picks the reply by the prompt's first words.
         """
@@ -131,7 +131,7 @@ def fake_query_llm(monkeypatch):
     Input: pytest's monkeypatch fixture.
     Output: a list that holds each FakeQueryLLM get_llm creates, and the
     replies to give it, set by the test before calling generate_queries.
-    What it does: makes l5 use FakeQueryLLM and FakeSentenceTransformer.
+    What it does: makes query transformation use FakeQueryLLM and FakeSentenceTransformer.
     """
     created_llms = []
     replies = {"multi": {}, "hyde": {}}

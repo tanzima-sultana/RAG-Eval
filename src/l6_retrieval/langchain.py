@@ -1,7 +1,7 @@
 """
 langchain.py
 
-Retrieval on the LangChain indexes, used with --framework langchain. Searches them with the same l5 query
+Retrieval on the LangChain indexes, used with --framework langchain. Searches them with the same query
 embeddings and tokens as the built-in indexes, so only the chunking and indexing differ.
 """
 
@@ -13,7 +13,7 @@ from common.constants import REWRITTEN_QUERY
 from stages.build.indexing.schema import LangchainFaissIndex
 from stages.build.indexing.schema import LangchainBm25Index
 from stages.build.indexing.schema import LangchainQdrantIndex
-from l5_query.schema import Query
+from stages.question.query.schema import Query
 from l6_retrieval.schema import Retrieved
 from l6_retrieval.retrievars.dense import make_dense_retrieved
 from l6_retrieval.retrievars.bm25 import make_bm25_retrieved
@@ -30,7 +30,7 @@ class Langchain:
 
 	def get_dense_outputs(self, queries: list[Query], chunk_type: str, index_type: str, index: LangchainFaissIndex | LangchainQdrantIndex) -> list[Retrieved]:
 		"""
-		Input: l5 queries, the chunk type, one LangChain FAISS or Qdrant vector store with its index type.
+		Input: the queries, the chunk type, one LangChain FAISS or Qdrant vector store with its index type.
 		Output: one Retrieved per query and query type in query_types, not reranked.
 		What it does: searches the vector store with each query type's embeddings and keeps the top_k chunks.
 		"""
@@ -71,7 +71,7 @@ class Langchain:
 
 	def get_bm25_outputs(self, queries: list[Query], chunk_type: str, index_type: str, index: LangchainBm25Index) -> list[Retrieved]:
 		"""
-		Input: l5 queries, the chunk type, the LangChain BM25 retriever with its index type.
+		Input: the queries, the chunk type, the LangChain BM25 retriever with its index type.
 		Output: one Retrieved per query and query type in query_types (original, rewritten, multi), not reranked.
 		What it does: scores every chunk with the retriever's BM25 model and each query type's tokens, and keeps the
 		top_k chunks. HyDE has no tokens, so it is not searched.

@@ -15,12 +15,12 @@ from common.constants import QDRANT_INDEX
 from common.constants import REWRITTEN_QUERY
 from stages.build.indexing.schema import FaissIndex
 from stages.build.indexing.schema import QdrantIndex
-from l5_query.schema import Query
+from stages.question.query.schema import Query
 from l6_retrieval.schema import Retrieved
 
 def get_dense_outputs(queries: list[Query], chunk_type: str, index_type: str, index: FaissIndex | QdrantIndex, top_k: int, query_types: list[str]) -> list[Retrieved]:
 	"""
-	Input: l5 queries, the chunk type, one built-in FAISS index or Qdrant collection with its index type, top_k, and
+	Input: the queries, the chunk type, one built-in FAISS index or Qdrant collection with its index type, top_k, and
 	query_types, the query types to search with.
 	Output: one Retrieved per query and query type in query_types, not reranked.
 	What it does: searches the index with each query type's embeddings and keeps the top_k chunks.

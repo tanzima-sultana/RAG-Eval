@@ -1,7 +1,7 @@
 """
 test_cache.py
 
-Tests for l5_query.cache: saving the Query list as queries.json and
+Tests for stages.question.query.cache: saving the Query list as queries.json and
 embeddings.npz, and loading it back.
 """
 
@@ -11,7 +11,7 @@ import os
 import numpy as np
 import pytest
 
-from l5_query import cache
+from stages.question.query import cache
 
 
 def assert_qus_equal(loaded_qus, saved_qus):
