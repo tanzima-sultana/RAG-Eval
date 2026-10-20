@@ -34,7 +34,7 @@
 <polyline points="375,96.0 465,96.0" fill="none" stroke="#475569" stroke-width="1.8"/>
 <polygon points="465,96.0 456,91.0 456,101.0" fill="#475569"/>
 <rect x="20" y="400" width="800" height="270" rx="14" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
-<text x="40" y="430" font-size="17" font-weight="700" fill="#15803d">Eval phase</text>
+<text x="40" y="430" font-size="17" font-weight="700" fill="#15803d">Evaluation phase</text>
 <rect x="55" y="450" width="320" height="52" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
 <text x="215.0" y="472" text-anchor="middle" font-size="14" font-weight="700" fill="#14532d">Retrieval</text>
 <text x="215.0" y="490" text-anchor="middle" font-size="12" fill="#14532d">dense / BM25 / hybrid + rerank</text>
