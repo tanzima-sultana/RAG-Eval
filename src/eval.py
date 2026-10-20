@@ -14,7 +14,7 @@ from common.args import make_llm_args
 from common.args import make_generation_args
 from common.args import make_answer_eval_args
 from common.args import make_analysis_args
-from l1_ingestion.ingestion import ingestion
+from stages.build.ingestion.ingestion import ingestion
 from l2_chunking.cache import load_chunks
 from l4_indexing import cache as index_cache
 from qna.qna import get_eval_qna

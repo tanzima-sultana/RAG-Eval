@@ -5,7 +5,7 @@ from common.args import parse_build_args
 from common.args import make_ingest_args
 from common.args import make_chunking_args
 from common.args import make_index_args
-from l1_ingestion.ingestion import ingestion
+from stages.build.ingestion.ingestion import ingestion
 from l2_chunking.chunking import Chunking
 from l3_embedding.embedding import Embedding
 from l4_indexing.indexing import Indexing

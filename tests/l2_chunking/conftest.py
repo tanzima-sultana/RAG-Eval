@@ -14,9 +14,9 @@ import numpy as np
 import pytest
 
 from common.args import ChunkingArgs
-from l1_ingestion.schema import Document
-from l1_ingestion.schema import DocumentType
-from l1_ingestion.schema import Metadata
+from stages.build.ingestion.schema import Document
+from stages.build.ingestion.schema import DocumentType
+from stages.build.ingestion.schema import Metadata
 from l2_chunking import chunking as chunking_module
 
 

@@ -11,7 +11,7 @@ from common import constants
 from common import paths
 from common.args import ChunkingArgs
 
-from l1_ingestion.schema import Document
+from stages.build.ingestion.schema import Document
 from l2_chunking.schema import Chunk
 from l2_chunking.langchain import Langchain
 from l2_chunking import validate, cache
@@ -47,7 +47,7 @@ class Chunking:
 
 	def compute_chunks(self, documents: dict[str, Document], output_path:str)-> dict[str, Chunk]:
 		"""
-		Input: documents, a dict of doc_id to Document from l1_ingestion;
+		Input: documents, a dict of doc_id to Document from stages.build.ingestion;
 		output_path, the dataset's output folder the chunk folder is built under.
 		Output: a dict of chunk_id to Chunk for every document.
 		What it does: validates chunking_args, loads already saved chunks

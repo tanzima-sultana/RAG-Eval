@@ -2,16 +2,16 @@ from doc_ingest import ingest_documents
 from doc_ingest import settings
 
 from common.args import IngestArgs
-from l1_ingestion.schema import Document
-from l1_ingestion.schema import DocumentType
-from l1_ingestion.schema import Metadata
+from stages.build.ingestion.schema import Document
+from stages.build.ingestion.schema import DocumentType
+from stages.build.ingestion.schema import Metadata
 
 
 def convert_document(library_document) -> Document:
 	"""
 	Input: library_document, one doc_ingest.schema.Document returned by
 	ingest_documents.
-	Output: the same document as this project's l1_ingestion.schema.Document.
+	Output: the same document as this project's stages.build.ingestion.schema.Document.
 	What it does: copies every field, including each metadata field, from
 	the library's Document into a new Document of our own schema.
 	"""

@@ -1,7 +1,7 @@
 """
 test_ingestion.py
 
-Tests for l1_ingestion.ingestion: convert_document, which copies a
+Tests for stages.build.ingestion.ingestion: convert_document, which copies a
 doc_ingest Document into this project's Document, and ingestion, which
 calls doc_ingest.ingest_documents with the IngestArgs values and returns
 the converted documents keyed by id.
@@ -15,12 +15,12 @@ import types
 from doc_ingest import schema as library_schema
 
 from common.args import IngestArgs
-from l1_ingestion import ingestion as ingestion_module
-from l1_ingestion.ingestion import convert_document
-from l1_ingestion.ingestion import ingestion
-from l1_ingestion.schema import Document
-from l1_ingestion.schema import DocumentType
-from l1_ingestion.schema import Metadata
+from stages.build.ingestion import ingestion as ingestion_module
+from stages.build.ingestion.ingestion import convert_document
+from stages.build.ingestion.ingestion import ingestion
+from stages.build.ingestion.schema import Document
+from stages.build.ingestion.schema import DocumentType
+from stages.build.ingestion.schema import Metadata
 
 
 def make_library_document(doc_id="doc1", doc_type="pdf", text="Some text."):
@@ -110,7 +110,7 @@ def test_convert_document_returns_this_projects_schema_types():
     Input: a library Document.
     Output: the converted Document.
     What it does: checks the result and its metadata and type use
-    l1_ingestion.schema classes, not doc_ingest's.
+    stages.build.ingestion.schema classes, not doc_ingest's.
     """
     library_document = make_library_document()
 

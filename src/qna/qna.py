@@ -24,7 +24,7 @@ from llm.schema import LLMArgs
 from common.constants import SAMPLE_DOCUMENTS_SEED
 from common.constants import EVAL_MIN_DOCUMENT_TOKENS
 from common.constants import EVAL_PASSAGE_MATCH_CHARS
-from l1_ingestion.schema import Document
+from stages.build.ingestion.schema import Document
 from llm.llm import get_llm
 from llm.validate import validate_llm
 from qna.schema import EvalQnA

@@ -15,9 +15,9 @@ import pytest
 
 from common.args import EvalQnAArgs
 from common.args import make_llm_args
-from l1_ingestion.schema import Document
-from l1_ingestion.schema import DocumentType
-from l1_ingestion.schema import Metadata
+from stages.build.ingestion.schema import Document
+from stages.build.ingestion.schema import DocumentType
+from stages.build.ingestion.schema import Metadata
 from llm.schema import LLMCost
 from qna import qna as qna_module
 from qna.schema import EvalQnA

@@ -1,16 +1,16 @@
 """
 test_schema.py
 
-Tests for l1_ingestion.schema: the Document, Metadata and DocumentType
+Tests for stages.build.ingestion.schema: the Document, Metadata and DocumentType
 models this project uses for ingested documents.
 """
 
 import pydantic
 import pytest
 
-from l1_ingestion.schema import Document
-from l1_ingestion.schema import DocumentType
-from l1_ingestion.schema import Metadata
+from stages.build.ingestion.schema import Document
+from stages.build.ingestion.schema import DocumentType
+from stages.build.ingestion.schema import Metadata
 
 
 def make_metadata():

@@ -41,21 +41,18 @@ config.yaml					# Command line args
 src/
 	pipeline.py				# CLI entry point for the entire RAG pipeline
 	build.py                # CLI entry point for the RAG build phase
+	question.py             # CLI entry point for the RAG question phase
 	eval.py                 # CLI entry point for the RAG eval phase
-	check_llms.py			# Check llm and llm_models works or not (dev)
+	analysis.py             # CLI entry point for the RAG analysis phase
+	llm_provider.py         # CLI entry point to run and check the LLM providers (dev)
 
 	api/
-
-	analysis/
-		analysis.py            			# Orchastrator
-		schema.py		    			# Analysis summary schema
-		validate.py		     			# Validate given parameters
-		cache.py	           			# Store and retrieve analysis results
-		summary.py            			# Prints analysis results
-		comparison.py            		# Comapre runs upto 5
-		disgnosis.py         			# Explains where answers lose points
-		report.py         				# Writes the summary tables
-
+	common/
+		constants.py          # Hardcoded project-wide constants
+		args.py               # Layer related command line args
+		paths.py              # Output paths for each layer.
+		timing.py			  # Time 
+	
 	llm/
 		llm.py		        # LLM orchatrator, decides which llm to return
 		constants.py        # Hardcoded LLM related constants
@@ -65,125 +62,112 @@ src/
 		claude.py		    # Anthropic models
 		gemini.py		    # Gemini models
 		chatgpt.py		    # OpenAI/Chatgpt models
-	qna/
-		schema.py           # Defines the EvalQnA dataclass
-		validate.py		    # Validate given parameters
-		qna.py		        # Generates QnA sets 
+	stages/
+		build/
+			ingestion/
+				schema.py              # Defines the Document dataclass — the normalized record format every parsed document is converted into
+				ingestion.py           # Library for document ingestion
 
-	common/
-		constants.py          # Hardcoded project-wide constants
-		args.py               # Layer related command line args
-		paths.py              # Output paths for each layer.
-		timing.py			  # Time 
+			chunking/
+				schema.py              # Defines the Chunk dataclass — the normalized record format every created chunk is converted into
+				chunker.py             # Abstract base class and common shared methods for chunking types classes
+				chunkers/
+					fixed.py           		# Fixed-size chunking strategy
+					sentence.py        		# Sentence-aware chunking strategy
+					semantic.py        		# Semantic chunking strategy
+				chunking.py            # Chunking orchestrator
+				validate.py		       # Validate given parameters
+				cache.py	           # Store and retrieve cached chunks
+				langchain.py		   # langchain chunking
 
-	l1_ingestion/
-		schema.py              # Defines the Document dataclass — the normalized record format every parsed document is converted into
-		ingestion.py           # Library for document ingestion
+			embedding/
+				schema.py              # Defines the Embedded dataclass — the normalized record format every created embedding is converted into
+				embedding.py           # Embedding orchestrator
+				cache.py	           # Store and retrieve cached embeddings
+				langchain.py		   # langchain embeddings
 
-	l2_chunking/
-		schema.py              # Defines the Chunk dataclass — the normalized record format every created chunk is converted into
-		chunker.py             # Abstract base class and common shared methods for chunking types classes
-		chunkers/
-			fixed.py           		# Fixed-size chunking strategy
-			sentence.py        		# Sentence-aware chunking strategy
-			semantic.py        		# Semantic chunking strategy
-		chunking.py            # Chunking orchestrator
-		validate.py		       # Validate given parameters
-		cache.py	           # Store and retrieve cached chunks
-		langchain.py		   # langchain chunking
-
-	l3_embedding/
-		schema.py              # Defines the Embedded dataclass — the normalized record format every created embedding is converted into
-		embedding.py           # Embedding orchestrator
-		cache.py	           # Store and retrieve cached embeddings
-		langchain.py		   # langchain embeddings
-
-	l4_indexing/
-		schema.py            	# Defines the Index dataclass — the normalized record format every created index is converted into
-		indexer.py           	# Abstract base class and common shared methods for index types classes
-		indexers/
-			faiss.py           		# FAISS(flatip, ivf, hnsw) strategy
-			bm25.py            		# BM25 strategy
-			qdrant.py          		# Vector store qdrant strategy
-		indexing.py            # Indexing orchestrator
-		validate.py		   	   # Validate given parameters
-		cache.py	           # Store and retrieve cached index
-		langchain.py		   # langchain indexing
-
-	l5_query/
-		schema.py            # Defines the Query dataclass
-		validate.py		   	 # Validate given parameters
-		cache.py	         # Store and retrieve cached index
-		prompt.py            # Prompt template for query transform
-		query.py             # Query orchestrator
-
-	l6_retrieval/
-		schema.py            # Defines the Retrieved dataclass 
-		retrievers/
-			dense.py           # Dense retrieval (on faiss and qdrant index)
-			bm25.py            # BM25 retrieval (on bm25 index)
-			hybrid.py          # On both Dense and BM25
-		rerank.py            # Reranking
-		retrieval.py         # Retrieval orchastrator
-		validate.py		     # Validate given parameters
-		cache.py	         # Store and retrieve cached index
-		langchain.py		 # langchain indexing
+			indexing/
+				schema.py            	# Defines the Index dataclass — the normalized record format every created index is converted into
+				indexer.py           	# Abstract base class and common shared methods for index types classes
+				indexers/
+					faiss.py           		# FAISS(flatip, ivf, hnsw) strategy
+					bm25.py            		# BM25 strategy
+					qdrant.py          		# Vector store qdrant strategy
+				indexing.py            # Indexing orchestrator
+				validate.py		   	   # Validate given parameters
+				cache.py	           # Store and retrieve cached index
+				langchain.py		   # langchain indexing
 	
-	l7_context/
-		schema.py            # Defines the Context dataclass
-		context.py           # Creates context list for L8 
-	
-	l8_prompt/
-		schema.py            # Defines the Prompt dataclass
-		prompt_template.py   # Prompt template
-		prompt.py            # Creates prompt list for L9 
-	
-	l9_generation/
-		schema.py            # Defines the Generated dataclass
-		validate.py		     # Validate given parameters
-		cache.py	         # Store and retrieve cached answers
-		generation.py        # Answer generation orchastrator
-	
-	l10_evaluation/
-		schema.py            			# Defines dataclass for eval results
-		validate.py		     # Validate given parameters
-		summary.py            			# Prints eval results
-		answer_evaluation.py            # Evaluates generated ans
-		retrieval_evaluation.py         # Evaluates retrieval quality and filters them before L7, L8 and L9
+		question/
+			qna/
+				schema.py           # Defines the EvalQnA dataclass
+				validate.py		    # Validate given parameters
+				qna.py		        # Generates QnA sets 
+
+			query/
+				schema.py            # Defines the Query dataclass
+				validate.py		   	 # Validate given parameters
+				cache.py	         # Store and retrieve cached index
+				prompt.py            # Prompt template for query transform
+				query.py             # Query orchestrator
+
+		evaluation/
+			retrieval/
+				schema.py            # Defines the Retrieved dataclass 
+				retrievers/
+					dense.py           # Dense retrieval (on faiss and qdrant index)
+					bm25.py            # BM25 retrieval (on bm25 index)
+					hybrid.py          # On both Dense and BM25
+				rerank.py            # Reranking
+				retrieval.py         # Retrieval orchastrator
+				validate.py		     # Validate given parameters
+				cache.py	         # Store and retrieve cached index
+				langchain.py		 # langchain indexing
+			
+			context/
+				schema.py            # Defines the Context dataclass
+				context.py           # Creates context list for prompt 
+			
+			prompt/
+				schema.py            # Defines the Prompt dataclass
+				prompt_template.py   # Prompt template
+				prompt.py            # Creates prompt list for generation
+			
+			generation/
+				schema.py            # Defines the Generated dataclass
+				validate.py		     # Validate given parameters
+				cache.py	         # Store and retrieve cached answers
+				generation.py        # Answer generation orchastrator
+			
+			evaluation/
+				schema.py            			# Defines dataclass for eval results
+				validate.py		     			# Validate given parameters
+				summary.py            			# Prints eval results
+				answer_evaluation.py            # Evaluates generated ans
+				retrieval_evaluation.py         # Evaluates retrieval quality and filters them 
+		
+		analysis/
+			analysis.py            			# Orchastrator
+			schema.py		    			# Analysis summary schema
+			validate.py		     			# Validate given parameters
+			cache.py	           			# Store and retrieve analysis results
+			summary.py            			# Prints analysis results
+			comparison.py            		# Comapre runs upto 5
+			disgnosis.py         			# Explains where answers lose points
+			report.py         				# Writes the summary tables
 
 
 tests/                  # Test suite
 outputs/dataset_name/	# A folder for each dataset
-  data/
-	raw/                # Raw input documents
-	processed/          # Output of processed documents
-  chunks/
-	fixed/     
-		{max_chunk_size}_{overlap}_{threshold}/ # Same for all type of chunking, embeddings, indexes/faiss      
-	sentence/     
-	semantic/
-	....
-	....
-  embeddings/
-    fixed/
-	sentence/     
-	semantic/
-	....
-	....
-  indexes/
-	faiss/
-		fixed/
-		sentence/     
-		semantic/
-		....
-		....
-	bm25/
-	qdrant/
-    
 
 log/
   log_test.txt              # Run log for test runs
   log.txt                   # General run log
 
 scripts/
-  run.sh                    # Runs the entire pipeline end-to-end
+  pipeline.sh                    # Runs the entire pipeline end-to-end
+  build.sh                       # Runs build stage
+  question.sh                    # Runs question stage
+  eval.sh                        # Runs eval stage
+  analysis.sh                    # Runs analysis stage
+  llm_provider.sh                # Runs llm

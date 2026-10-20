@@ -20,7 +20,7 @@ from common.args import make_eval_qna_args
 from common.args import make_ingest_args
 from common.args import make_llm_args
 from common.args import make_query_args
-from l1_ingestion.ingestion import ingestion
+from stages.build.ingestion.ingestion import ingestion
 from l5_query.query import get_queries
 from qna.qna import get_eval_qna
 from ragas.utils import num_tokens_from_string
