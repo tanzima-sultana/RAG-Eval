@@ -104,7 +104,7 @@ def load_chunks(output_path: str, chunking_args: ChunkingArgs, doc_ids: list[str
 	print(f"Chunk folder : {chunk_path}")
 	if not os.path.isdir(chunk_path):
 		raise FileNotFoundError(
-			f"No chunk folder at {chunk_path}. Run scripts/run.sh with the same chunking args first."
+			f"No chunk folder at {chunk_path}. Run scripts/pipeline.sh with the same chunking args first."
 		)
 
 	chunks = {}
@@ -113,7 +113,7 @@ def load_chunks(output_path: str, chunking_args: ChunkingArgs, doc_ids: list[str
 		if document_chunks is None:
 			raise FileNotFoundError(
 				f"No chunk file for document {doc_id} in {chunk_path}. "
-				"Run scripts/run.sh with the same chunking args first."
+				"Run scripts/pipeline.sh with the same chunking args first."
 			)
 		chunks.update(document_chunks)
 

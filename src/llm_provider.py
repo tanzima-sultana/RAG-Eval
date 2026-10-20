@@ -1,8 +1,8 @@
 """
-check_llms.py
+llm_provider.py
 
 Checks the QnA and query layers end to end with the LLMs passed on the command line, on a few documents.
-Run through scripts/check_llms.sh (python3 src/check_llms.py), which picks the models of one provider.
+Run through scripts/llm_provider.sh (python3 src/llm_provider.py), which picks the models of one provider.
 
 For each layer it deletes this check's cache, generates with the LLM, checks the records and the cache file, then
 runs again and checks the cache is loaded instead of generating. It only writes under --output_path, which must be
@@ -27,7 +27,7 @@ from ragas.utils import num_tokens_from_string
 
 def parse_check_args():
 	"""
-	Input: none. Reads the command line arguments passed by scripts/check_llms.sh.
+	Input: none. Reads the command line arguments passed by scripts/llm_provider.sh.
 	Output: an argparse.Namespace with one attribute per argument.
 	What it does: defines the ingestion, eval QnA, query and LLM arguments of the check, and parses them.
 	"""

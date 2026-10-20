@@ -241,11 +241,12 @@ def test_ingestion_returns_empty_dict_when_no_documents(monkeypatch, tmp_path):
     assert documents == {}
 
 
-def test_ingestion_prints_processed_dir_and_summary(monkeypatch, capsys, tmp_path):
+def test_ingestion_prints_the_summary(monkeypatch, capsys, tmp_path):
     """
-    Input: a fake ingest_documents with a known processed_dir and summary.
+    Input: a fake ingest_documents with a known summary.
     Output: what ingestion printed.
-    What it does: checks both values are printed.
+    What it does: checks the library's summary is printed and its processed_dir is not, since the
+    project saves the documents itself.
     """
     fake_ingest_documents = FakeIngestDocuments([])
     monkeypatch.setattr(ingestion_module, "ingest_documents", fake_ingest_documents)
@@ -253,7 +254,7 @@ def test_ingestion_prints_processed_dir_and_summary(monkeypatch, capsys, tmp_pat
     ingestion(make_ingest_args(tmp_path))
 
     printed = capsys.readouterr().out
-    assert "some_output/processed" in printed
+    assert "some_output/processed" not in printed
     assert "FAKE SUMMARY" in printed
 
 

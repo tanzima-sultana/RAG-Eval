@@ -2,10 +2,10 @@
 # Run it again for every provider each time a provider is added or the LLM code changes.
 #
 # Usage:
-#   bash scripts/check_llms.sh ollama                     # free, local
-#   ALLOW_PAID_API=1 bash scripts/check_llms.sh claude    # paid, a few cents
-#   ALLOW_PAID_API=1 bash scripts/check_llms.sh gemini    # paid, a few cents
-#   ALLOW_PAID_API=1 bash scripts/check_llms.sh chatgpt   # paid, a few cents
+#   bash scripts/llm_provider.sh ollama                     # free, local
+#   ALLOW_PAID_API=1 bash scripts/llm_provider.sh claude    # paid, a few cents
+#   ALLOW_PAID_API=1 bash scripts/llm_provider.sh gemini    # paid, a few cents
+#   ALLOW_PAID_API=1 bash scripts/llm_provider.sh chatgpt   # paid, a few cents
 #
 # Writes only under outputs/llm_check/{provider}/, never under the real outputs/{dataset}/ caches.
 
@@ -152,7 +152,7 @@ elif [ "$PROVIDER" == "$CHATGPT" ]; then
       QUERY_CACHE_WRITE_PRICE="$GPT_NANO_CACHE_WRITE_PRICE_PER_MIL"
       QUERY_CACHE_READ_PRICE="$GPT_NANO_CACHE_READ_PRICE_PER_MIL"
 else
-      echo "Usage: bash scripts/check_llms.sh claude|ollama|gemini|chatgpt"
+      echo "Usage: bash scripts/llm_provider.sh claude|ollama|gemini|chatgpt"
       exit 1
 fi
 
@@ -182,7 +182,7 @@ N_MULTI_QUS=3
 
 # run
 
-python3 src/check_llms.py \
+python3 src/llm_provider.py \
   --dataset_size "$DATASET_SIZE" \
   --input_path "$INPUT_PATH" \
   --output_path "$OUTPUT_PATH" \

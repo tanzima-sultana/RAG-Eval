@@ -35,7 +35,7 @@ A run is paid if it can send even one request to a paid LLM API:
 
 Not paid, so no approval is needed: runs without `ALLOW_PAID_API=1`
 (`get_llm()` stops before any Claude call), the local Ollama LLM
-(`get_llm()` with `ollama`, used by l5 query), `src/build.py` and `scripts/run.sh`
+(`get_llm()` with `ollama`, used by l5 query), `src/build.py` and `scripts/pipeline.sh`
 (local embedding models and a local Qdrant), Hugging Face dataset or model
 downloads, imports and `py_compile` checks, and tests where the LLM is
 replaced by a stub that raises before any request is made.

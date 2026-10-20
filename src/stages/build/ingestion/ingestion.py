@@ -72,10 +72,8 @@ def ingestion(ingest_args: IngestArgs) -> dict[str, Document]:
 	)
 
 	library_documents = ingest_result.documents
-	processed_dir = ingest_result.processed_dir
 	summary = ingest_result.summary
 
-	print(processed_dir)
 	print(summary)
 
 	documents = {}

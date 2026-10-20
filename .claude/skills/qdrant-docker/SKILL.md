@@ -1,6 +1,6 @@
 ---
 name: qdrant-docker
-description: Checks that the Qdrant server is up on localhost:6333 and, if not, starts Docker Desktop and the Qdrant container. Use before running scripts/run.sh or anything that builds or queries the l4 Qdrant index (l4 indexing always builds a Qdrant collection on this server, so the pipeline fails without it), or when the user asks to check, start, or run Qdrant / Docker.
+description: Checks that the Qdrant server is up on localhost:6333 and, if not, starts Docker Desktop and the Qdrant container. Use before running scripts/pipeline.sh or anything that builds or queries the l4 Qdrant index (l4 indexing always builds a Qdrant collection on this server, so the pipeline fails without it), or when the user asks to check, start, or run Qdrant / Docker.
 ---
 
 # Qdrant in Docker
@@ -89,4 +89,4 @@ printed, stop and show `docker logs --tail 30 <container_name>`.
 
 Tell the user in one or two lines: whether Qdrant was already up or what was
 started, the container name, and the Qdrant version from the response. Then
-continue with what the user asked for, such as running `scripts/run.sh`.
+continue with what the user asked for, such as running `scripts/pipeline.sh`.

@@ -93,7 +93,7 @@ def load_embeddings(embedding_path: str, chunk_ids: list[str]) -> dict[str, Embe
 	"""
 	if not os.path.isdir(embedding_path):
 		raise FileNotFoundError(
-			f"No embedding folder at {embedding_path}. Run scripts/run.sh with the same chunking args first."
+			f"No embedding folder at {embedding_path}. Run scripts/pipeline.sh with the same chunking args first."
 		)
 
 	embeddings_by_document = {}
@@ -105,7 +105,7 @@ def load_embeddings(embedding_path: str, chunk_ids: list[str]) -> dict[str, Embe
 			if document_embeddings is None:
 				raise FileNotFoundError(
 					f"No embedding file for document {doc_id} in {embedding_path}. "
-					"Run scripts/run.sh with the same chunking args first."
+					"Run scripts/pipeline.sh with the same chunking args first."
 				)
 			embeddings_by_document[doc_id] = document_embeddings
 

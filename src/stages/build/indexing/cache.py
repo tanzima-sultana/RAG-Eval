@@ -143,7 +143,7 @@ def load_faiss_index(faiss_index_path: str, index_args: IndexArgs, dataset_size:
 	chunk_ids_file_path = os.path.join(faiss_index_path, "chunk_ids.json")
 	if not os.path.exists(index_file_path) or not os.path.exists(chunk_ids_file_path):
 		raise FileNotFoundError(
-			f"No FAISS index at {faiss_index_path}. Run scripts/run.sh with the same chunking and index args first."
+			f"No FAISS index at {faiss_index_path}. Run scripts/pipeline.sh with the same chunking and index args first."
 		)
 
 	with open(chunk_ids_file_path, "r", encoding="utf-8") as f:
@@ -156,7 +156,7 @@ def load_faiss_index(faiss_index_path: str, index_args: IndexArgs, dataset_size:
 	if len(saved_doc_ids) != dataset_size:
 		raise ValueError(
 			f"The FAISS index at {faiss_index_path} holds {len(saved_doc_ids)} documents, "
-			f"but dataset_size is {dataset_size}. Run scripts/run.sh with --dataset_size {dataset_size} first."
+			f"but dataset_size is {dataset_size}. Run scripts/pipeline.sh with --dataset_size {dataset_size} first."
 		)
 
 	saved_index = faiss.read_index(index_file_path)
@@ -233,7 +233,7 @@ def load_bm25_index(bm25_index_path: str) -> Bm25Index:
 	chunk_ids_file_path = os.path.join(bm25_index_path, "chunk_ids.json")
 	if not os.path.exists(model_file_path) or not os.path.exists(chunk_ids_file_path):
 		raise FileNotFoundError(
-			f"No BM25 index at {bm25_index_path}. Run scripts/run.sh with the same chunking and index args first."
+			f"No BM25 index at {bm25_index_path}. Run scripts/pipeline.sh with the same chunking and index args first."
 		)
 
 	with open(chunk_ids_file_path, "r", encoding="utf-8") as f:
@@ -311,7 +311,7 @@ def load_qdrant_index(qdrant_collection_name: str) -> QdrantIndex:
 	qdrant_client = _connect_qdrant_client()
 	if not qdrant_client.collection_exists(qdrant_collection_name):
 		raise FileNotFoundError(
-			f"No Qdrant collection {qdrant_collection_name}. Run scripts/run.sh with the same chunking and index args first."
+			f"No Qdrant collection {qdrant_collection_name}. Run scripts/pipeline.sh with the same chunking and index args first."
 		)
 
 	# Every point is uploaded with the same payload keys, so one point shows
@@ -325,7 +325,7 @@ def load_qdrant_index(qdrant_collection_name: str) -> QdrantIndex:
 	if len(first_points) == 0 or "text" not in first_points[0].payload:
 		raise FileNotFoundError(
 			f"Qdrant collection {qdrant_collection_name} is empty or has no chunk text. "
-			"Run scripts/run.sh with the same chunking and index args to rebuild it."
+			"Run scripts/pipeline.sh with the same chunking and index args to rebuild it."
 		)
 
 	collection_info = qdrant_client.get_collection(qdrant_collection_name)
@@ -409,7 +409,7 @@ def load_langchain_faiss_index(faiss_index_path: str, index_args: IndexArgs, dat
 	docstore_file_path = os.path.join(faiss_index_path, "index.pkl")
 	if not os.path.exists(index_file_path) or not os.path.exists(docstore_file_path):
 		raise FileNotFoundError(
-			f"No LangChain FAISS index at {faiss_index_path}. Run scripts/run.sh with the same chunking and index args first."
+			f"No LangChain FAISS index at {faiss_index_path}. Run scripts/pipeline.sh with the same chunking and index args first."
 		)
 
 	# load_local reads index.pkl with pickle; the file was written by
@@ -426,7 +426,7 @@ def load_langchain_faiss_index(faiss_index_path: str, index_args: IndexArgs, dat
 	if len(saved_doc_ids) != dataset_size:
 		raise ValueError(
 			f"The LangChain FAISS index at {faiss_index_path} holds {len(saved_doc_ids)} documents, "
-			f"but dataset_size is {dataset_size}. Run scripts/run.sh with --dataset_size {dataset_size} first."
+			f"but dataset_size is {dataset_size}. Run scripts/pipeline.sh with --dataset_size {dataset_size} first."
 		)
 
 	print(f"LangChain FAISS index loaded : {saved_vector_store.index.ntotal} vectors")
@@ -490,7 +490,7 @@ def load_langchain_bm25_index(bm25_index_path: str) -> LangchainBm25Index:
 	retriever_file_path = os.path.join(bm25_index_path, "bm25_retriever.pkl")
 	if not os.path.exists(retriever_file_path):
 		raise FileNotFoundError(
-			f"No LangChain BM25 index at {bm25_index_path}. Run scripts/run.sh with the same chunking and index args first."
+			f"No LangChain BM25 index at {bm25_index_path}. Run scripts/pipeline.sh with the same chunking and index args first."
 		)
 
 	with open(retriever_file_path, "rb") as f:
@@ -562,7 +562,7 @@ def load_langchain_qdrant_index(qdrant_collection_name: str, embedding_model: Hu
 	qdrant_client = _connect_qdrant_client()
 	if not qdrant_client.collection_exists(qdrant_collection_name):
 		raise FileNotFoundError(
-			f"No Qdrant collection {qdrant_collection_name}. Run scripts/run.sh with the same chunking and index args first."
+			f"No Qdrant collection {qdrant_collection_name}. Run scripts/pipeline.sh with the same chunking and index args first."
 		)
 
 	collection_info = qdrant_client.get_collection(qdrant_collection_name)

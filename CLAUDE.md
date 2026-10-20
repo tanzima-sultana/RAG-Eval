@@ -66,6 +66,7 @@ src/
 		build/
 			ingestion/
 				schema.py              # Defines the Document dataclass — the normalized record format every parsed document is converted into
+				cache.py	           # Store and retrieve cached documents
 				ingestion.py           # Library for document ingestion
 
 			chunking/
