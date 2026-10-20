@@ -51,9 +51,47 @@ RAGAS: Retrieval Augmented Generation Assessment ·
 LLM: large language model ·
 SDK: software development kit
 
+## Design decisions
+
+**1. One config file.**
+Every setting lives in `config.yaml`. The build reads its build part; the eval reads both the build and eval parts,
+so it always uses the settings the indexes were built with. Any setting can be overridden for one run on the
+command line, and a missing or misspelled setting stops the run.
+*Trade-off:* every setting must be in the file, even ones rarely changed.
+
+**2. Separate stages that hand off through files.**
+Build, question, evaluation and analysis each have their own entry script, and each stage saves its output for the
+next one: documents, chunks, embeddings, indexes, the eval questions, queries, answers, scores and the eval results.
+Any stage can be rerun alone, for example a new report without rerunning the evaluation. The LLM layer and the
+ingestion library are kept separate from the rest, so either can be swapped or reused.
+*Trade-off:* more files on disk.
+
+**3. Cache keys built from the settings.**
+Each layer saves its output under a name made from the settings that change it, for example chunk type, model and
+sizes for chunks, the prompt for answers, and the question, answer, context and reference for judge scores. An
+unchanged rerun loads everything and makes no LLM call; changing one setting recomputes only the layers it affects.
+Files are written to a temporary file first and then renamed, so a crash never leaves a half-written cache.
+*Trade-off:* a code change that alters the output without changing a setting needs its cache deleted by hand.
+
+**4. A different LLM provider for each task.**
+Claude writes the eval questions, a local Llama model transforms the queries, Gemini writes the answers and
+GPT-4.1-mini judges them, so no model grades its own work. All of them go through one LLM layer, so a task can
+switch provider in the config. Paid calls only run when `ALLOW_PAID_API=1` is set.
+*Trade-off:* four providers to set up, with four API keys.
+
+**5. Batch API for generation.**
+Answers are sent to Gemini as one batch at half the normal price. The batch id is saved, so a stopped run picks up
+the same batch instead of paying again.
+*Trade-off:* a batch can take minutes to hours instead of seconds.
+
+**6. A validation set and a test set.**
+The 200 eval questions are split with a fixed seed into 150 for validation and 50 for test. Every setting was chosen
+on the validation set; the test set was run once, at the end, for the final numbers.
+*Trade-off:* 50 test questions give a rough number (about ±0.07 on correctness).
+
 
 <!--
-README plan, agreed 2026-10-16. Sections 1 to 3 are done; write the rest in this order, then remove this note.
+README plan, agreed 2026-10-16. Sections 1 to 4 are done; write the rest in this order, then remove this note.
 
 3. Tech stack, grouped:
    - Retrieval and embeddings: FAISS, BM25, Qdrant, sentence-transformers, the cross-encoder
