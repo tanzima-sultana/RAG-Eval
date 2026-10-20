@@ -204,17 +204,66 @@ retrieval.
 | No | 20 | 0.940 | 0.927 | 0.718 | 0.987 |
 | Yes | 5 | 0.853 | 0.837 | 0.768 | 0.947 |
 
-Reranking puts the right chunk higher. Because it keeps only 5 chunks, it misses more passages. The answer runs
-therefore used the top 20 chunks without reranking.
+Reranking puts the right chunk higher. Because it keeps only 5 chunks, it misses more passages.
+
+**From retrieval to generation:**
+Retrieval gave 27,900 results: 186 setups for each of the 150 validation questions. Each result sent on costs LLM
+calls for generation and judging, so only a filtered list goes to the generation stage:
+- Each setup is scored by its average chunk recall, with MRR breaking ties.
+- The best plain setup and the best reranked setup are kept. They are ranked apart, because a plain setup keeps 20
+  chunks and a reranked one only 5.
+- The 150 results of each kept setup go on, which are 300 results instead of 27,900.
 
 ### Generated answers
 
+| Run | Questions | What changed | I don't know | Correctness | Faithfulness | Relevance | Cost |
+|---|---|---|---|---|---|---|---|
+| Baseline | 150 validation | First prompt, Gemini Flash-Lite | 0.127 | 0.546 | 0.853 | 0.561 | $3.61 |
+| Experiment 1 | 150 validation | New prompt, no reranking | 0.067 | 0.612 | 0.894 | 0.573 | $2.56 |
+| Experiment 2 | 150 validation | Stricter prompt, Gemini Flash | 0.073 | 0.613 | 0.889 | 0.532 | $2.99 |
+| **Test** | **50 test** | **Experiment 1 setup** | **0.080** | **0.550** | **0.891** | **0.637** | **$0.78** |
+
+- **Baseline:** It answered 300 questions, 150 for each of the two setups. The table shows the plain setup. The
+  reranked setup with the top 5 chunks scored lower on every measure, for example 0.463 correctness against 0.546.
+- **Experiment 1:** Reranking was dropped, so only the plain setup's 150 questions were answered. The new prompt asks
+  for complete answers that cover each part of the question. It also asks for a partial answer instead of "I don't
+  know" when the context holds part of the answer. Correctness rose from 0.546 to 0.612, while "I don't know" answers
+  fell by half.
+- **Experiment 2:** A stronger model that thinks before it answers kept the same scores, although generation cost
+  about 6 times as much. So experiment 1 was kept as the final setup.
+- **Test:** The 50 test questions were run once with the experiment 1 setup. Correctness is lower than on validation,
+  while faithfulness is the same and relevance is higher. With only 50 questions, these differences are within noise.
+
 ### Cost and time
+
+**Build:** The build runs once on 5,000 documents. It runs locally, so it costs nothing.
+
+| Stage | Time | Disk |
+|---|---|---|
+| Ingestion | about 4 min | 2.3 GB of PDFs, 99 MB of parsed text |
+| Chunking | 42 s (fixed), 46 s (sentence), 5.4 min (semantic) | 317 MB |
+| Embedding | about 2.2 to 2.5 min per chunk type | 486 MB |
+| Indexing | under 1 min per chunk type, for all five indexes | 1.4 GB for FAISS, 316 MB for BM25 |
+
+**Paid runs:**
+
+| Run | Cost | Time |
+|---|---|---|
+| Eval set (200 questions) | $4.88 | about 55 min |
+| Baseline (300 answers) | $3.61 | 33 min |
+| Experiment 1 (150 answers) | $2.56 | not recorded |
+| Experiment 2 (150 answers) | $2.99 | 23 min |
+| Test (50 answers) | $0.78 | 10 min |
+
+- Most of the cost of each answer run is the judge. In experiment 1, judging cost $2.44 while generation cost only
+  $0.11.
+- Semantic chunking is the slowest build step, because it embeds every sentence to find where topics change.
+- Every stage is cached, so a rerun with the same settings makes no LLM call and costs nothing.
 
 ## Analysis
 
 <!--
-README plan, agreed 2026-10-16. Sections 1 to 5 are done; write the rest in this order, then remove this note.
+README plan, agreed 2026-10-16. Sections 1 to 6 are done; write the rest in this order, then remove this note.
 
 3. Tech stack, grouped:
    - Retrieval and embeddings: FAISS, BM25, Qdrant, sentence-transformers, the cross-encoder
