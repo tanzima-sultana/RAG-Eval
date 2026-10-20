@@ -145,6 +145,74 @@ writer (Gemini), so no model grades its own work. The runs showed three limits o
 All runs use the same judge. The report marks any run that was judged by a different model.
 
 
+## Results
+
+### Retrieval
+
+The top setups on the 150 validation questions, each scored on its top 20 chunks:
+
+| Chunk | Retrieval | Index | Query | Chunk hit | Chunk recall | Chunk MRR | Doc hit |
+|---|---|---|---|---|---|---|---|
+| sentence | hybrid | FAISS flat + BM25 | original | 0.940 | 0.927 | 0.718 | 0.987 |
+| sentence | hybrid | Qdrant + BM25 | original | 0.940 | 0.927 | 0.716 | 0.987 |
+| sentence | hybrid | FAISS HNSW + BM25 | original | 0.940 | 0.923 | 0.705 | 0.980 |
+| fixed | hybrid | FAISS flat + BM25 | original | 0.913 | 0.900 | 0.729 | 0.967 |
+| semantic | hybrid | FAISS flat + BM25 | original | 0.913 | 0.903 | 0.723 | 0.973 |
+
+Hybrid retrieval with the original question takes all five top places. The best setup finds a source passage for
+94% of the questions and a source document for almost 99%. FAISS flat and Qdrant give almost the same results,
+since both do exact search over the same vectors. The best setup was chosen for the answer runs.
+
+Each table below changes one thing. Everything else stays at the best setup: sentence chunks, hybrid retrieval,
+the original question and the top 20 chunks.
+
+**Chunk type:**
+
+| Chunk type | Chunk hit | Chunk recall | Chunk MRR | Doc hit |
+|---|---|---|---|---|
+| Sentence | 0.940 | 0.927 | 0.718 | 0.987 |
+| Fixed | 0.913 | 0.900 | 0.729 | 0.967 |
+| Semantic | 0.913 | 0.903 | 0.723 | 0.973 |
+
+The three chunk types are close. Sentence chunks lead by about 4 of the 150 questions.
+
+**Retrieval type:**
+
+| Retrieval type | Chunk hit | Chunk recall | Chunk MRR | Doc hit |
+|---|---|---|---|---|
+| Hybrid | 0.940 | 0.927 | 0.718 | 0.987 |
+| Dense | 0.853 | 0.837 | 0.630 | 0.900 |
+| BM25 | 0.853 | 0.820 | 0.702 | 0.907 |
+
+Hybrid finds about 9 points more than either retriever alone, because dense and BM25 find different passages.
+
+**Query type:**
+
+| Query type | Chunk hit | Chunk recall | Chunk MRR | Doc hit |
+|---|---|---|---|---|
+| Original | 0.940 | 0.927 | 0.718 | 0.987 |
+| Rewritten | 0.907 | 0.887 | 0.681 | 0.967 |
+| Multi-query | 0.907 | 0.900 | 0.681 | 0.953 |
+
+The original question works best for hybrid retrieval. HyDE is not shown, since it can only be searched by dense
+retrieval.
+
+**Reranking:**
+
+| Reranking | Chunks kept | Chunk hit | Chunk recall | Chunk MRR | Doc hit |
+|---|---|---|---|---|---|
+| No | 20 | 0.940 | 0.927 | 0.718 | 0.987 |
+| Yes | 5 | 0.853 | 0.837 | 0.768 | 0.947 |
+
+Reranking puts the right chunk higher. Because it keeps only 5 chunks, it misses more passages. The answer runs
+therefore used the top 20 chunks without reranking.
+
+### Generated answers
+
+### Cost and time
+
+## Analysis
+
 <!--
 README plan, agreed 2026-10-16. Sections 1 to 5 are done; write the rest in this order, then remove this note.
 
@@ -160,16 +228,18 @@ README plan, agreed 2026-10-16. Sections 1 to 5 are done; write the rest in this
    - Retrieval metrics: chunk and doc level
    - Answer metrics
    - Judge choice and bias
-6. Results and analysis:
-   - Retrieval comparison: chunk types x indexes x retrieval types, and reranking
-   - Experiment table: baseline -> exp 1 -> exp 2 -> test, with what changed and its effect
-   - Diagnosis: hit vs miss, multi-hop vs single-hop, worst answers
-   - Cost and time per run, including build times and sizes
-7. Problems faced and fixes: issue -> cause -> fix
-8. Setup and how to run: prerequisites, .env, Qdrant in Docker, config.yaml, the scripts, ALLOW_PAID_API
+6. Results (agreed 2026-10-20), written one part at a time:
+   - Retrieval: top 5-10 setups table, then small comparisons by chunk type, retrieval type, query type and
+     reranking, then a short description. No full 186-row table.
+   - Generated answers: baseline -> exp 1 -> exp 2 -> test table, with what changed and its effect
+   - Cost and time: cost per run, build times and sizes
+7. Analysis: hit vs miss, single-hop vs multi-hop, worst answers and the reference-answer ceiling (link to the
+   judge limits in the methodology), why the stronger model gave no gain
+8. Problems faced and fixes: issue -> cause -> fix
+9. Setup and how to run: prerequisites, .env, Qdrant in Docker, config.yaml, the scripts, ALLOW_PAID_API
    (optionally a short VHS terminal GIF)
-9. Known issues and limitations: synthetic eval set, single reference, small test set, judge noise
-10. Future work / what production would add: FastAPI serving with load tests, auth, monitoring, guardrails,
+10. Known issues and limitations: synthetic eval set, single reference, small test set, judge noise
+11. Future work / what production would add: FastAPI serving with load tests, auth, monitoring, guardrails,
     the red-teaming project
 
 Dropped on purpose: project structure (the architecture diagram covers it) and a link to the notebook
