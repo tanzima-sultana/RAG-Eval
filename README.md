@@ -101,6 +101,13 @@ The 200 eval questions are split with a fixed seed into 150 for validation and 5
 on the validation set, while the test set was run only once at the end for the final numbers.
 *Trade-off:* With only 50 test questions, the final numbers are rough (about ±0.07 on correctness).
 
+**8. Built-in code with LangChain as an option:**
+Chunking, embedding, indexing and retrieval are implemented in the project's own code. Each of them also has a
+LangChain path, which one setting turns on. The LangChain path converts its output into the project's own records,
+so every later step works the same way on both paths. Each path keeps its own cache, so their outputs never mix.
+This setup was used to compare the built-in code with LangChain on the same documents.
+*Trade-off:* Two code paths must be kept in step.
+
 ## Evaluation methodology
 
 The numbers and models below are the ones used for the results in this README. All of them are settings in
@@ -260,6 +267,29 @@ calls for generation and judging, so only a filtered list goes to the generation
 - Semantic chunking is the slowest build step, because it embeds every sentence to find where topics change.
 - Every stage is cached, so a rerun with the same settings makes no LLM call and costs nothing.
 
+### Built-in vs LangChain
+
+Both paths were run on the same 5,000 documents with the same settings. The answer stage was evaluated only on the
+built-in path.
+
+| Step | Built-in | LangChain |
+|---|---|---|
+| Chunking time (fixed / sentence / semantic) | 42 s / 46 s / 5.4 min | 68 s / 2.1 min / 9.5 min |
+| Embedding time per chunk type | about 2.2 to 2.5 min | about 3% longer |
+| FAISS flat index size (fixed chunks) | 143 MB | 247 MB |
+| BM25 index size (fixed chunks) | 114 MB | 220 MB |
+| Best chunk recall | 0.927 | 0.927 |
+
+- **Retrieval quality is the same.** On average, chunk hit differs by less than 0.3 points, and both paths pick the
+  same best setups.
+- **LangChain is slower at chunking.** Its splitters return only text, so it tokenizes every chunk a second time to
+  get its size.
+- **LangChain chunks are less clean.** In fixed chunking, 4,252 chunks keep the tokenizer's `[UNK]` placeholder in
+  their text, and 8,873 chunks go over the 256-token limit.
+- **Semantic chunking differs.** LangChain's semantic chunker uses a different rule to split the text, so it made
+  7,318 more chunks (112,218 against 104,900).
+- **LangChain indexes are larger,** because they store every chunk's text next to the vectors.
+
 ## Analysis
 
 ### Hit vs miss
@@ -328,8 +358,49 @@ Experiment 2 replaced Gemini Flash-Lite with Gemini Flash, a stronger model that
 - **The stricter prompt was tested in the same run.** So the effects of the new prompt and the new model cannot be
   told apart.
 
+## Problems faced and fixes
+
+**1. Eval questions linked to no document:**
+*Problem:* 11 of the 200 eval questions were linked to no source document.
+*Cause:* RAGAS sometimes joins sections from different parts of a document into one passage. The full passage is
+then not found in the document text.
+*Fix:* Only the first 80 characters of each passage are matched. The saved eval set was repaired without any new API
+call, and all 200 questions are now linked.
+
+**2. A large and slow embedding cache:**
+*Problem:* The first embedding cache was about 5 times larger than the vectors it held and slow to load. Its vectors
+also came back as float64 instead of float32.
+*Cause:* The cache was JSON, which writes every number as text.
+*Fix:* The cache now uses NumPy's binary `.npz` format. It is 5.1 times smaller, loads in about half the time and
+keeps the float32 type.
+
+**3. A blocked judge reply stopped the run:**
+*Problem:* The judge's content filter blocked its reply for one answer, which stopped the whole run before the
+analysis.
+*Cause:* The code treated a missing score as an error.
+*Fix:* A score the judge cannot give is now stored as empty, counted as unscored and left out of the average. The
+other scores were already cached, so the rerun sent only that one answer.
+
+**4. Tiny extra chunks:**
+*Problem:* The chunkers made extra chunks, some only 1 token long.
+*Cause:* The splitter started one more window after the last token, so the last tokens were chunked twice.
+*Fix:* The splitter now stops at the last token. On 5,000 documents, fixed chunks went from 92,366 to 91,670, and the
+smallest fixed chunk went from 1 token to 17.
+
+**5. Hybrid retrieval with nothing to fuse:**
+*Problem:* The first test run stopped with an empty result.
+*Cause:* Hybrid retrieval was asked for alone, so the dense and BM25 searches it fuses did not run.
+*Fix:* Hybrid retrieval now runs its own dense and BM25 searches. An empty retrieval also stops the run right after
+retrieval, before any paid call, so the failed try cost nothing.
+
+**6. Thinking tokens missing from the cost:**
+*Problem:* The cost of the stronger Gemini model was too low.
+*Cause:* Gemini reports thinking tokens apart from the answer tokens, although it bills them as output.
+*Fix:* The cost now adds thinking tokens to the output tokens.
+
 <!--
-README plan, agreed 2026-10-16. Sections 1 to 7 are done; write the rest in this order, then remove this note.
+README plan, agreed 2026-10-16. Sections 1 to 8 are done; write the rest in this order, then remove this note.
+Design decision 8 (LangChain option) and the Results subsection "Built-in vs LangChain" are done too.
 
 3. Tech stack, grouped:
    - Retrieval and embeddings: FAISS, BM25, Qdrant, sentence-transformers, the cross-encoder
