@@ -3,8 +3,9 @@ test_ingestion.py
 
 Tests for stages.build.ingestion.ingestion: convert_document, which copies a
 doc_ingest Document into this project's Document, and ingestion, which
-calls doc_ingest.ingest_documents with the IngestArgs values and returns
-the converted documents keyed by id.
+loads the documents from the processed data folder when enough are cached,
+and otherwise calls doc_ingest.ingest_documents with the IngestArgs values,
+saves the converted documents and returns them keyed by id.
 
 ingest_documents is replaced with a fake in these tests, so no dataset is
 downloaded. Only RAG-Eval's wiring to the library is tested.
@@ -49,17 +50,18 @@ def make_library_document(doc_id="doc1", doc_type="pdf", text="Some text."):
     return library_document
 
 
-def make_ingest_args():
+def make_ingest_args(output_path, dataset_size=5):
     """
-    Input: none.
-    Output: an IngestArgs with a distinct value in every field.
+    Input: output_path, the base output folder (a pytest tmp_path in tests);
+    dataset_size, the number of documents to ask for.
+    Output: an IngestArgs with a distinct value in every other field.
     What it does: builds IngestArgs so tests can check which values reach
     ingest_documents.
     """
     ingest_args = IngestArgs(
-        dataset_size=5,
+        dataset_size=dataset_size,
         input_path="owner/dataset",
-        output_path="some_output",
+        output_path=str(output_path),
         download_workers=3,
         max_batch_rows=11,
         hugging_face_split="test",
@@ -181,29 +183,30 @@ def test_convert_document_maps_each_document_type():
 # ---------- ingestion ----------
 
 
-def test_ingestion_passes_ingest_args_to_ingest_documents(monkeypatch):
+def test_ingestion_passes_ingest_args_to_ingest_documents(monkeypatch, tmp_path):
     """
     Input: IngestArgs with distinct values and a fake ingest_documents.
     Output: the keyword arguments the fake was called with.
-    What it does: checks size, input_path, cache_dir and the settings
-    values ingestion passes come from IngestArgs.
+    What it does: checks size, input_path and the settings values ingestion
+    passes come from IngestArgs, and that no cache_dir is passed, so the
+    library never decides where this project's data is saved.
     """
     fake_ingest_documents = FakeIngestDocuments([])
     monkeypatch.setattr(ingestion_module, "ingest_documents", fake_ingest_documents)
-    ingest_args = make_ingest_args()
+    ingest_args = make_ingest_args(tmp_path)
 
     ingestion(ingest_args)
 
     called_kwargs = fake_ingest_documents.called_kwargs
     assert called_kwargs["size"] == 5
     assert called_kwargs["input_path"] == "owner/dataset"
-    assert called_kwargs["cache_dir"] == "some_output"
+    assert "cache_dir" not in called_kwargs
     assert called_kwargs["download_settings"].download_workers == 3
     assert called_kwargs["process_settings"].parse_workers == 4
     assert called_kwargs["parser_settings"].pdf_parser == "pypdfium2"
 
 
-def test_ingestion_returns_converted_documents_keyed_by_id(monkeypatch):
+def test_ingestion_returns_converted_documents_keyed_by_id(monkeypatch, tmp_path):
     """
     Input: a fake ingest_documents returning two library Documents.
     Output: ingestion's return value.
@@ -216,7 +219,7 @@ def test_ingestion_returns_converted_documents_keyed_by_id(monkeypatch):
     fake_ingest_documents = FakeIngestDocuments(library_documents)
     monkeypatch.setattr(ingestion_module, "ingest_documents", fake_ingest_documents)
 
-    documents = ingestion(make_ingest_args())
+    documents = ingestion(make_ingest_args(tmp_path, dataset_size=2))
 
     assert list(documents.keys()) == ["first", "second"]
     assert type(documents["first"]) is Document
@@ -224,7 +227,7 @@ def test_ingestion_returns_converted_documents_keyed_by_id(monkeypatch):
     assert documents["second"].text == "Second text."
 
 
-def test_ingestion_returns_empty_dict_when_no_documents(monkeypatch):
+def test_ingestion_returns_empty_dict_when_no_documents(monkeypatch, tmp_path):
     """
     Input: a fake ingest_documents returning no documents.
     Output: ingestion's return value.
@@ -233,12 +236,12 @@ def test_ingestion_returns_empty_dict_when_no_documents(monkeypatch):
     fake_ingest_documents = FakeIngestDocuments([])
     monkeypatch.setattr(ingestion_module, "ingest_documents", fake_ingest_documents)
 
-    documents = ingestion(make_ingest_args())
+    documents = ingestion(make_ingest_args(tmp_path))
 
     assert documents == {}
 
 
-def test_ingestion_prints_processed_dir_and_summary(monkeypatch, capsys):
+def test_ingestion_prints_processed_dir_and_summary(monkeypatch, capsys, tmp_path):
     """
     Input: a fake ingest_documents with a known processed_dir and summary.
     Output: what ingestion printed.
@@ -247,8 +250,75 @@ def test_ingestion_prints_processed_dir_and_summary(monkeypatch, capsys):
     fake_ingest_documents = FakeIngestDocuments([])
     monkeypatch.setattr(ingestion_module, "ingest_documents", fake_ingest_documents)
 
-    ingestion(make_ingest_args())
+    ingestion(make_ingest_args(tmp_path))
 
     printed = capsys.readouterr().out
     assert "some_output/processed" in printed
     assert "FAKE SUMMARY" in printed
+
+
+def test_ingestion_saves_documents_to_the_processed_data_folder(monkeypatch, tmp_path):
+    """
+    Input: a fake ingest_documents returning two library Documents.
+    Output: the files in {output_path}/dataset/data/processed/.
+    What it does: checks each document and doc_ids.json are saved under the
+    dataset's own output folder.
+    """
+    library_documents = []
+    library_documents.append(make_library_document(doc_id="first"))
+    library_documents.append(make_library_document(doc_id="second"))
+    fake_ingest_documents = FakeIngestDocuments(library_documents)
+    monkeypatch.setattr(ingestion_module, "ingest_documents", fake_ingest_documents)
+
+    ingestion(make_ingest_args(tmp_path, dataset_size=2))
+
+    processed_data_path = tmp_path / "dataset" / "data" / "processed"
+    assert (processed_data_path / "first.json").exists()
+    assert (processed_data_path / "second.json").exists()
+    assert (processed_data_path / "doc_ids.json").exists()
+
+
+def test_ingestion_loads_from_cache_without_calling_the_library(monkeypatch, tmp_path):
+    """
+    Input: a first ingestion run that saves two documents, then a second
+    run with a fake ingest_documents that would return nothing.
+    Output: the second run's return value and whether the fake was called.
+    What it does: checks the second run returns the saved documents, in
+    order, and never calls the library.
+    """
+    library_documents = []
+    library_documents.append(make_library_document(doc_id="first", text="First text."))
+    library_documents.append(make_library_document(doc_id="second", text="Second text."))
+    monkeypatch.setattr(ingestion_module, "ingest_documents", FakeIngestDocuments(library_documents))
+    ingestion(make_ingest_args(tmp_path, dataset_size=2))
+
+    second_fake_ingest_documents = FakeIngestDocuments([])
+    monkeypatch.setattr(ingestion_module, "ingest_documents", second_fake_ingest_documents)
+    documents = ingestion(make_ingest_args(tmp_path, dataset_size=2))
+
+    assert second_fake_ingest_documents.called_kwargs is None
+    assert list(documents.keys()) == ["first", "second"]
+    assert documents["second"].text == "Second text."
+
+
+def test_ingestion_calls_the_library_when_too_few_documents_are_cached(monkeypatch, tmp_path):
+    """
+    Input: a first run that saves one document, then a second run asking
+    for two documents.
+    Output: the second run's return value and the fake's recorded call.
+    What it does: checks the library is called for the full dataset_size
+    and that both documents are returned and saved.
+    """
+    monkeypatch.setattr(ingestion_module, "ingest_documents", FakeIngestDocuments([make_library_document(doc_id="first")]))
+    ingestion(make_ingest_args(tmp_path, dataset_size=1))
+
+    library_documents = []
+    library_documents.append(make_library_document(doc_id="first"))
+    library_documents.append(make_library_document(doc_id="second"))
+    second_fake_ingest_documents = FakeIngestDocuments(library_documents)
+    monkeypatch.setattr(ingestion_module, "ingest_documents", second_fake_ingest_documents)
+    documents = ingestion(make_ingest_args(tmp_path, dataset_size=2))
+
+    assert second_fake_ingest_documents.called_kwargs["size"] == 2
+    assert list(documents.keys()) == ["first", "second"]
+    assert (tmp_path / "dataset" / "data" / "processed" / "second.json").exists()

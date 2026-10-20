@@ -1,7 +1,9 @@
 from doc_ingest import ingest_documents
 from doc_ingest import settings
 
+from common import paths
 from common.args import IngestArgs
+from stages.build.ingestion import cache
 from stages.build.ingestion.schema import Document
 from stages.build.ingestion.schema import DocumentType
 from stages.build.ingestion.schema import Metadata
@@ -44,10 +46,19 @@ def ingestion(ingest_args: IngestArgs) -> dict[str, Document]:
 	"""
 	Input: ingest_args, an IngestArgs holding the ingestion settings.
 	Output: a dict of doc_id to this project's Document, one per ingested document.
-	What it does: runs the doc_ingest library on ingest_args.input_path,
-	caching results under ingest_args.output_path, prints the run summary,
-	converts each library Document into our own Document and returns them.
+	What it does: loads the first dataset_size documents from the dataset's
+	processed data folder if enough are cached. Otherwise runs the doc_ingest
+	library on ingest_args.input_path, prints the run summary, converts each
+	library Document into our own Document, saves them and returns them.
 	"""
+	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
+	print(f"Processed data folder : {paths.get_processed_data_path(output_path)}")
+
+	cached_documents = cache.load_documents(output_path, ingest_args.dataset_size)
+	if cached_documents is not None:
+		print(f"Documents : {len(cached_documents)} (all from cache)")
+		return cached_documents
+
 	download_settings = settings.DownloadSettings(download_workers=ingest_args.download_workers)
 	process_settings = settings.ProcessSettings(parse_workers=ingest_args.parse_workers)
 	parser_settings = settings.ParserSettings(pdf_parser=ingest_args.pdf_parser)
@@ -55,7 +66,6 @@ def ingestion(ingest_args: IngestArgs) -> dict[str, Document]:
 	ingest_result = ingest_documents(
 		size=ingest_args.dataset_size,
 		input_path=ingest_args.input_path,
-		cache_dir=ingest_args.output_path,
 		download_settings=download_settings,
 		process_settings=process_settings,
 		parser_settings=parser_settings,
@@ -72,5 +82,8 @@ def ingestion(ingest_args: IngestArgs) -> dict[str, Document]:
 	for library_document in library_documents:
 		document = convert_document(library_document)
 		documents[document.id] = document
+
+	cache.save_documents(output_path, documents)
+	print(f"Documents : {len(documents)} (all newly ingested and saved)")
 
 	return documents

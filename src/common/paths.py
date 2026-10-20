@@ -25,6 +25,16 @@ def get_output_path(input_path:str, output_path:str) -> str:
 	dataset_name = name_and_extension[0]
 	return f"{output_path}/{dataset_name}"
 
+# ------ Ingestion
+def get_processed_data_path(output_path:str) -> str:
+	"""
+	Input: output_path, the dataset's output folder.
+	Output: the processed data folder path as a string, ending with "/".
+	What it does: builds the folder that holds the ingested documents:
+	{output_path}/data/processed/
+	"""
+	return f"{output_path}/data/processed/"
+
 # ------ Chunking
 def get_chunk_path(output_path:str, chunking_args: ChunkingArgs) -> str:
 	"""
