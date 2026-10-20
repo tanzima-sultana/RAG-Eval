@@ -2,7 +2,7 @@
 
 A production-style RAG pipeline built layer by layer, from PDF ingestion to answer evaluation.
 
-It runs on real-world PDF data. It compares 3 chunking strategies, 5 indexes (FAISS flat, IVF and HNSW, BM25 and Qdrant), 3 retrieval types (dense, BM25 and hybrid), 4 query types (original, rewritten, multi-query and HyDE) and cross-encoder reranking. Both the retrieved chunks and the generated answers are scored. All LLM calls go through one LLM layer. Claude, Gemini, ChatGPT and a local Ollama model each handle a different task.
+It runs on real-world PDF data and compares 3 chunking strategies, 5 indexes (FAISS flat, IVF and HNSW, BM25 and Qdrant), 3 retrieval types (dense, BM25 and hybrid), 4 query types (original, rewritten, multi-query and HyDE) and cross-encoder reranking. Both the retrieved chunks and the generated answers are scored. All LLM calls go through one LLM layer, where Claude, Gemini, ChatGPT and a local Ollama model each handle a different task.
 
 ### Key results
 
@@ -15,7 +15,7 @@ It runs on real-world PDF data. It compares 3 chunking strategies, 5 indexes (FA
 
 - **Best setup:** sentence chunks, hybrid retrieval (FAISS + BM25, fused with RRF), top 20, no reranking.
 - **Prompt tuning** raised correctness from 0.55 to 0.61 and halved "I don't know" answers.
-- **Cost:** The 200-question eval set cost $4.88 to generate. The three tuning runs on the validation set cost $9.16. The test run cost $0.78. Cached re-runs cost nothing.
+- **Cost:** The 200-question eval set cost $4.88 to generate. The three tuning runs on the validation set cost $9.16 in total, while the test run cost $0.78. Cached re-runs cost nothing.
 
 ## Architecture
 
@@ -55,50 +55,50 @@ SDK: software development kit
 ## Design decisions
 
 **1. One config file:**
-Every setting lives in `config.yaml`. The build stage reads the build part of the file. The eval stage reads both
-the build and eval parts, so that it always uses the settings the indexes were built with. Any setting can be
-overridden on the command line for one run. A missing or misspelled setting stops the run.
+Every setting lives in `config.yaml`. The build stage reads only the build part of the file. The eval stage reads
+both the build and eval parts, so that it always uses the settings the indexes were built with. Any setting can be
+overridden on the command line for one run, while a missing or misspelled setting stops the run.
 *Trade-off:* Every setting must be in the file, even if it rarely changes.
 
 **2. Separate stages that hand off through files:**
 Build, question, evaluation and analysis each have their own entry script. Each stage saves its output for the next
 stage: documents, chunks, embeddings, indexes, eval questions, queries, answers, scores and eval results. Because of
-this, any stage can be rerun alone. For example, a new report can be made without rerunning the evaluation. The LLM
+this, any stage can be rerun alone, for example to make a new report without rerunning the evaluation. The LLM
 layer and the ingestion library are kept apart from the rest of the code, so that either one can be swapped or reused.
 *Trade-off:* More files are kept on disk.
 
 **3. Cache keys built from the settings:**
-Each layer saves its output under a name that is made from the settings that change it. For example, chunk files are
-named by chunk type, model and sizes. Answers are keyed by their prompt. Judge scores are keyed by the question,
+Each layer saves its output under a name that is made from the settings that change it. Chunk files, for example,
+are named by chunk type, model and sizes, while answers are keyed by their prompt and judge scores by the question,
 answer, context and reference. When nothing has changed, a rerun loads everything and makes no LLM call. When one
 setting changes, only the layers that depend on it are computed again. Each file is first written to a temporary file
 and then renamed, so that a crash never leaves a half-written cache.
 *Trade-off:* If a code change alters the output without changing a setting, its cache must be deleted by hand.
 
 **4. A different LLM provider for each task:**
-Claude writes the eval questions. A local Llama model transforms the queries. Gemini writes the answers.
-GPT-4.1-mini judges the answers. Because each task uses a different provider, no model grades its own work. All
+Each task uses a different provider: Claude for the eval questions, a local Llama model for query transformation,
+Gemini for the answers and GPT-4.1-mini for judging. Because of this split, no model grades its own work. All
 providers go through one LLM layer, which lets a task switch provider in the config. Paid calls only run when
 `ALLOW_PAID_API=1` is set.
 *Trade-off:* Four providers must be set up, with four API keys.
 
 **5. A cheaper model for the knowledge graph:**
-RAGAS first builds a knowledge graph from the documents. It then writes the questions from that graph. Building the
+RAGAS first builds a knowledge graph from the documents and then writes the questions from that graph. Building the
 graph needs a lot of tokens, because whole documents and chunks are sent to the model for simple extraction. Claude
-Haiku does this step, because it costs 20 times less per token than Claude Sonnet. Because the questions and
+Haiku does this step, since it costs 20 times less per token than Claude Sonnet. Because the questions and
 reference answers set the quality of the benchmark, Claude Sonnet writes them. For the 200-question set, Haiku made
-75% of the calls and read 84% of the input tokens. It cost $0.89 of the $4.88 total. The same run on Sonnet alone
-would have cost about $21.86.
+75% of the calls and read 84% of the input tokens but cost only $0.89 of the $4.88 total. The same run on Sonnet
+alone would have cost about $21.86.
 *Trade-off:* Two models must be configured for one step.
 
 **6. Batch API for generation:**
-Answers are sent to Gemini as one batch, which costs half the normal price. The batch id is saved. If a run stops,
-the next run picks up the same batch instead of paying again.
+Answers are sent to Gemini as one batch, which costs half the normal price. The batch id is saved, so that a run
+which stops can pick up the same batch later instead of paying again.
 *Trade-off:* A batch can take minutes to hours instead of seconds.
 
 **7. A validation set and a test set:**
 The 200 eval questions are split with a fixed seed into 150 for validation and 50 for test. Every setting was chosen
-on the validation set. The test set was run only once, at the end, for the final numbers.
+on the validation set, while the test set was run only once at the end for the final numbers.
 *Trade-off:* With only 50 test questions, the final numbers are rough (about ±0.07 on correctness).
 
 ## Evaluation methodology
