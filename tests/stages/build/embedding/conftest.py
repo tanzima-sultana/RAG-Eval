@@ -8,25 +8,6 @@ import numpy as np
 import pytest
 
 
-@pytest.fixture
-def isolated_data_dir(tmp_path, monkeypatch):
-    """
-    tmp_path: pytest's built-in temporary directory for this test.
-    monkeypatch: pytest's built-in fixture for reverting changes after
-        the test.
-
-    Changes the current working directory to tmp_path for the
-    duration of the test, so any code under test that writes to
-    relative paths (a dataset's data/processed/, chunks/, and
-    embeddings/ -- see common.paths) writes into an isolated temporary
-    directory instead of this repo's real files.
-
-    Returns tmp_path, the isolated working directory.
-    """
-    monkeypatch.chdir(tmp_path)
-    return tmp_path
-
-
 class FakeSentenceTransformer:
     """
     Stand-in for sentence_transformers.SentenceTransformer: exposes

@@ -89,7 +89,6 @@ src/
 
 			indexing/
 				schema.py            	# Defines the Index dataclass — the normalized record format every created index is converted into
-				indexer.py           	# Abstract base class and common shared methods for index types classes
 				indexers/
 					faiss.py           		# FAISS(flatip, ivf, hnsw) strategy
 					bm25.py            		# BM25 strategy
@@ -143,7 +142,6 @@ src/
 			evaluation/
 				schema.py            			# Defines dataclass for eval results
 				validate.py		     			# Validate given parameters
-				summary.py            			# Prints eval results
 				answer_evaluation.py            # Evaluates generated ans
 				retrieval_evaluation.py         # Evaluates retrieval quality and filters them 
 		
@@ -154,7 +152,7 @@ src/
 			cache.py	           			# Store and retrieve analysis results
 			summary.py            			# Prints analysis results
 			comparison.py            		# Comapre runs upto 5
-			disgnosis.py         			# Explains where answers lose points
+			diagnosis.py         			# Explains where answers lose points
 			report.py         				# Writes the summary tables
 
 

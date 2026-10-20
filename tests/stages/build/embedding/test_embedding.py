@@ -2,483 +2,172 @@
 test_embedding.py
 
 Tests for stages.build.embedding.embedding.Embedding: the orchestrator that
-loads a dataset's cached chunks, embeds every chunk that has no
-embedding cached yet, and saves/caches the resulting vectors.
+loads each chunk's cached embedding, embeds every chunk that has none in one
+encode() call, and saves the new embeddings as one file per document.
 
-Every test here uses isolated_data_dir (so writes to a dataset's
-data/processed/, chunks/, and embeddings/ land in a temporary
-directory, never this repo's real files) and
-fake_sentence_transformer_class (so constructing an Embedding never
-downloads or runs a real embedding model). FakeSentenceTransformer
-also records every encode() call it receives, so the compute_embeddings
-tests below can check chunks are batched into as few encode() calls as
-possible instead of one call per chunk.
-
-Embedding takes a ChunkConfig (dataset_name, chunk_type,
-min_chunk_size, max_chunk_size, fixed_chunk_overlap,
-semantic_threshold bundled together -- see common.chunk_config) plus
-dataset_size and model_name as constructor arguments, the same shape
-stages.build.chunking.chunking.Chunking takes. compute_embeddings reads
-chunk_type off that same chunk_config rather than taking it as its own
-argument.
+Every test uses fake_sentence_transformer_class, so no real embedding model is
+downloaded or run, and writes only under pytest's tmp_path.
 """
 
-import dataclasses
-import json
 import os
 
 import numpy as np
-import pytest
 
-from common.chunk_config import ChunkConfig
 from common import paths
+from common.args import ChunkingArgs
 from stages.build.chunking.schema import Chunk
 from stages.build.embedding.embedding import Embedding
 from stages.build.embedding.schema import Embedded
 
 
-def _make_embedding(
-    dataset_size=1, chunk_type="fixed", min_chunk_size=1, max_chunk_size=10, fixed_chunk_overlap=0, semantic_threshold=0.0
-):
+def make_chunking_args(framework=""):
     """
-    dataset_size, chunk_type, min_chunk_size, max_chunk_size,
-        fixed_chunk_overlap, semantic_threshold: overridable
-        ChunkConfig/Embedding values; each defaults to a value that
-        keeps chunk/embedding paths short and predictable in tests
-        that do not care about it specifically.
-
-    Returns an Embedding built for dataset_name "myset" and
-    model_name "fake" (fake_sentence_transformer_class must already be
-    active in the calling test, so this never loads a real model).
+    Input: framework, "" for the built-in embedding or "langchain".
+    Output: a ChunkingArgs with model_name "fake-model" and small chunk sizes.
+    What it does: builds the settings the embedding folder path is made from.
     """
-    chunk_config = ChunkConfig(
-        dataset_name="myset",
-        chunk_type=chunk_type,
-        min_chunk_size=min_chunk_size,
-        max_chunk_size=max_chunk_size,
-        fixed_chunk_overlap=fixed_chunk_overlap,
-        semantic_threshold=semantic_threshold,
+    chunking_args = ChunkingArgs(
+        framework=framework,
+        model_name="fake-model",
+        chunk_type="fixed",
+        min_chunk_size=1,
+        max_chunk_size=10,
+        fixed_chunk_overlap=0,
+        semantic_threshold=0.0,
     )
-    return Embedding(chunk_config, dataset_size=dataset_size, model_name="fake")
+    return chunking_args
 
 
-def _touch_processed_document(data_path, doc_id):
+def make_chunks(doc_id, texts):
     """
-    data_path: directory to create the placeholder processed-document
-        file in (created if missing).
-    doc_id: identifies the file to create.
-
-    Creates an empty {doc_id}.json file under data_path.
-    Embedding.load_document_ids never reads a processed document's
-    contents, only its file name, so an empty placeholder is enough to
-    stand in for a real ingestion output file.
-
-    Returns nothing.
+    Input: doc_id and texts, one text per chunk.
+    Output: a dict of chunk_id to Chunk with ids "{doc_id}_0", "{doc_id}_1", ...
+    What it does: builds the chunks of one document.
     """
-    os.makedirs(data_path, exist_ok=True)
-    file_path = os.path.join(data_path, f"{doc_id}.json")
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write("{}")
-
-
-def _write_chunk_file(chunk_path, chunk):
-    """
-    chunk_path: directory to write the chunk JSON file into (created
-        if missing).
-    chunk: the Chunk to persist, written as {chunk.id}.json in the
-        same shape stages.build.chunking.chunking.Chunking._save_chunks writes,
-        so Embedding._load_cached_chunks can read it back.
-
-    Returns nothing.
-    """
-    os.makedirs(chunk_path, exist_ok=True)
-    file_path = os.path.join(chunk_path, f"{chunk.id}.json")
-    with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(dataclasses.asdict(chunk), f)
+    chunks = {}
+    for chunk_index in range(len(texts)):
+        chunk_id = f"{doc_id}_{chunk_index}"
+        chunks[chunk_id] = Chunk(chunk_id, texts[chunk_index], 1, "fixed")
+    return chunks
 
 
 # ---------- __init__ ----------
 
 
-def test_init_stores_every_constructor_argument(isolated_data_dir, fake_sentence_transformer_class):
+def test_init_loads_the_model_named_in_chunking_args(fake_sentence_transformer_class):
     """
-    Input: an Embedding constructed with the SentenceTransformer class
-    faked out.
-    Output: every attribute __init__ is expected to set.
-
-    Checks that __init__ stores chunk_config as-is, and loads a model
-    via SentenceTransformer(model_name, ...).
+    Input: an Embedding built for the built-in framework.
+    Output: its chunking_args and model.
+    What it does: checks chunking_args is stored and the model is loaded with model_name.
     """
-    chunk_config = ChunkConfig(
-        dataset_name="myset",
-        chunk_type="fixed",
-        min_chunk_size=1,
-        max_chunk_size=10,
-        fixed_chunk_overlap=2,
-        semantic_threshold=0.3,
-    )
+    chunking_args = make_chunking_args()
 
-    embedding = Embedding(chunk_config, dataset_size=5, model_name="fake-model")
+    embedding = Embedding(chunking_args)
 
-    assert embedding.chunk_config is chunk_config
-    assert embedding.dataset_size == 5
-    assert embedding.model_name == "fake-model"
+    assert embedding.chunking_args is chunking_args
     assert embedding.model.model_name == "fake-model"
 
 
-# ---------- load_document_ids ----------
-
-
-def test_load_document_ids_raises_file_not_found_when_data_path_does_not_exist(
-    isolated_data_dir, fake_sentence_transformer_class
-):
+def test_init_does_not_load_a_model_for_langchain(fake_sentence_transformer_class):
     """
-    Input: a data_path that has never been created.
-    Output: none; load_document_ids is expected to raise
-    FileNotFoundError.
+    Input: an Embedding built for the langchain framework.
+    Output: its model.
+    What it does: checks no model is loaded, because the Langchain class loads its own.
     """
-    embedding = _make_embedding()
-    missing_path = str(isolated_data_dir / "never_created")
+    embedding = Embedding(make_chunking_args(framework="langchain"))
 
-    with pytest.raises(FileNotFoundError):
-        embedding.load_document_ids(missing_path, 1)
-
-
-def test_load_document_ids_raises_value_error_when_data_path_is_empty(
-    isolated_data_dir, fake_sentence_transformer_class
-):
-    """
-    Input: a data_path that exists but holds no files.
-    Output: none; load_document_ids is expected to raise ValueError.
-    """
-    embedding = _make_embedding()
-    empty_path = str(isolated_data_dir / "empty")
-    os.makedirs(empty_path)
-
-    with pytest.raises(ValueError):
-        embedding.load_document_ids(empty_path, 1)
-
-
-def test_load_document_ids_raises_value_error_when_dataset_size_exceeds_available_files(
-    isolated_data_dir, fake_sentence_transformer_class
-):
-    """
-    Input: a data_path holding one processed document, and a
-    dataset_size of 2.
-    Output: none; load_document_ids is expected to raise ValueError.
-    """
-    embedding = _make_embedding()
-    data_path = str(isolated_data_dir / "docs")
-    _touch_processed_document(data_path, "doc1")
-
-    with pytest.raises(ValueError):
-        embedding.load_document_ids(data_path, 2)
-
-
-def test_load_document_ids_returns_first_dataset_size_ids_in_sorted_order(
-    isolated_data_dir, fake_sentence_transformer_class
-):
-    """
-    Input: three processed-document files written out of order, and a
-    dataset_size of 2.
-    Output: load_document_ids's return value.
-
-    Checks that ids come back sorted by file name and truncated to
-    dataset_size, regardless of the order the files were created in.
-    """
-    embedding = _make_embedding()
-    data_path = str(isolated_data_dir / "docs")
-    _touch_processed_document(data_path, "doc2")
-    _touch_processed_document(data_path, "doc1")
-    _touch_processed_document(data_path, "doc3")
-
-    doc_ids = embedding.load_document_ids(data_path, 2)
-
-    assert doc_ids == ["doc1", "doc2"]
-
-
-# ---------- json_dict_to_chunk ----------
-
-
-def test_json_dict_to_chunk_reconstructs_a_chunk(isolated_data_dir, fake_sentence_transformer_class):
-    """
-    Input: a dict shaped like dataclasses.asdict(chunk).
-    Output: embedding.json_dict_to_chunk's return value.
-    """
-    embedding = _make_embedding()
-    data = {"id": "doc1_0", "text": "hello world", "size": 2, "type": "fixed"}
-
-    chunk = embedding.json_dict_to_chunk(data)
-
-    assert chunk == Chunk(id="doc1_0", text="hello world", size=2, type="fixed")
-
-
-# ---------- _load_cached_chunks ----------
-
-
-def test_load_cached_chunks_returns_none_when_chunk_path_does_not_exist(
-    isolated_data_dir, fake_sentence_transformer_class
-):
-    """
-    Input: a chunk_path that has never been created.
-    Output: embedding._load_cached_chunks's return value.
-    """
-    embedding = _make_embedding()
-    chunk_path = str(isolated_data_dir / "never_created")
-
-    assert embedding._load_cached_chunks(chunk_path, "doc1") is None
-
-
-def test_load_cached_chunks_returns_none_when_doc_id_has_no_cached_files(
-    isolated_data_dir, fake_sentence_transformer_class
-):
-    """
-    Input: chunk_path exists and holds another doc_id's chunk, but
-    none for the doc_id being looked up.
-    Output: embedding._load_cached_chunks's return value.
-    """
-    embedding = _make_embedding()
-    chunk_path = str(isolated_data_dir / "chunks_out")
-    _write_chunk_file(chunk_path, Chunk(id="doc2_0", text="x", size=1, type="fixed"))
-
-    assert embedding._load_cached_chunks(chunk_path, "doc1") is None
-
-
-def test_load_cached_chunks_reads_every_matching_chunk_file(isolated_data_dir, fake_sentence_transformer_class):
-    """
-    Input: chunk_path holding two chunks for doc1 and one for doc2.
-    Output: embedding._load_cached_chunks's return value for doc1.
-
-    Checks that only doc1's chunks are returned, keyed by chunk_id.
-    """
-    embedding = _make_embedding()
-    chunk_path = str(isolated_data_dir / "chunks_out")
-    _write_chunk_file(chunk_path, Chunk(id="doc1_0", text="a", size=1, type="fixed"))
-    _write_chunk_file(chunk_path, Chunk(id="doc1_1", text="b", size=1, type="fixed"))
-    _write_chunk_file(chunk_path, Chunk(id="doc2_0", text="c", size=1, type="fixed"))
-
-    chunks = embedding._load_cached_chunks(chunk_path, "doc1")
-
-    assert chunks == {
-        "doc1_0": Chunk(id="doc1_0", text="a", size=1, type="fixed"),
-        "doc1_1": Chunk(id="doc1_1", text="b", size=1, type="fixed"),
-    }
-
-
-# ---------- embedding_to_json_dict / json_dict_to_embedding ----------
-
-
-def test_embedding_to_json_dict_and_back_round_trips(isolated_data_dir, fake_sentence_transformer_class):
-    """
-    Input: a fully-populated Embedded.
-    Output: embedding.embedding_to_json_dict then
-    embedding.json_dict_to_embedding, applied in sequence.
-
-    Checks embeddings is stored as a JSON-serializable list in
-    between, and comes back as an equivalent ndarray.
-    """
-    embedding = _make_embedding()
-    embedded = Embedded(chunk_id="doc1_0", embeddings=np.array([1.0, 2.0, 3.0]), normalized=True)
-
-    data = embedding.embedding_to_json_dict(embedded)
-    restored = embedding.json_dict_to_embedding(data)
-
-    assert data["embeddings"] == [1.0, 2.0, 3.0]
-    assert restored.chunk_id == "doc1_0"
-    assert np.array_equal(restored.embeddings, embedded.embeddings)
-    assert restored.normalized is True
-
-
-# ---------- _save_embeddings / _load_cached_embeddings ----------
-
-
-def test_load_cached_embeddings_returns_none_when_file_does_not_exist(
-    isolated_data_dir, fake_sentence_transformer_class
-):
-    """
-    Input: an embedding_path that has never been written to.
-    Output: embedding._load_cached_embeddings's return value.
-    """
-    embedding = _make_embedding()
-    embedding_path = str(isolated_data_dir / "never_created")
-
-    assert embedding._load_cached_embeddings(embedding_path, "doc1_0") is None
-
-
-def test_save_and_load_embeddings_round_trips(isolated_data_dir, fake_sentence_transformer_class):
-    """
-    Input: an Embedded saved via embedding._save_embeddings.
-    Output: embedding._load_cached_embeddings's return value for the
-    same chunk_id.
-    """
-    embedding = _make_embedding()
-    embedding_path = str(isolated_data_dir / "embeddings_out")
-    embedded = Embedded(chunk_id="doc1_0", embeddings=np.array([1.0, 2.0]), normalized=True)
-
-    embedding._save_embeddings(embedding_path, "doc1_0", embedded)
-    loaded = embedding._load_cached_embeddings(embedding_path, "doc1_0")
-
-    assert loaded.chunk_id == "doc1_0"
-    assert np.array_equal(loaded.embeddings, embedded.embeddings)
-    assert loaded.normalized is True
+    assert embedding.model is None
 
 
 # ---------- compute_embeddings ----------
 
 
-def test_compute_embeddings_raises_value_error_for_unknown_chunk_type_before_loading_anything(
-    isolated_data_dir, fake_sentence_transformer_class
-):
+def test_compute_embeddings_embeds_every_chunk_and_saves_one_file_per_document(fake_sentence_transformer_class, tmp_path):
     """
-    Input: an Embedding whose chunk_config names an unknown chunk_type,
-    and no processed-documents directory created at all.
-    Output: none; compute_embeddings is expected to raise ValueError.
-
-    Checks that chunk_type is validated against the stages.build.chunking
-    strategy registry before load_document_ids ever runs, so a
-    missing processed-documents directory never gets a chance to
-    raise its own FileNotFoundError first.
+    Input: three chunks from two documents, nothing cached.
+    Output: compute_embeddings' return value and the files in the embedding folder.
+    What it does: checks every chunk gets its own vector and each document gets one {doc_id}.npz.
     """
-    embedding = _make_embedding(dataset_size=1, chunk_type="totally-bogus-chunk-type")
+    chunks = {}
+    chunks.update(make_chunks("doc1", ["a", "bb"]))
+    chunks.update(make_chunks("doc2", ["ccc"]))
+    chunking_args = make_chunking_args()
 
-    with pytest.raises(ValueError):
-        embedding.compute_embeddings()
+    embeddings = Embedding(chunking_args).compute_embeddings(chunks, str(tmp_path))
+
+    assert list(embeddings.keys()) == ["doc1_0", "doc1_1", "doc2_0"]
+    assert type(embeddings["doc1_0"]) is Embedded
+    assert embeddings["doc1_0"].normalized is True
+    np.testing.assert_array_equal(embeddings["doc1_1"].embeddings, [2.0, 1.0])
+    np.testing.assert_array_equal(embeddings["doc2_0"].embeddings, [3.0, 1.0])
+    embedding_path = paths.get_embedding_path(str(tmp_path), chunking_args)
+    assert sorted(os.listdir(embedding_path)) == ["doc1.npz", "doc2.npz"]
 
 
-def test_compute_embeddings_end_to_end_embeds_and_persists_new_chunks(
-    isolated_data_dir, fake_sentence_transformer_class
-):
+def test_compute_embeddings_sends_all_chunks_in_one_encode_call(fake_sentence_transformer_class, tmp_path):
     """
-    Input: one processed document with two cached chunks, and no
-    embeddings cached yet.
-    Output: embedding.compute_embeddings()'s return value, and the
-    files written under paths.get_embeddings_path for this test's
-    chunk_config.
-
-    Checks the whole pipeline end to end: chunks are loaded, embedded,
-    and both returned and persisted to disk.
+    Input: chunks from two documents, nothing cached.
+    Output: the encode() calls the fake model received.
+    What it does: checks every chunk text goes to the model in a single call.
     """
-    data_path = paths.get_processed_dataset_path("myset")
-    _touch_processed_document(data_path, "doc1")
-    embedding = _make_embedding(dataset_size=1)
-    chunk_path = paths.get_chunk_path(embedding.chunk_config)
-    _write_chunk_file(chunk_path, Chunk(id="doc1_0", text="hello world", size=2, type="fixed"))
-    _write_chunk_file(chunk_path, Chunk(id="doc1_1", text="goodbye", size=1, type="fixed"))
+    chunks = {}
+    chunks.update(make_chunks("doc1", ["a", "bb"]))
+    chunks.update(make_chunks("doc2", ["ccc"]))
+    embedding = Embedding(make_chunking_args())
 
-    embeddings = embedding.compute_embeddings()
+    embedding.compute_embeddings(chunks, str(tmp_path))
 
-    assert set(embeddings.keys()) == {"doc1_0", "doc1_1"}
-    assert embeddings["doc1_0"].chunk_id == "doc1_0"
-    assert np.array_equal(embeddings["doc1_0"].embeddings, np.array([float(len("hello world")), 1.0]))
-    assert np.array_equal(embeddings["doc1_1"].embeddings, np.array([float(len("goodbye")), 1.0]))
-    assert embeddings["doc1_1"].normalized is True
-    output_path = paths.get_embeddings_path(embedding.chunk_config)
-    assert sorted(os.listdir(output_path)) == ["doc1_0.json", "doc1_1.json"]
+    assert embedding.model.encode_calls == [["a", "bb", "ccc"]]
 
 
-def test_compute_embeddings_batches_all_pending_chunks_into_one_encode_call(
-    isolated_data_dir, fake_sentence_transformer_class
-):
+def test_compute_embeddings_loads_everything_from_cache_on_a_second_run(fake_sentence_transformer_class, tmp_path):
     """
-    Input: two processed documents, each with one cached chunk, none
-    of which have embeddings cached yet.
-    Output: embedding.model.encode_calls after compute_embeddings
-    runs.
-
-    Checks that every not-yet-cached chunk across every document is
-    embedded in a single model.encode call, in doc_id order, instead
-    of one call per chunk.
+    Input: the same chunks embedded twice.
+    Output: the second run's encode() calls and return value.
+    What it does: checks the second run never calls the model and returns the same vectors.
     """
-    data_path = paths.get_processed_dataset_path("myset")
-    _touch_processed_document(data_path, "doc1")
-    _touch_processed_document(data_path, "doc2")
-    embedding = _make_embedding(dataset_size=2)
-    chunk_path = paths.get_chunk_path(embedding.chunk_config)
-    _write_chunk_file(chunk_path, Chunk(id="doc1_0", text="a", size=1, type="fixed"))
-    _write_chunk_file(chunk_path, Chunk(id="doc2_0", text="bb", size=1, type="fixed"))
+    chunks = make_chunks("doc1", ["a", "bb"])
+    first_embeddings = Embedding(make_chunking_args()).compute_embeddings(chunks, str(tmp_path))
 
-    embedding.compute_embeddings()
+    second_embedding = Embedding(make_chunking_args())
+    second_embeddings = second_embedding.compute_embeddings(chunks, str(tmp_path))
 
-    assert embedding.model.encode_calls == [["a", "bb"]]
+    assert second_embedding.model.encode_calls == []
+    assert list(second_embeddings.keys()) == list(first_embeddings.keys())
+    np.testing.assert_array_equal(second_embeddings["doc1_1"].embeddings, first_embeddings["doc1_1"].embeddings)
 
 
-def test_compute_embeddings_skips_encode_call_when_every_chunk_already_cached(
-    isolated_data_dir, fake_sentence_transformer_class
-):
+def test_compute_embeddings_only_embeds_documents_that_are_not_cached(fake_sentence_transformer_class, tmp_path):
     """
-    Input: one processed document with one cached chunk, whose
-    embedding is already cached on disk.
-    Output: embedding.model.encode_calls, and
-    compute_embeddings()'s return value.
-
-    Checks the per-chunk cache-hit branch: once a chunk's embedding is
-    already on disk, compute_embeddings must reuse it straight from
-    disk instead of calling model.encode at all.
+    Input: doc1 embedded in a first run, then doc1 and doc2 in a second run.
+    Output: the second run's encode() calls and return value.
+    What it does: checks only doc2's chunks go to the model and both documents are returned.
     """
-    data_path = paths.get_processed_dataset_path("myset")
-    _touch_processed_document(data_path, "doc1")
-    embedding = _make_embedding(dataset_size=1)
-    chunk_path = paths.get_chunk_path(embedding.chunk_config)
-    _write_chunk_file(chunk_path, Chunk(id="doc1_0", text="hello", size=1, type="fixed"))
-    output_path = paths.get_embeddings_path(embedding.chunk_config)
-    cached_embedded = Embedded(chunk_id="doc1_0", embeddings=np.array([9.0, 9.0]), normalized=True)
-    embedding._save_embeddings(output_path, "doc1_0", cached_embedded)
+    Embedding(make_chunking_args()).compute_embeddings(make_chunks("doc1", ["a"]), str(tmp_path))
 
-    embeddings = embedding.compute_embeddings()
+    chunks = {}
+    chunks.update(make_chunks("doc1", ["a"]))
+    chunks.update(make_chunks("doc2", ["bb", "ccc"]))
+    embedding = Embedding(make_chunking_args())
+    embeddings = embedding.compute_embeddings(chunks, str(tmp_path))
 
-    assert embedding.model.encode_calls == []
-    assert np.array_equal(embeddings["doc1_0"].embeddings, np.array([9.0, 9.0]))
+    assert embedding.model.encode_calls == [["bb", "ccc"]]
+    assert sorted(embeddings.keys()) == ["doc1_0", "doc2_0", "doc2_1"]
 
 
-def test_compute_embeddings_only_embeds_the_not_yet_cached_chunks(
-    isolated_data_dir, fake_sentence_transformer_class
-):
+def test_compute_embeddings_prints_cached_and_new_counts(fake_sentence_transformer_class, tmp_path, capsys):
     """
-    Input: one processed document with two cached chunks, one of
-    which already has a cached embedding and one of which does not.
-    Output: embedding.model.encode_calls, and
-    compute_embeddings()'s return value.
-
-    Checks that the already-cached chunk's text is never sent to
-    model.encode, while the not-yet-cached chunk still gets a freshly
-    computed embedding, in the same run.
+    Input: one document cached, one new.
+    Output: what the second run printed.
+    What it does: checks the counts line splits the embeddings into cached and new.
     """
-    data_path = paths.get_processed_dataset_path("myset")
-    _touch_processed_document(data_path, "doc1")
-    embedding = _make_embedding(dataset_size=1)
-    chunk_path = paths.get_chunk_path(embedding.chunk_config)
-    _write_chunk_file(chunk_path, Chunk(id="doc1_0", text="cached chunk", size=2, type="fixed"))
-    _write_chunk_file(chunk_path, Chunk(id="doc1_1", text="new", size=1, type="fixed"))
-    output_path = paths.get_embeddings_path(embedding.chunk_config)
-    cached_embedded = Embedded(chunk_id="doc1_0", embeddings=np.array([9.0, 9.0]), normalized=True)
-    embedding._save_embeddings(output_path, "doc1_0", cached_embedded)
+    Embedding(make_chunking_args()).compute_embeddings(make_chunks("doc1", ["a"]), str(tmp_path))
+    capsys.readouterr()
 
-    embeddings = embedding.compute_embeddings()
+    chunks = {}
+    chunks.update(make_chunks("doc1", ["a"]))
+    chunks.update(make_chunks("doc2", ["bb"]))
+    Embedding(make_chunking_args()).compute_embeddings(chunks, str(tmp_path))
 
-    assert embedding.model.encode_calls == [["new"]]
-    assert np.array_equal(embeddings["doc1_0"].embeddings, np.array([9.0, 9.0]))
-    assert np.array_equal(embeddings["doc1_1"].embeddings, np.array([float(len("new")), 1.0]))
-
-
-def test_compute_embeddings_skips_document_ids_with_no_cached_chunks(
-    isolated_data_dir, fake_sentence_transformer_class
-):
-    """
-    Input: two processed documents, only one of which has any cached
-    chunks.
-    Output: compute_embeddings()'s return value.
-
-    Checks that a document with no chunks cached yet under chunk_path
-    is silently skipped, and does not stop the other document's
-    chunks from being embedded.
-    """
-    data_path = paths.get_processed_dataset_path("myset")
-    _touch_processed_document(data_path, "doc1")
-    _touch_processed_document(data_path, "doc2")
-    embedding = _make_embedding(dataset_size=2)
-    chunk_path = paths.get_chunk_path(embedding.chunk_config)
-    _write_chunk_file(chunk_path, Chunk(id="doc2_0", text="only doc2 has chunks", size=4, type="fixed"))
-
-    embeddings = embedding.compute_embeddings()
-
-    assert set(embeddings.keys()) == {"doc2_0"}
+    printed = capsys.readouterr().out
+    assert "Embeddings : 2 (1 from cache, 1 new)" in printed
