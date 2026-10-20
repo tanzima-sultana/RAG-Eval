@@ -79,12 +79,20 @@ GPT-4.1-mini judges them, so no model grades its own work. All of them go throug
 switch provider in the config. Paid calls only run when `ALLOW_PAID_API=1` is set.
 *Trade-off:* four providers to set up, with four API keys.
 
-**5. Batch API for generation:**
+**5. A cheaper model for the knowledge graph:**
+RAGAS first builds a knowledge graph from the documents, then writes the questions from it. Building the graph
+sends whole documents and chunks to the model for simple extraction, so it runs on Claude Haiku; the questions and
+reference answers set the quality of the benchmark, so they stay on Claude Sonnet. For the 200-question set, Haiku
+made 75% of the calls and read 84% of the input tokens for $0.89 of the $4.88 total. The same run on Sonnet alone
+would have cost about $21.86.
+*Trade-off:* two models to configure for one step.
+
+**6. Batch API for generation:**
 Answers are sent to Gemini as one batch at half the normal price. The batch id is saved, so a stopped run picks up
 the same batch instead of paying again.
 *Trade-off:* a batch can take minutes to hours instead of seconds.
 
-**6. A validation set and a test set:**
+**7. A validation set and a test set:**
 The 200 eval questions are split with a fixed seed into 150 for validation and 50 for test. Every setting was chosen
 on the validation set; the test set was run once, at the end, for the final numbers.
 *Trade-off:* 50 test questions give a rough number (about ±0.07 on correctness).
