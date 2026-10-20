@@ -1,7 +1,7 @@
 """
 analysis.py
 
-Analysis orchestrator. Runs after l10: summarises the run's retrieval and answer evaluations, diagnoses where answers
+Analysis orchestrator. Runs after evaluation: summarises the run's retrieval and answer evaluations, diagnoses where answers
 lose points, lists the worst answers, saves the run and compares it with the most recent earlier runs, then writes
 everything to the run's report.
 """
@@ -26,8 +26,8 @@ from common import paths
 from common.args import AnalysisArgs
 from stages.evaluation.retrieval.schema import Retrieved
 from stages.evaluation.generation.schema import Generated
-from l10_evaluation.schema import AnswerEvaluation
-from l10_evaluation.schema import RetrievalEvaluation
+from stages.evaluation.evaluation.schema import AnswerEvaluation
+from stages.evaluation.evaluation.schema import RetrievalEvaluation
 from stages.question.qna.schema import EvalQnA
 
 def analyze_run(output_path: str, analysis_args: AnalysisArgs, settings: dict, retrieval_evaluations: list[tuple[Retrieved, RetrievalEvaluation]], retrieved_list: list[Retrieved], retrieval_evaluation_list: list[RetrievalEvaluation], generated_list: list[Generated], answer_evaluations: list[AnswerEvaluation], eval_qna: list[EvalQnA]) -> AnalysisRun:

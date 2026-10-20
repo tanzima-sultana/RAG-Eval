@@ -25,16 +25,16 @@ from stages.evaluation.prompt.prompt import get_prompt_list
 from stages.evaluation.prompt.prompt_template import SYSTEM_PROMPT
 from stages.evaluation.prompt.prompt_template import USER_PROMPT_TEMPLATE
 from stages.evaluation.generation.generation import get_generated_list
-from l10_evaluation.retrieval_evaluation import RetrievalEvaluator
-from l10_evaluation.answer_evaluation import get_answer_evaluations
+from stages.evaluation.evaluation.retrieval_evaluation import RetrievalEvaluator
+from stages.evaluation.evaluation.answer_evaluation import get_answer_evaluations
 from analysis.analysis import analyze_run
 from stages.question.query.schema import Query
 from stages.evaluation.retrieval.schema import Retrieved
 from stages.evaluation.context.schema import Context
 from stages.evaluation.prompt.schema import Prompt
 from stages.evaluation.generation.schema import Generated
-from l10_evaluation.schema import RetrievalEvaluation
-from l10_evaluation.schema import AnswerEvaluation
+from stages.evaluation.evaluation.schema import RetrievalEvaluation
+from stages.evaluation.evaluation.schema import AnswerEvaluation
 from analysis.schema import AnalysisRun
 from stages.question.qna.schema import EvalQnA
 
@@ -339,7 +339,7 @@ def run_eval(args) -> AnalysisRun:
 	"""
 	Input: args, the parsed eval arguments, holding the settings of the build to evaluate.
 	Output: the run's AnalysisRun.
-	What it does: loads the build, eval QnA and queries, then runs retrieval to l10 evaluation and the analysis on
+	What it does: loads the build, eval QnA and queries, then runs retrieval to evaluation and the analysis on
 	the query split chosen by query_split.
 	"""
 	ingest_args = make_ingest_args(args)

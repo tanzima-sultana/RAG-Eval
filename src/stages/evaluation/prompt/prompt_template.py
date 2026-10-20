@@ -7,7 +7,7 @@ The prompts the generation LLM gets for each eval question. The user prompt is f
 from common import constants
 
 # The system prompts, numbered so earlier ones stay for comparison. Each is the same for every prompt.
-# I_DONT_KNOW is the same constant query transformation uses, so l10 can find the answers where the LLM did not know
+# I_DONT_KNOW is the same constant query transformation uses, so evaluation can find the answers where the LLM did not know
 
 # Prompt 0, the first: one short answer, or I_DONT_KNOW exactly
 SYSTEM_PROMPT_0 = """You answer questions using only the context you are given.

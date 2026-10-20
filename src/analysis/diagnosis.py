@@ -10,8 +10,8 @@ from analysis.summary import get_setup_key
 from common import constants
 from stages.evaluation.retrieval.schema import Retrieved
 from stages.evaluation.generation.schema import Generated
-from l10_evaluation.schema import AnswerEvaluation
-from l10_evaluation.schema import RetrievalEvaluation
+from stages.evaluation.evaluation.schema import AnswerEvaluation
+from stages.evaluation.evaluation.schema import RetrievalEvaluation
 from stages.question.qna.schema import EvalQnA
 
 def get_answer_score_cells(answer_evaluation_list: list[AnswerEvaluation]) -> str:

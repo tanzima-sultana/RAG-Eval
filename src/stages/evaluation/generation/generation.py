@@ -51,7 +51,7 @@ def generate_answers(prompt_list: list[Prompt], generation_args: GenerationArgs,
 				qus = ""
 
 			# The system prompt asks for exactly I_DONT_KNOW, but the LLM may add a full stop or a reason after it.
-			# Such a reply is stored as exactly I_DONT_KNOW, so l10 scores it as a failure
+			# Such a reply is stored as exactly I_DONT_KNOW, so evaluation scores it as a failure
 			answer = replies[prompt_hash].text.strip()
 			answer_lower = answer.lower().replace("’", "'")
 			if answer_lower.startswith("i don't know") or answer_lower.startswith("i do not know"):
@@ -71,7 +71,7 @@ def generate_answers(prompt_list: list[Prompt], generation_args: GenerationArgs,
 			raise ValueError(f"{failed_count} of {len(requests)} generation requests failed. The other answers are cached; run again to send only the failed ones.")
 
 	# 5. Answer every prompt in order: I_DONT_KNOW for an empty context, otherwise from the cache.
-	# The empty ones still go into generated_list, so l10 scores them as failures
+	# The empty ones still go into generated_list, so evaluation scores them as failures
 	generated_list = []
 	empty_context_count = 0
 	llm_dont_know_count = 0

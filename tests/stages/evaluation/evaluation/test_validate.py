@@ -1,15 +1,15 @@
 """
 test_validate.py
 
-Tests for l10_evaluation.validate.validate_n_retrieval_evaluation and validate_answer_eval_args.
+Tests for stages.evaluation.evaluation.validate.validate_n_retrieval_evaluation and validate_answer_eval_args.
 """
 
 import pytest
 
 from common.args import AnswerEvalArgs
 from llm.schema import LLMArgs
-from l10_evaluation.validate import validate_answer_eval_args
-from l10_evaluation.validate import validate_n_retrieval_evaluation
+from stages.evaluation.evaluation.validate import validate_answer_eval_args
+from stages.evaluation.evaluation.validate import validate_n_retrieval_evaluation
 
 
 def make_answer_eval_args(framework):

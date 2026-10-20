@@ -64,7 +64,7 @@ def test_system_prompt_asks_for_exactly_i_dont_know():
     """
     Input: SYSTEM_PROMPT.
     Output: it holds the I_DONT_KNOW constant.
-    What it does: checks the LLM is told the exact phrase generation and l10 look for.
+    What it does: checks the LLM is told the exact phrase generation and evaluation look for.
     """
     assert "reply with exactly: " + I_DONT_KNOW in SYSTEM_PROMPT
 

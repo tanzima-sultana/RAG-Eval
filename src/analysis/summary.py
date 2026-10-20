@@ -1,7 +1,7 @@
 """
 summary.py
 
-Averages the l10 evaluations of every retrieval setup over its eval questions: one RetrievalSummary per retrieval
+Averages the evaluations of every retrieval setup over its eval questions: one RetrievalSummary per retrieval
 setup and one AnswerSummary per kept setup.
 """
 
@@ -9,8 +9,8 @@ from analysis.schema import AnswerSummary
 from analysis.schema import RetrievalSummary
 from analysis.schema import Setup
 from stages.evaluation.retrieval.schema import Retrieved
-from l10_evaluation.schema import AnswerEvaluation
-from l10_evaluation.schema import RetrievalEvaluation
+from stages.evaluation.evaluation.schema import AnswerEvaluation
+from stages.evaluation.evaluation.schema import RetrievalEvaluation
 
 def get_setup_key(retrieved: Retrieved) -> tuple:
 	"""
