@@ -13,7 +13,7 @@ from common.constants import I_DONT_KNOW
 from stages.question.query.schema import Ans
 from stages.question.query.schema import Qus
 from stages.question.query.schema import Query
-from l7_context.schema import Context
+from stages.evaluation.context.schema import Context
 from l8_prompt.prompt import get_prompt_list
 from l8_prompt.prompt_template import SYSTEM_PROMPT
 from l8_prompt.prompt_template import USER_PROMPT_TEMPLATE

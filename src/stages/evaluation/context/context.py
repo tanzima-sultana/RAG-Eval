@@ -1,6 +1,6 @@
 from stages.build.chunking.schema import Chunk
 from stages.evaluation.retrieval.schema import Retrieved
-from l7_context.schema import Context
+from stages.evaluation.context.schema import Context
 
 def get_context_list(retrieved_outputs: list[Retrieved], chunks: dict[str, Chunk]) -> list[Context]:
 	"""

@@ -1,22 +1,22 @@
 """
 test_context.py
 
-Tests for l7_context.context.get_context_list: turning each Retrieved into the context text the LLM gets.
+Tests for stages.evaluation.context.context.get_context_list: turning each Retrieved into the context text the LLM gets.
 """
 
 import pytest
 
 from stages.build.chunking.schema import Chunk
 from stages.evaluation.retrieval.schema import Retrieved
-from l7_context.context import get_context_list
-from l7_context.schema import Context
+from stages.evaluation.context.context import get_context_list
+from stages.evaluation.context.schema import Context
 
 
 def make_retrieved(query_id, chunk_ids, query_type="original"):
     """
     Input: query_id, chunk_ids (best first) and query_type.
     Output: a Retrieved of a dense flatip search with those chunks.
-    What it does: builds the retrieval output l7 reads; only id and chunk_ids matter to l7.
+    What it does: builds the retrieval output get_context_list reads; only id and chunk_ids matter to it.
     """
     chunk_scores = []
     doc_ids = []

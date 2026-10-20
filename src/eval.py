@@ -20,7 +20,7 @@ from stages.build.indexing import cache as index_cache
 from stages.question.qna.qna import get_eval_qna
 from stages.question.query.query import get_queries
 from stages.evaluation.retrieval.retrieval import Retrieval
-from l7_context.context import get_context_list
+from stages.evaluation.context.context import get_context_list
 from l8_prompt.prompt import get_prompt_list
 from l8_prompt.prompt_template import SYSTEM_PROMPT
 from l8_prompt.prompt_template import USER_PROMPT_TEMPLATE
@@ -30,7 +30,7 @@ from l10_evaluation.answer_evaluation import get_answer_evaluations
 from analysis.analysis import analyze_run
 from stages.question.query.schema import Query
 from stages.evaluation.retrieval.schema import Retrieved
-from l7_context.schema import Context
+from stages.evaluation.context.schema import Context
 from l8_prompt.schema import Prompt
 from l9_generation.schema import Generated
 from l10_evaluation.schema import RetrievalEvaluation
@@ -261,7 +261,7 @@ def run_context(args, output_path: str, doc_ids: list[str], filtered_retrieval_e
 
 def run_prompt(context_list: list[Context], queries: list[Query]) -> list[Prompt]:
 	"""
-	Input: context_list, the l7 contexts; queries, the queries of this run, tuning or held-out.
+	Input: context_list, the contexts; queries, the queries of this run, tuning or held-out.
 	Output: prompt_list, in the same order, so prompt_list[i] belongs to context_list[i] and retrieved_list[i].
 	What it does: builds the system prompt and user prompt of each context, with its original question.
 	"""
@@ -296,7 +296,7 @@ def run_generation(args, output_path: str, prompt_list: list[Prompt]) -> list[Ge
 def run_answer_evaluation(args, output_path: str, eval_qna: list[EvalQnA], context_list: list[Context], generated_list: list[Generated]) -> list[AnswerEvaluation]:
 	"""
 	Input: args, the parsed eval arguments; output_path; eval_qna, the eval questions; context_list and generated_list,
-	the l7 contexts and l9 answers.
+	the contexts and generated answers.
 	Output: answer_evaluations, in the same order, so answer_evaluations[i] belongs to generated_list[i], context_list[i]
 	and retrieved_list[i].
 	What it does: scores each answer's correctness, faithfulness and relevance, from the cache or the judge LLM.

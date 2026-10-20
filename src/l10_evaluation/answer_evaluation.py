@@ -32,7 +32,7 @@ from ragas.metrics import ResponseRelevancy
 from common import constants
 from common import paths
 from common.args import AnswerEvalArgs
-from l7_context.schema import Context
+from stages.evaluation.context.schema import Context
 from l9_generation.schema import Generated
 from l10_evaluation.schema import AnswerEvaluation
 from l10_evaluation.validate import validate_answer_eval_args
@@ -71,7 +71,7 @@ def save_answer_evaluation_cache(answer_evaluation_file: str, answer_evaluation_
 
 def get_answer_key(generated: Generated, context: Context, eval_qna_item: EvalQnA) -> str:
 	"""
-	Input: generated, one l9 answer; context, the l7 context it was given; eval_qna_item, its eval question.
+	Input: generated, one generated answer; context, the context it was given; eval_qna_item, its eval question.
 	Output: the answer_key, a sha256 hex string.
 	What it does: hashes the question, answer, context and reference answer, the four inputs every score depends on.
 	"""
@@ -171,7 +171,7 @@ def evaluate_answers_ragas(eval_qna_by_id: dict[str, EvalQnA], context_list: lis
 def get_answer_evaluations(output_path: str, eval_qna: list[EvalQnA], context_list: list[Context], generated_list: list[Generated], answer_eval_args: AnswerEvalArgs) -> list[AnswerEvaluation]:
 	"""
 	Input: output_path, the dataset's output folder; eval_qna, the eval questions; context_list and generated_list,
-	the l7 contexts and l9 answers, in the same order; answer_eval_args, the framework, judge LLM and embedding model.
+	the contexts and generated answers, in the same order; answer_eval_args, the framework, judge LLM and embedding model.
 	Output: one AnswerEvaluation per Generated, in the same order, so answer_evaluations[i] belongs to generated_list[i],
 	context_list[i] and retrieved_list[i].
 	What it does: loads the cached scores, scores the answers not in the cache, saves the cache, then builds the
