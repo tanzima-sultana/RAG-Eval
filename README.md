@@ -462,36 +462,29 @@ ALLOW_PAID_API=1 bash scripts/pipeline.sh
 
 **Tests:** `python -m pytest tests`
 
-<!--
-README plan, agreed 2026-10-16. Sections 1 to 9 are done; write the rest in this order, then remove this note.
-Design decision 8 (LangChain option) and the Results subsection "Built-in vs LangChain" are done too.
+## Known issues and limitations
 
-3. Tech stack, grouped:
-   - Retrieval and embeddings: FAISS, BM25, Qdrant, sentence-transformers, the cross-encoder
-   - LLMs: Claude, Gemini, ChatGPT and Ollama through the project's own llm layer
-   - Evaluation: RAGAS
-   - Core: Python, PyYAML, pytest, Docker, doc_ingest
-4. Design decisions: caching keys, batch APIs, provider separation, validation/test discipline, config file,
-   layer isolation
-5. Evaluation methodology:
-   - Eval set: RAGAS-generated, 200 questions, 150 validation / 50 test
-   - Retrieval metrics: chunk and doc level
-   - Answer metrics
-   - Judge choice and bias
-6. Results (agreed 2026-10-20), written one part at a time:
-   - Retrieval: top 5-10 setups table, then small comparisons by chunk type, retrieval type, query type and
-     reranking, then a short description. No full 186-row table.
-   - Generated answers: baseline -> exp 1 -> exp 2 -> test table, with what changed and its effect
-   - Cost and time: cost per run, build times and sizes
-7. Analysis: hit vs miss, single-hop vs multi-hop, worst answers and the reference-answer ceiling (link to the
-   judge limits in the methodology), why the stronger model gave no gain
-8. Problems faced and fixes: issue -> cause -> fix
-9. Setup and how to run: prerequisites, .env, Qdrant in Docker, config.yaml, the scripts, ALLOW_PAID_API
-   (optionally a short VHS terminal GIF)
-10. Known issues and limitations: synthetic eval set, single reference, small test set, judge noise
-11. Future work / what production would add: FastAPI serving with load tests, auth, monitoring, guardrails,
-    the red-teaming project
+- **Synthetic eval set:** The questions and reference answers were written by an LLM, not by real users. They come
+  from only 54 of the 5,000 documents, so retrieval is tested on a small part of the corpus.
+- **One reference answer per question:** Some questions have more than one valid answer, which keeps correctness
+  below 1 even for good answers (see [Worst answers](#worst-answers)).
+- **Small test set:** With 50 test questions, the final numbers are rough, at about ±0.07 on correctness.
+- **Judge noise:** The scores come from one LLM judge. They were not checked against human ratings, and small
+  differences between runs mean nothing.
+- **IVF index:** The IVF index searches only 1 of its 256 clusters, which keeps its recall low. Searching more
+  clusters was not tried.
 
-Dropped on purpose: project structure (the architecture diagram covers it) and a link to the notebook
-(docs/notebook.md stays local only).
--->
+## Future work
+
+**Next steps, by stage:**
+- **Build:** Scale to 50,000 and 100,000 documents, and try other chunking settings.
+- **Question:** Write more than one reference answer for questions that have several valid answers.
+- **Evaluation:** Evaluate the answers on the LangChain path, to compare it with the built-in path end to end.
+
+**What a production version would add:**
+- **An API:** a FastAPI service that answers questions, with load tests for speed under many users.
+- **An answer cache:** good answers to repeated questions are reused, so they cost nothing the second time.
+- **Access control:** user login, and limits on which documents each user can search.
+- **Monitoring:** logs of live questions, answer times and costs.
+- **Guardrails:** checks on what goes into and comes out of the model.
+- **Red-teaming:** tests that try to make the pipeline leak data or follow injected instructions.
