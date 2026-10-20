@@ -1,7 +1,7 @@
 """
 test_prompt.py
 
-Tests for l8_prompt.prompt.get_prompt_list and the templates in l8_prompt.prompt_template.
+Tests for stages.evaluation.prompt.prompt.get_prompt_list and the templates in stages.evaluation.prompt.prompt_template.
 """
 
 import hashlib
@@ -14,16 +14,16 @@ from stages.question.query.schema import Ans
 from stages.question.query.schema import Qus
 from stages.question.query.schema import Query
 from stages.evaluation.context.schema import Context
-from l8_prompt.prompt import get_prompt_list
-from l8_prompt.prompt_template import SYSTEM_PROMPT
-from l8_prompt.prompt_template import USER_PROMPT_TEMPLATE
+from stages.evaluation.prompt.prompt import get_prompt_list
+from stages.evaluation.prompt.prompt_template import SYSTEM_PROMPT
+from stages.evaluation.prompt.prompt_template import USER_PROMPT_TEMPLATE
 
 
 def make_query(query_id, question):
     """
     Input: query_id and the original question.
     Output: a Query whose rewritten question and HyDE answer differ from the original.
-    What it does: builds the query l8 reads the original question from.
+    What it does: builds the query get_prompt_list reads the original question from.
     """
     vector = np.array([1.0, 0.0, 0.0], dtype=np.float32)
     return Query(

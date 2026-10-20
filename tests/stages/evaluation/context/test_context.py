@@ -85,7 +85,7 @@ def test_retrieved_with_no_chunks_keeps_its_place_with_an_empty_context(chunks):
     """
     Input: a Retrieved with no chunks between two with chunks.
     Output: three Contexts; the middle one is "" with token count 0.
-    What it does: checks an empty result is not dropped, so the lists stay lined up and l8 and l9 can mark it.
+    What it does: checks an empty result is not dropped, so the lists stay lined up and prompt and generation can mark it.
     """
     retrieved_outputs = [
         make_retrieved("eval_qna_0", ["doc_a_0"]),

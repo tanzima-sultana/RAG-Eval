@@ -44,7 +44,7 @@ SYSTEM_PROMPT_2 = (
 	"Answer in plain sentences, with no introduction and no mention of the context."
 )
 
-# The system prompt l8 sends. Point it at another numbered prompt to switch
+# The system prompt get_prompt_list sends. Point it at another numbered prompt to switch
 SYSTEM_PROMPT = SYSTEM_PROMPT_1
 
 # Input: {context}, {question}. Output: the user prompt sent with SYSTEM_PROMPT

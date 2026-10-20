@@ -21,9 +21,9 @@ from stages.question.qna.qna import get_eval_qna
 from stages.question.query.query import get_queries
 from stages.evaluation.retrieval.retrieval import Retrieval
 from stages.evaluation.context.context import get_context_list
-from l8_prompt.prompt import get_prompt_list
-from l8_prompt.prompt_template import SYSTEM_PROMPT
-from l8_prompt.prompt_template import USER_PROMPT_TEMPLATE
+from stages.evaluation.prompt.prompt import get_prompt_list
+from stages.evaluation.prompt.prompt_template import SYSTEM_PROMPT
+from stages.evaluation.prompt.prompt_template import USER_PROMPT_TEMPLATE
 from l9_generation.generation import get_generated_list
 from l10_evaluation.retrieval_evaluation import RetrievalEvaluator
 from l10_evaluation.answer_evaluation import get_answer_evaluations
@@ -31,7 +31,7 @@ from analysis.analysis import analyze_run
 from stages.question.query.schema import Query
 from stages.evaluation.retrieval.schema import Retrieved
 from stages.evaluation.context.schema import Context
-from l8_prompt.schema import Prompt
+from stages.evaluation.prompt.schema import Prompt
 from l9_generation.schema import Generated
 from l10_evaluation.schema import RetrievalEvaluation
 from l10_evaluation.schema import AnswerEvaluation
@@ -277,7 +277,7 @@ def run_prompt(context_list: list[Context], queries: list[Query]) -> list[Prompt
 
 def run_generation(args, output_path: str, prompt_list: list[Prompt]) -> list[Generated]:
 	"""
-	Input: args, the parsed eval arguments; output_path; prompt_list, the l8 prompts.
+	Input: args, the parsed eval arguments; output_path; prompt_list, the prompts.
 	Output: generated_list, in the same order, so generated_list[i] belongs to prompt_list[i], context_list[i]
 	and retrieved_list[i].
 	What it does: gets the LLM answer of each prompt, from the cache or from the generation LLM.

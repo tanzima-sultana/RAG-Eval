@@ -3,7 +3,7 @@ import os
 from common import constants
 from common import paths
 from common.args import GenerationArgs
-from l8_prompt.schema import Prompt
+from stages.evaluation.prompt.schema import Prompt
 from l9_generation import cache
 from l9_generation.schema import Generated
 from l9_generation.validate import validate_generation_args
@@ -12,7 +12,7 @@ from llm.validate import validate_llm
 
 def generate_answers(prompt_list: list[Prompt], generation_args: GenerationArgs, generated_file: str, batch_id_file: str, answer_cache: dict) -> list[Generated]:
 	"""
-	Input: prompt_list, the l8 prompts; generation_args, the generation LLM and batch settings; generated_file and
+	Input: prompt_list, the prompts; generation_args, the generation LLM and batch settings; generated_file and
 	batch_id_file, the cache and batch id files; answer_cache, the cached {prompt_hash: {"qus", "answer"}} dict.
 	Output: one Generated per Prompt, in the same order, so generated_list[i] belongs to prompt_list[i].
 	What it does: sends every prompt not in the cache to the LLM as one batch, saves the answers to the cache,
@@ -101,7 +101,7 @@ def generate_answers(prompt_list: list[Prompt], generation_args: GenerationArgs,
 
 def get_generated_list(output_path: str, prompt_list: list[Prompt], generation_args: GenerationArgs) -> list[Generated]:
 	"""
-	Input: output_path, the dataset's output folder; prompt_list, the l8 prompts; generation_args, the generation LLM
+	Input: output_path, the dataset's output folder; prompt_list, the prompts; generation_args, the generation LLM
 	and batch settings.
 	Output: one Generated per Prompt, in the same order.
 	What it does: loads the model's answer cache, then answers every prompt from it or from one LLM batch.

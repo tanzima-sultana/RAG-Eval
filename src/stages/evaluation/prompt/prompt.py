@@ -2,9 +2,9 @@ import hashlib
 
 from stages.question.query.schema import Query
 from stages.evaluation.context.schema import Context
-from l8_prompt.schema import Prompt
-from l8_prompt.prompt_template import SYSTEM_PROMPT
-from l8_prompt.prompt_template import USER_PROMPT_TEMPLATE
+from stages.evaluation.prompt.schema import Prompt
+from stages.evaluation.prompt.prompt_template import SYSTEM_PROMPT
+from stages.evaluation.prompt.prompt_template import USER_PROMPT_TEMPLATE
 
 def get_prompt_list(context_list: list[Context], queries: list[Query]) -> list[Prompt]:
 	"""
