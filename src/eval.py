@@ -27,7 +27,7 @@ from stages.evaluation.prompt.prompt_template import USER_PROMPT_TEMPLATE
 from stages.evaluation.generation.generation import get_generated_list
 from stages.evaluation.evaluation.retrieval_evaluation import RetrievalEvaluator
 from stages.evaluation.evaluation.answer_evaluation import get_answer_evaluations
-from analysis.analysis import analyze_run
+from stages.analysis.analysis import analyze_run
 from stages.question.query.schema import Query
 from stages.evaluation.retrieval.schema import Retrieved
 from stages.evaluation.context.schema import Context
@@ -35,7 +35,7 @@ from stages.evaluation.prompt.schema import Prompt
 from stages.evaluation.generation.schema import Generated
 from stages.evaluation.evaluation.schema import RetrievalEvaluation
 from stages.evaluation.evaluation.schema import AnswerEvaluation
-from analysis.schema import AnalysisRun
+from stages.analysis.schema import AnalysisRun
 from stages.question.qna.schema import EvalQnA
 
 def load_eval_inputs(args, output_path: str):

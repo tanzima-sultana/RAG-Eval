@@ -5,9 +5,9 @@ Averages the evaluations of every retrieval setup over its eval questions: one R
 setup and one AnswerSummary per kept setup.
 """
 
-from analysis.schema import AnswerSummary
-from analysis.schema import RetrievalSummary
-from analysis.schema import Setup
+from stages.analysis.schema import AnswerSummary
+from stages.analysis.schema import RetrievalSummary
+from stages.analysis.schema import Setup
 from stages.evaluation.retrieval.schema import Retrieved
 from stages.evaluation.evaluation.schema import AnswerEvaluation
 from stages.evaluation.evaluation.schema import RetrievalEvaluation

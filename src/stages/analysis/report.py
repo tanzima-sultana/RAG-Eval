@@ -4,9 +4,9 @@ report.py
 Writes the summary tables of one run as Markdown and joins every section into the run's report.
 """
 
-from analysis.schema import AnalysisRun
-from analysis.schema import AnswerSummary
-from analysis.schema import RetrievalSummary
+from stages.analysis.schema import AnalysisRun
+from stages.analysis.schema import AnswerSummary
+from stages.analysis.schema import RetrievalSummary
 
 def get_setup_cells(setup_key: tuple) -> str:
 	"""

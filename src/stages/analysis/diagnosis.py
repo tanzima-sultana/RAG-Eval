@@ -5,8 +5,8 @@ Explains where answers lose points: answer scores split by whether retrieval fou
 and the lowest scoring answers next to their reference answers.
 """
 
-from analysis.report import get_setup_cells
-from analysis.summary import get_setup_key
+from stages.analysis.report import get_setup_cells
+from stages.analysis.summary import get_setup_key
 from common import constants
 from stages.evaluation.retrieval.schema import Retrieved
 from stages.evaluation.generation.schema import Generated

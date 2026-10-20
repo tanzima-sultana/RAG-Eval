@@ -1,12 +1,12 @@
 """
 test_validate.py
 
-Tests for analysis.validate.validate_analysis_args.
+Tests for stages.analysis.validate.validate_analysis_args.
 """
 
 import pytest
 
-from analysis.validate import validate_analysis_args
+from stages.analysis.validate import validate_analysis_args
 from common.args import AnalysisArgs
 
 

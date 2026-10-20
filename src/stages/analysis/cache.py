@@ -14,10 +14,10 @@ import json
 import os
 import shutil
 
-from analysis.schema import AnalysisRun
-from analysis.schema import AnswerSummary
-from analysis.schema import RetrievalSummary
-from analysis.schema import Setup
+from stages.analysis.schema import AnalysisRun
+from stages.analysis.schema import AnswerSummary
+from stages.analysis.schema import RetrievalSummary
+from stages.analysis.schema import Setup
 
 def load_analysis_runs(analysis_runs_path: str) -> list[AnalysisRun]:
 	"""

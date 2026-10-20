@@ -5,8 +5,8 @@ Compares the current run with the most recent earlier runs: the best setup of ea
 changed between them.
 """
 
-from analysis.report import get_setup_cells
-from analysis.schema import AnalysisRun
+from stages.analysis.report import get_setup_cells
+from stages.analysis.schema import AnalysisRun
 
 def get_comparison(analysis_runs: list[AnalysisRun]) -> str:
 	"""

@@ -10,18 +10,18 @@ import datetime
 import hashlib
 import json
 
-from analysis.cache import load_analysis_runs
-from analysis.cache import save_analysis_run
-from analysis.comparison import get_comparison
-from analysis.diagnosis import get_diagnosis
-from analysis.diagnosis import get_worst_answers
-from analysis.report import get_answer_summary_table
-from analysis.report import get_report
-from analysis.report import get_retrieval_summary_table
-from analysis.schema import AnalysisRun
-from analysis.summary import get_answer_summaries
-from analysis.summary import get_retrieval_summaries
-from analysis.validate import validate_analysis_args
+from stages.analysis.cache import load_analysis_runs
+from stages.analysis.cache import save_analysis_run
+from stages.analysis.comparison import get_comparison
+from stages.analysis.diagnosis import get_diagnosis
+from stages.analysis.diagnosis import get_worst_answers
+from stages.analysis.report import get_answer_summary_table
+from stages.analysis.report import get_report
+from stages.analysis.report import get_retrieval_summary_table
+from stages.analysis.schema import AnalysisRun
+from stages.analysis.summary import get_answer_summaries
+from stages.analysis.summary import get_retrieval_summaries
+from stages.analysis.validate import validate_analysis_args
 from common import paths
 from common.args import AnalysisArgs
 from stages.evaluation.retrieval.schema import Retrieved
