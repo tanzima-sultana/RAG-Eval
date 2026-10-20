@@ -20,9 +20,40 @@ It runs on real-world PDF data and compares 3 chunking strategies, 5 indexes (FA
 
 <p align="center"><img src="docs/architecture.svg" alt="Architecture: build, question, eval and analysis phases" width="820"></p>
 
+## Tech stack
+
+| Layer | Tools |
+|---|---|
+| **Core** | Python 3.10, PyYAML config, Pydantic, NumPy, PyTorch, pytest (436 tests) |
+| **Ingestion** | `doc_ingest` (PDF parsing with pypdfium2, MinHash deduplication), Hugging Face `datasets` |
+| **Chunking** | Fixed, sentence and semantic chunkers implemented, NLTK for sentence splitting |
+| **Embedding** | sentence-transformers (`all-MiniLM-L6-v2`) |
+| **Indexing** | FAISS (flat, IVF, HNSW), `rank-bm25` for BM25, Qdrant in Docker |
+| **Eval question set** | RAGAS test set generation with Claude Sonnet and Haiku |
+| **Query transformation** | Rewritten, multi-query and HyDE implemented, with Llama 3.1 8B on Ollama (local) |
+| **Retrieval** | Dense, BM25 and hybrid (RRF) retrieval implemented, cross-encoder reranking (`ms-marco-MiniLM-L-6-v2`) |
+| **Generation** | Gemini Flash-Lite through its batch API |
+| **Evaluation** | Retrieval metrics implemented (hit, precision, recall, MRR, nDCG), RAGAS answer scores with GPT-4.1-mini as judge |
+| **LLM layer** | Implemented over the Anthropic, OpenAI and Google SDKs and Ollama, so each task can use any of the four |
+| **Comparison** | LangChain, as an optional framework for chunking, embedding, indexing and retrieval |
+
+**Abbreviations:**
+NLTK: Natural Language Toolkit ·
+FAISS: Facebook AI Similarity Search ·
+IVF: inverted file index ·
+HNSW: Hierarchical Navigable Small World ·
+BM25: Best Matching 25 ·
+HyDE: Hypothetical Document Embeddings ·
+RRF: reciprocal rank fusion ·
+MRR: mean reciprocal rank ·
+nDCG: normalized discounted cumulative gain ·
+RAGAS: Retrieval Augmented Generation Assessment ·
+LLM: large language model ·
+SDK: software development kit
+
 
 <!--
-README plan, agreed 2026-10-16. Sections 1 and 2 are done; write the rest in this order, then remove this note.
+README plan, agreed 2026-10-16. Sections 1 to 3 are done; write the rest in this order, then remove this note.
 
 3. Tech stack, grouped:
    - Retrieval and embeddings: FAISS, BM25, Qdrant, sentence-transformers, the cross-encoder
