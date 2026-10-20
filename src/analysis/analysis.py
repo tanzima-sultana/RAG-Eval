@@ -25,7 +25,7 @@ from analysis.validate import validate_analysis_args
 from common import paths
 from common.args import AnalysisArgs
 from stages.evaluation.retrieval.schema import Retrieved
-from l9_generation.schema import Generated
+from stages.evaluation.generation.schema import Generated
 from l10_evaluation.schema import AnswerEvaluation
 from l10_evaluation.schema import RetrievalEvaluation
 from stages.question.qna.schema import EvalQnA

@@ -53,7 +53,7 @@ def expected_hash(user_prompt):
     """
     Input: user_prompt.
     Output: the sha256 of SYSTEM_PROMPT, a blank line and user_prompt.
-    What it does: works out the prompt hash the way l9 expects it.
+    What it does: works out the prompt hash the way generation expects it.
     """
     return hashlib.sha256((SYSTEM_PROMPT + "\n\n" + user_prompt).encode("utf-8")).hexdigest()
 
@@ -64,7 +64,7 @@ def test_system_prompt_asks_for_exactly_i_dont_know():
     """
     Input: SYSTEM_PROMPT.
     Output: it holds the I_DONT_KNOW constant.
-    What it does: checks the LLM is told the exact phrase l9 and l10 look for.
+    What it does: checks the LLM is told the exact phrase generation and l10 look for.
     """
     assert "reply with exactly: " + I_DONT_KNOW in SYSTEM_PROMPT
 
@@ -111,7 +111,7 @@ def test_prompt_hash_is_the_sha256_of_the_system_and_user_prompt(queries):
     """
     Input: one Context.
     Output: prompt_hash equals sha256(SYSTEM_PROMPT + blank line + user_prompt).
-    What it does: checks the hash l9 uses as its cache key and batch request id.
+    What it does: checks the hash generation uses as its cache key and batch request id.
     """
     prompt = get_prompt_list([Context(id="eval_qna_0", context="Refunds take thirty days.", token_count=4)], queries)[0]
 
@@ -124,7 +124,7 @@ def test_same_context_and_question_give_the_same_hash(queries):
     Input: two Contexts for eval_qna_0 with the same text (two setups that found the same chunks), and one with
     other text.
     Output: the first two prompts share a hash; the third has another.
-    What it does: checks identical prompts share one hash, so l9 sends them once, and a different context does not.
+    What it does: checks identical prompts share one hash, so generation sends them once, and a different context does not.
     """
     context_list = [
         Context(id="eval_qna_0", context="Refunds take thirty days.", token_count=4),
@@ -159,7 +159,7 @@ def test_empty_context_gives_an_empty_prompt_in_its_place(queries):
     Input: an empty Context between two with text.
     Output: three Prompts; the middle one keeps its id, question and system prompt, with user_prompt "",
     token_count 0 and prompt_hash "".
-    What it does: checks an empty context is kept in place and marked, so l9 answers it I_DONT_KNOW without a call.
+    What it does: checks an empty context is kept in place and marked, so generation answers it I_DONT_KNOW without a call.
     """
     context_list = [
         Context(id="eval_qna_0", context="Refunds take thirty days.", token_count=4),

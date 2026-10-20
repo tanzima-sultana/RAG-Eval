@@ -4,9 +4,9 @@ from common import constants
 from common import paths
 from common.args import GenerationArgs
 from stages.evaluation.prompt.schema import Prompt
-from l9_generation import cache
-from l9_generation.schema import Generated
-from l9_generation.validate import validate_generation_args
+from stages.evaluation.generation import cache
+from stages.evaluation.generation.schema import Generated
+from stages.evaluation.generation.validate import validate_generation_args
 from llm.llm import get_llm
 from llm.validate import validate_llm
 

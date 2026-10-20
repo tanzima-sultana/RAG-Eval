@@ -253,7 +253,7 @@ def test_partly_succeeded_job_leaves_out_failed_requests(paid_env, fake_genai, t
     """
     Input: a JOB_STATE_PARTIALLY_SUCCEEDED job where hash_b failed.
     Output: a reply for hash_a only, and only its tokens counted.
-    What it does: checks a partly failed job ends the wait and a failed request gets no answer, so l9 can send it again.
+    What it does: checks a partly failed job ends the wait and a failed request gets no answer, so generation can send it again.
     """
     fake_genai["end_state"] = "JOB_STATE_PARTIALLY_SUCCEEDED"
     fake_genai["results"] = [("hash_a", False, "Answer A.", 20, 3), ("hash_b", True, "", 0, 0)]

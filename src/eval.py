@@ -24,7 +24,7 @@ from stages.evaluation.context.context import get_context_list
 from stages.evaluation.prompt.prompt import get_prompt_list
 from stages.evaluation.prompt.prompt_template import SYSTEM_PROMPT
 from stages.evaluation.prompt.prompt_template import USER_PROMPT_TEMPLATE
-from l9_generation.generation import get_generated_list
+from stages.evaluation.generation.generation import get_generated_list
 from l10_evaluation.retrieval_evaluation import RetrievalEvaluator
 from l10_evaluation.answer_evaluation import get_answer_evaluations
 from analysis.analysis import analyze_run
@@ -32,7 +32,7 @@ from stages.question.query.schema import Query
 from stages.evaluation.retrieval.schema import Retrieved
 from stages.evaluation.context.schema import Context
 from stages.evaluation.prompt.schema import Prompt
-from l9_generation.schema import Generated
+from stages.evaluation.generation.schema import Generated
 from l10_evaluation.schema import RetrievalEvaluation
 from l10_evaluation.schema import AnswerEvaluation
 from analysis.schema import AnalysisRun

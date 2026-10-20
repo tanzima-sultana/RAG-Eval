@@ -194,7 +194,7 @@ def batch_requests():
     """
     Input: none.
     Output: two batch requests, {request_id: {"system_prompt", "user_prompt"}}.
-    What it does: gives the batch tests the same requests l9 sends.
+    What it does: gives the batch tests the same requests generation sends.
     """
     return {
         "hash_a": {"system_prompt": "Answer from the context.", "user_prompt": "Context: A\n\nQuestion: a?"},

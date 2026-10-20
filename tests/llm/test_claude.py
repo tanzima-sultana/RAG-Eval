@@ -245,7 +245,7 @@ def test_batch_leaves_out_failed_requests(paid_env, fake_anthropic, tmp_path, ma
     """
     Input: hash_a succeeded, hash_b errored.
     Output: a reply for hash_a only, and only hash_a's tokens counted.
-    What it does: checks a failed request gets no answer, so l9 can send it again.
+    What it does: checks a failed request gets no answer, so generation can send it again.
     """
     fake_anthropic["results"] = [("hash_a", "succeeded", "Answer A.", 20, 3), ("hash_b", "errored", "", 0, 0)]
 

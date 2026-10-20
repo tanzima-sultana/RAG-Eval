@@ -9,7 +9,7 @@ from analysis.report import get_setup_cells
 from analysis.summary import get_setup_key
 from common import constants
 from stages.evaluation.retrieval.schema import Retrieved
-from l9_generation.schema import Generated
+from stages.evaluation.generation.schema import Generated
 from l10_evaluation.schema import AnswerEvaluation
 from l10_evaluation.schema import RetrievalEvaluation
 from stages.question.qna.schema import EvalQnA

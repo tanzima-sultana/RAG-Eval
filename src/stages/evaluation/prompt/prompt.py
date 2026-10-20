@@ -28,7 +28,7 @@ def get_prompt_list(context_list: list[Context], queries: list[Query]) -> list[P
 		# because the rewritten, multi and hyde forms were only for searching
 		question = question_by_id[context.id]
 
-		# An empty context cannot hold the answer, so its user prompt stays empty and l9 skips the LLM call
+		# An empty context cannot hold the answer, so its user prompt stays empty and generation skips the LLM call
 		if context.context == "":
 			prompt_list.append(Prompt(id=context.id, qus=question, system_prompt=SYSTEM_PROMPT, user_prompt="", token_count=0, prompt_hash=""))
 			continue
@@ -40,7 +40,7 @@ def get_prompt_list(context_list: list[Context], queries: list[Query]) -> list[P
 		question_word_count = len(question.split())
 		token_count = context.token_count + system_prompt_word_count + question_word_count
 
-		# 5. Hash the system prompt and user prompt, so l9 can find the answer of the same prompt in its cache
+		# 5. Hash the system prompt and user prompt, so generation can find the answer of the same prompt in its cache
 		prompt_text = SYSTEM_PROMPT + "\n\n" + user_prompt
 		prompt_hash = hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()
 

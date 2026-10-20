@@ -33,7 +33,7 @@ from common import constants
 from common import paths
 from common.args import AnswerEvalArgs
 from stages.evaluation.context.schema import Context
-from l9_generation.schema import Generated
+from stages.evaluation.generation.schema import Generated
 from l10_evaluation.schema import AnswerEvaluation
 from l10_evaluation.validate import validate_answer_eval_args
 from llm.llm import get_llm

@@ -1,14 +1,14 @@
 """
 test_validate.py
 
-Tests for l9_generation.validate.validate_generation_args.
+Tests for stages.evaluation.generation.validate.validate_generation_args.
 """
 
 import pytest
 
 from common.args import GenerationArgs
 from llm.schema import LLMArgs
-from l9_generation.validate import validate_generation_args
+from stages.evaluation.generation.validate import validate_generation_args
 
 
 def make_generation_args(batch_poll_seconds, batch_timeout_seconds):

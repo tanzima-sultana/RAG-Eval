@@ -260,7 +260,7 @@ def test_batch_leaves_out_failed_requests(paid_env, fake_openai, tmp_path, make_
     """
     Input: hash_a answered with status 200, hash_b with status 500.
     Output: a reply for hash_a only, and only its tokens counted.
-    What it does: checks a failed request gets no answer, so l9 can send it again.
+    What it does: checks a failed request gets no answer, so generation can send it again.
     """
     fake_openai["results"] = [("hash_a", 200, "Answer A.", 20, 3), ("hash_b", 500, "", 0, 0)]
 
@@ -275,7 +275,7 @@ def test_failed_batch_without_output_file_returns_no_replies(paid_env, fake_open
     """
     Input: a batch that ends "failed" with no output file.
     Output: no replies, and no tokens counted.
-    What it does: checks a failed batch does not crash, so l9 reports every request as failed.
+    What it does: checks a failed batch does not crash, so generation reports every request as failed.
     """
     fake_openai["end_status"] = "failed"
     fake_openai["output_file_id"] = None

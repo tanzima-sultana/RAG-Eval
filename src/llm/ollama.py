@@ -121,7 +121,7 @@ class OllamaLLM:
 		batch_timeout_seconds, not used.
 		Output: {request_id: LLMResponse} for every request.
 		What it does: Ollama has no batch API and is free, so it sends the requests one at a time. It takes the same
-		inputs as the paid providers' generate_batch, so l9 calls every provider the same way.
+		inputs as the paid providers' generate_batch, so generation calls every provider the same way.
 		"""
 		replies = {}
 		for request_id in requests:
