@@ -29,10 +29,10 @@ def run_analysis(args) -> AnalysisRun:
 	print("\nLoading eval results time : ", time.time() - s1)
 
 	# 2. Analysis: summaries, diagnosis, worst answers and comparison with earlier runs, saved with the run's report
-	print("\n\nAnalysis")
+	print("\n\nAnalysing the run")
 	s2 = time.time()
 	analysis_run = analyze_run(output_path, analysis_args, eval_results)
-	print("\nAnalysis time : ", time.time() - s2)
+	print("\nAnalysing the run time : ", time.time() - s2)
 
 	return analysis_run
 

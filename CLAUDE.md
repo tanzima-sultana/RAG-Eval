@@ -144,6 +144,7 @@ src/
 				validate.py		     			# Validate given parameters
 				answer_evaluation.py            # Evaluates generated ans
 				retrieval_evaluation.py         # Evaluates retrieval quality and filters them 
+				cache.py	         			# Store evals
 		
 		analysis/
 			analysis.py            			# Orchastrator
