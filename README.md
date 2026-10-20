@@ -262,8 +262,74 @@ calls for generation and judging, so only a filtered list goes to the generation
 
 ## Analysis
 
+### Hit vs miss
+
+A hit means that a source passage was among the retrieved chunks. A miss means that none was.
+
+| Set | Source found | Questions | I don't know | Correctness | Faithfulness | Relevance |
+|---|---|---|---|---|---|---|
+| Validation | Yes | 141 | 0.043 | 0.626 | 0.916 | 0.582 |
+| Validation | No | 9 | 0.444 | 0.391 | 0.556 | 0.429 |
+| Test | Yes | 45 | 0.044 | 0.597 | 0.926 | 0.661 |
+| Test | No | 5 | 0.400 | 0.122 | 0.570 | 0.419 |
+
+- **Most lost points come after retrieval.** The source was found for 141 of 150 validation questions and 45 of 50
+  test questions. Even with the source in the context, correctness is only about 0.6.
+- **On a miss, "I don't know" is the right answer.** The model gives it for almost half of the misses.
+- **The model was too cautious before the new prompt.** With the first prompt, 10.6% of the hits got "I don't know",
+  although the source was in the context. The new prompt cut this to 4.3%.
+- **So tuning focused on generation, not on the build.** Retrieval already finds the source for 94% of the
+  questions. Even perfect retrieval would lift correctness only on the 9 misses, which is at most about 0.04 on the
+  average. The prompt and the generation model were therefore the settings worth changing.
+
+### Single-hop vs multi-hop
+
+| Set | Question type | Questions | I don't know | Correctness | Faithfulness | Relevance |
+|---|---|---|---|---|---|---|
+| Validation | Single-hop | 73 | 0.068 | 0.643 | 0.892 | 0.606 |
+| Validation | Multi-hop | 77 | 0.065 | 0.583 | 0.896 | 0.541 |
+| Test | Single-hop | 27 | 0.148 | 0.467 | 0.809 | 0.626 |
+| Test | Multi-hop | 23 | 0.000 | 0.647 | 0.986 | 0.650 |
+
+- **On validation, multi-hop questions score lower**, because they need passages from several places.
+- **The new prompt helped multi-hop questions the most.** It asks the model to answer each part of the question.
+  Multi-hop correctness rose from 0.506 to 0.583, while single-hop correctness rose from 0.588 to 0.643.
+- **On test, the order flips.** With only 23 and 27 questions per type, this is within the noise of a small set.
+
+### Worst answers
+
+Each run's report lists the 10 answers with the lowest correctness, next to their reference answers.
+
+- **Many of the worst answers are not wrong.** In the baseline, 9 of the 10 worst answers had faithfulness 1.000, so
+  everything they said was backed by the context. Their correctness was still only 0.21 to 0.27. The reason is that
+  some questions have more than one valid answer in the documents, while the reference answer comes from a single
+  passage. For example, one question asks which bills a child care center sponsored. The reference answer named
+  AB 92. The model found a different passage and named AB 393 and SB 246. The documents support both answers, but the
+  judge compares only with the reference, so it marked the model's answer wrong.
+- **Correctness therefore has a ceiling below 1** on this eval set, even for perfect answers.
+- **Some low scores come from partial answers.** In experiment 1, 4 of the 10 worst answers said that the context did
+  not cover all or part of the question. All four got relevance 0, as the judge treats them as non-answers.
+
+### Why the stronger model gave no gain
+
+Experiment 2 replaced Gemini Flash-Lite with Gemini Flash, a stronger model that thinks before it answers.
+
+| Generator | Correctness | Correctness on hits | Faithfulness | Relevance | Generation cost |
+|---|---|---|---|---|---|
+| Gemini Flash-Lite (experiment 1) | 0.612 | 0.626 | 0.894 | 0.573 | $0.11 |
+| Gemini Flash (experiment 2) | 0.613 | 0.629 | 0.889 | 0.532 | $0.64 |
+
+- **The scores stayed the same.** The small differences are within the noise between runs.
+- **The cost rose about 6 times**, mostly for thinking tokens. The stronger model wrote 184,531 output tokens for the
+  150 prompts, while Flash-Lite wrote only 19,305.
+- **The limit is in the eval set and the judge, not in the generator.** The answers were already faithful to their
+  context. The points they lose come from the single reference answer and from partial answers, which a better
+  model cannot fix.
+- **The stricter prompt was tested in the same run.** So the effects of the new prompt and the new model cannot be
+  told apart.
+
 <!--
-README plan, agreed 2026-10-16. Sections 1 to 6 are done; write the rest in this order, then remove this note.
+README plan, agreed 2026-10-16. Sections 1 to 7 are done; write the rest in this order, then remove this note.
 
 3. Tech stack, grouped:
    - Retrieval and embeddings: FAISS, BM25, Qdrant, sentence-transformers, the cross-encoder
