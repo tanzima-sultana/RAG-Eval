@@ -16,7 +16,7 @@ def test_valid_args_pass():
     Output: nothing raised.
     What it does: checks valid settings pass.
     """
-    validate_analysis_args(AnalysisArgs(n_compare_runs=5, n_worst_answers=10))
+    validate_analysis_args(AnalysisArgs(n_compare_runs=5, n_worst_answers=10, framework=""))
 
 
 def test_smallest_valid_args_pass():
@@ -25,7 +25,7 @@ def test_smallest_valid_args_pass():
     Output: nothing raised.
     What it does: checks comparing only the current run and listing no worst answers are valid.
     """
-    validate_analysis_args(AnalysisArgs(n_compare_runs=1, n_worst_answers=0))
+    validate_analysis_args(AnalysisArgs(n_compare_runs=1, n_worst_answers=0, framework=""))
 
 
 @pytest.mark.parametrize("n_compare_runs", [0, -1])
@@ -36,7 +36,7 @@ def test_n_compare_runs_below_one_raises(n_compare_runs):
     What it does: checks the comparison always holds the current run.
     """
     with pytest.raises(ValueError, match="n_compare_runs"):
-        validate_analysis_args(AnalysisArgs(n_compare_runs=n_compare_runs, n_worst_answers=10))
+        validate_analysis_args(AnalysisArgs(n_compare_runs=n_compare_runs, n_worst_answers=10, framework=""))
 
 
 def test_negative_n_worst_answers_raises():
@@ -46,4 +46,4 @@ def test_negative_n_worst_answers_raises():
     What it does: checks a negative count is caught.
     """
     with pytest.raises(ValueError, match="n_worst_answers"):
-        validate_analysis_args(AnalysisArgs(n_compare_runs=5, n_worst_answers=-1))
+        validate_analysis_args(AnalysisArgs(n_compare_runs=5, n_worst_answers=-1, framework=""))

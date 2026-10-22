@@ -48,7 +48,7 @@ def make_eval_results(settings):
     )
     generated = Generated(id="eval_qna_1", qus="Question?", answer="Answer.", llm="ollama", llm_model="llama")
     answer_evaluation = AnswerEvaluation(
-        i_dont_know=0, correctness=0.7, faithfulness=None, relevance=0.9, framework="ragas", llm="openai",
+        i_dont_know=0, correctness=0.7, faithfulness=None, relevance=0.9, ans_eval_framework="ragas", llm="openai",
         llm_model="judge",
     )
     eval_qna_item = EvalQnA(

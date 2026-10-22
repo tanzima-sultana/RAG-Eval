@@ -185,7 +185,7 @@ def get_answer_evaluations(output_path: str, eval_qna: list[EvalQnA], context_li
 		eval_qna_by_id[eval_qna_item.id] = eval_qna_item
 
 	# 2. Load the cached scores of this framework and judge model
-	answer_evaluation_file = paths.get_answer_evaluation_path(output_path, answer_eval_args.framework, answer_eval_args.llm_args.llm_model)
+	answer_evaluation_file = paths.get_answer_evaluation_path(output_path, answer_eval_args.framework, answer_eval_args.ans_eval_framework, answer_eval_args.llm_args.llm_model)
 	answer_evaluation_cache = load_answer_evaluation_cache(answer_evaluation_file)
 	print(f"Cached answer evaluations : {len(answer_evaluation_cache)} in {answer_evaluation_file}")
 
@@ -221,7 +221,7 @@ def get_answer_evaluations(output_path: str, eval_qna: list[EvalQnA], context_li
 			correctness=correctness,
 			faithfulness=faithfulness,
 			relevance=relevance,
-			framework=answer_eval_args.framework,
+			ans_eval_framework=answer_eval_args.ans_eval_framework,
 			llm=answer_eval_args.llm_args.llm,
 			llm_model=answer_eval_args.llm_args.llm_model
 		)

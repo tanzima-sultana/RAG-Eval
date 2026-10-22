@@ -12,9 +12,9 @@ from stages.evaluation.evaluation.validate import validate_answer_eval_args
 from stages.evaluation.evaluation.validate import validate_n_retrieval_evaluation
 
 
-def make_answer_eval_args(framework):
+def make_answer_eval_args(ans_eval_framework):
     """
-    Input: framework, the answer evaluation framework.
+    Input: ans_eval_framework, the answer evaluation framework.
     Output: an AnswerEvalArgs with a fixed Ollama judge and embedding model.
     What it does: builds the args the tests check.
     """
@@ -29,7 +29,7 @@ def make_answer_eval_args(framework):
         timeout_seconds=60,
         cache_ttl="5m"
     )
-    return AnswerEvalArgs(framework=framework, llm_args=llm_args, embedding_model="all-MiniLM-L6-v2")
+    return AnswerEvalArgs(ans_eval_framework=ans_eval_framework, llm_args=llm_args, embedding_model="all-MiniLM-L6-v2", framework="")
 
 
 def test_n_retrieval_evaluation_of_one_passes():

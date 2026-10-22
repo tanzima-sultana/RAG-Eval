@@ -364,17 +364,23 @@ def get_generated_batch_id_path(output_path:str, framework: str, generation_llm_
 
 	return f"{output_path}/generated/{framework_folder}{generation_llm_model}/batch_id.txt"
 
-def get_answer_evaluation_path(output_path:str, framework: str, ans_eval_llm_model: str) -> str:
+def get_answer_evaluation_path(output_path:str, framework: str, ans_eval_framework: str, ans_eval_llm_model: str) -> str:
 	"""
-	Input: output_path, the dataset's output folder; framework, the answer evaluation framework; ans_eval_llm_model,
-	the model that judges the answers.
+	Input: output_path, the dataset's output folder; framework, "" for the built-in path or a framework such as
+	langchain; ans_eval_framework, the answer evaluation framework; ans_eval_llm_model, the model that judges the answers.
 	Output: the answer evaluation cache file path as a string.
-	What it does: builds {output_path}/answer_evaluation/{framework}/{ans_eval_llm_model}/answer_evaluation.json, with
-	any "/" or ":" in the model name replaced by "-".
+	What it does: builds {output_path}/answer_evaluation/{ans_eval_framework}/{ans_eval_llm_model}/answer_evaluation.json,
+	with any "/" or ":" in the model name replaced by "-". A {framework}/ folder is added after answer_evaluation/ when
+	a framework is used.
 	"""
 	ans_eval_llm_model = ans_eval_llm_model.replace("/", "-").replace(":", "-")
 
-	return f"{output_path}/answer_evaluation/{framework}/{ans_eval_llm_model}/answer_evaluation.json"
+	if framework == NO_FRAMEWORK:
+		framework_folder = ""
+	else:
+		framework_folder = f"{framework}/"
+
+	return f"{output_path}/answer_evaluation/{framework_folder}{ans_eval_framework}/{ans_eval_llm_model}/answer_evaluation.json"
 
 def get_eval_results_path(output_path:str, settings_hash: str) -> str:
 	"""
@@ -384,10 +390,18 @@ def get_eval_results_path(output_path:str, settings_hash: str) -> str:
 	"""
 	return f"{output_path}/eval_results/{settings_hash}.json"
 
-def get_analysis_runs_path(output_path:str) -> str:
+def get_analysis_runs_path(output_path:str, framework: str) -> str:
 	"""
-	Input: output_path, the dataset's output folder.
+	Input: output_path, the dataset's output folder; framework, "" for the built-in path or a framework such as
+	langchain.
 	Output: the folder holding one subfolder per analysed run, as a string.
-	What it does: builds {output_path}/analysis/runs.
+	What it does: builds {output_path}/analysis/runs, with a {framework}/ folder after analysis/ when a framework is
+	used, so each framework's report compares only its own runs.
 	"""
-	return f"{output_path}/analysis/runs"
+
+	if framework == NO_FRAMEWORK:
+		framework_folder = ""
+	else:
+		framework_folder = f"{framework}/"
+
+	return f"{output_path}/analysis/{framework_folder}runs"

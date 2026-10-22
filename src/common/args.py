@@ -80,14 +80,16 @@ class GenerationArgs:
 
 @dataclasses.dataclass
 class AnswerEvalArgs:
-	framework: str
+	ans_eval_framework: str
 	llm_args: LLMArgs
 	embedding_model: str
+	framework: str
 
 @dataclasses.dataclass
 class AnalysisArgs:
 	n_compare_runs: int
 	n_worst_answers: int
+	framework: str
 
 # ------ Command line arguments
 def parse_config_arguments(parser: argparse.ArgumentParser, config_parts: list[str]) -> argparse.Namespace:
@@ -846,20 +848,22 @@ def make_answer_eval_args(parsed_args) -> AnswerEvalArgs:
 		parsed_args.llm_cache_ttl
 	)
 	answer_eval_args = AnswerEvalArgs(
-		framework=parsed_args.ans_eval_framework,
+		ans_eval_framework=parsed_args.ans_eval_framework,
 		llm_args=ans_eval_llm_args,
-		embedding_model=parsed_args.ans_eval_embedding_model
+		embedding_model=parsed_args.ans_eval_embedding_model,
+		framework=parsed_args.framework
 	)
 	return answer_eval_args
 
 def make_analysis_args(parsed_args) -> AnalysisArgs:
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args().
-	Output: an AnalysisArgs object holding n_compare_runs and n_worst_answers.
-	What it does: copies the parsed n_compare_runs and n_worst_answers into the matching AnalysisArgs fields.
+	Output: an AnalysisArgs object holding n_compare_runs, n_worst_answers and framework.
+	What it does: copies the parsed n_compare_runs, n_worst_answers and framework into the matching AnalysisArgs fields.
 	"""
 	analysis_args = AnalysisArgs(
 		n_compare_runs=parsed_args.n_compare_runs,
-		n_worst_answers=parsed_args.n_worst_answers
+		n_worst_answers=parsed_args.n_worst_answers,
+		framework=parsed_args.framework
 	)
 	return analysis_args

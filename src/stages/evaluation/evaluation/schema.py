@@ -55,7 +55,7 @@ class AnswerEvaluation:
 		relevance:    How well the answer addresses the question, from 0 to 1.
 		              Each of the three is None when the judge could not give it, e.g. when the provider's content
 		              filter blocked the judge's reply. A None score is left out of the averages.
-		framework:    The framework that scored the answer, e.g. ragas.
+		ans_eval_framework: The framework that scored the answer, e.g. ragas.
 		llm:          The LLM provider that judged the answer, e.g. claude.
 		llm_model:    The model that judged the answer.
 	"""
@@ -63,7 +63,7 @@ class AnswerEvaluation:
 	correctness: float | None
 	faithfulness: float | None
 	relevance: float | None
-	framework: str
+	ans_eval_framework: str
 	llm: str
 	llm_model: str
 

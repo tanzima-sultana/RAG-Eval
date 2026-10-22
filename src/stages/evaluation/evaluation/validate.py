@@ -17,7 +17,7 @@ def validate_answer_eval_args(answer_eval_args: AnswerEvalArgs):
 	Output: nothing. Raises ValueError if the framework is not supported. The judge LLM is checked by
 	llm.validate.validate_llm.
 	"""
-	if answer_eval_args.framework != RAGAS_FRAMEWORK:
+	if answer_eval_args.ans_eval_framework != RAGAS_FRAMEWORK:
 		raise ValueError(
-			f"ans_eval_framework ({answer_eval_args.framework}) is not supported. Use \"{RAGAS_FRAMEWORK}\"."
+			f"ans_eval_framework ({answer_eval_args.ans_eval_framework}) is not supported. Use \"{RAGAS_FRAMEWORK}\"."
 		)

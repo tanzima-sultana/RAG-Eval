@@ -57,7 +57,7 @@ def analyze_run(output_path: str, analysis_args: AnalysisArgs, eval_results: Eva
 
 	# Every answer of one run is judged by the same framework and model
 	if len(answer_evaluations) > 0:
-		judge = f"{answer_evaluations[0].framework} {answer_evaluations[0].llm_model}"
+		judge = f"{answer_evaluations[0].ans_eval_framework} {answer_evaluations[0].llm_model}"
 	else:
 		judge = ""
 
@@ -78,7 +78,7 @@ def analyze_run(output_path: str, analysis_args: AnalysisArgs, eval_results: Eva
 
 	# 4. Comparison with the n_compare_runs - 1 newest earlier runs. A saved run with the same settings_hash is this
 	# run's earlier version, which this run replaces, so it is not compared
-	saved_analysis_runs = load_analysis_runs(paths.get_analysis_runs_path(output_path))
+	saved_analysis_runs = load_analysis_runs(paths.get_analysis_runs_path(output_path, analysis_args.framework))
 	compared_analysis_runs = [analysis_run]
 	for saved_analysis_run in saved_analysis_runs:
 		if saved_analysis_run.settings_hash == analysis_run.settings_hash:
@@ -108,7 +108,7 @@ def analyze_run(output_path: str, analysis_args: AnalysisArgs, eval_results: Eva
 	report = get_report(analysis_run, sections)
 
 	# 6. Save the run with its report, then print the report
-	run_folder = save_analysis_run(paths.get_analysis_runs_path(output_path), analysis_run, report)
+	run_folder = save_analysis_run(paths.get_analysis_runs_path(output_path, analysis_args.framework), analysis_run, report)
 	print("\n" + report)
 	print(f"\nAnalysis run saved : {run_folder}")
 
