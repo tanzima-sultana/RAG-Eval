@@ -68,6 +68,8 @@ src/
 				schema.py              # Defines the Document dataclass — the normalized record format every parsed document is converted into
 				cache.py	           # Store and retrieve cached documents
 				ingestion.py           # Library for document ingestion
+				cache.py	           # Store and retrieve cached documents
+				langchain.py		   # langchain ingetsion
 
 			chunking/
 				schema.py              # Defines the Chunk dataclass — the normalized record format every created chunk is converted into
