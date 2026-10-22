@@ -26,14 +26,32 @@ def get_output_path(input_path:str, output_path:str) -> str:
 	return f"{output_path}/{dataset_name}"
 
 # ------ Ingestion
-def get_processed_data_path(output_path:str) -> str:
+def get_processed_data_path(output_path:str, framework:str) -> str:
 	"""
-	Input: output_path, the dataset's output folder.
+	Input: output_path, the dataset's output folder; framework, "" for the
+	built-in ingestion or a framework such as langchain.
 	Output: the processed data folder path as a string, ending with "/".
 	What it does: builds the folder that holds the ingested documents:
-	{output_path}/data/processed/
+	{output_path}/data/processed/ for the built-in ingestion, and
+	{output_path}/data/processed/{framework}/ when a framework is used, so
+	the two never share a cache.
 	"""
-	return f"{output_path}/data/processed/"
+
+	if framework == NO_FRAMEWORK:
+		framework_folder = ""
+	else:
+		framework_folder = f"{framework}/"
+
+	return f"{output_path}/data/processed/{framework_folder}"
+
+def get_raw_data_path(output_path:str) -> str:
+	"""
+	Input: output_path, the dataset's output folder.
+	Output: the raw data folder path as a string, ending with "/".
+	What it does: builds the folder where doc_ingest saved the raw input
+	files, one {doc_id}.pdf per document: {output_path}/data/raw/
+	"""
+	return f"{output_path}/data/raw/"
 
 # ------ Chunking
 def get_chunk_path(output_path:str, chunking_args: ChunkingArgs) -> str:

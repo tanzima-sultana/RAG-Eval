@@ -69,6 +69,7 @@ def make_ingest_args(output_path, dataset_size=5):
         parse_timeout_seconds=9,
         dedup_threshold=0.5,
         pdf_parser="pypdfium2",
+        framework="",
     )
     return ingest_args
 

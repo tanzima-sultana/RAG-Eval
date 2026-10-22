@@ -58,7 +58,7 @@ def test_save_documents_writes_one_file_per_document_and_doc_ids(tmp_path):
     What it does: checks each {doc_id}.json exists and doc_ids.json holds
     the ids in the saved order, with no temporary files left behind.
     """
-    save_documents(str(tmp_path), make_documents(["c", "a", "b"]))
+    save_documents(str(tmp_path), "", make_documents(["c", "a", "b"]))
 
     processed_data_path = tmp_path / "data" / "processed"
     file_names = sorted(os.listdir(processed_data_path))
@@ -75,9 +75,9 @@ def test_load_documents_returns_every_field_unchanged(tmp_path):
     the saved document.
     """
     documents = make_documents(["doc1"])
-    save_documents(str(tmp_path), documents)
+    save_documents(str(tmp_path), "", documents)
 
-    loaded_documents = load_documents(str(tmp_path), 1)
+    loaded_documents = load_documents(str(tmp_path), "", 1)
 
     assert loaded_documents["doc1"] == documents["doc1"]
     assert type(loaded_documents["doc1"].type) is DocumentType
@@ -90,9 +90,9 @@ def test_load_documents_returns_the_first_dataset_size_in_saved_order(tmp_path):
     What it does: checks only the first two ids of doc_ids.json are
     loaded, in that order.
     """
-    save_documents(str(tmp_path), make_documents(["d", "b", "a", "c"]))
+    save_documents(str(tmp_path), "", make_documents(["d", "b", "a", "c"]))
 
-    loaded_documents = load_documents(str(tmp_path), 2)
+    loaded_documents = load_documents(str(tmp_path), "", 2)
 
     assert list(loaded_documents.keys()) == ["d", "b"]
 
@@ -103,9 +103,9 @@ def test_load_documents_returns_none_when_too_few_are_cached(tmp_path):
     Output: load_documents' return value.
     What it does: checks None is returned, so ingestion calls the library.
     """
-    save_documents(str(tmp_path), make_documents(["a", "b"]))
+    save_documents(str(tmp_path), "", make_documents(["a", "b"]))
 
-    assert load_documents(str(tmp_path), 3) is None
+    assert load_documents(str(tmp_path), "", 3) is None
 
 
 def test_load_documents_returns_none_when_nothing_is_cached(tmp_path):
@@ -114,7 +114,7 @@ def test_load_documents_returns_none_when_nothing_is_cached(tmp_path):
     Output: load_documents' return value.
     What it does: checks None is returned when there is no doc_ids.json.
     """
-    assert load_documents(str(tmp_path), 1) is None
+    assert load_documents(str(tmp_path), "", 1) is None
 
 
 def test_load_documents_raises_when_a_listed_file_is_missing(tmp_path):
@@ -123,11 +123,11 @@ def test_load_documents_raises_when_a_listed_file_is_missing(tmp_path):
     Output: the raised error.
     What it does: checks a FileNotFoundError names the missing document.
     """
-    save_documents(str(tmp_path), make_documents(["a", "b"]))
+    save_documents(str(tmp_path), "", make_documents(["a", "b"]))
     os.remove(tmp_path / "data" / "processed" / "b.json")
 
     with pytest.raises(FileNotFoundError, match="b"):
-        load_documents(str(tmp_path), 2)
+        load_documents(str(tmp_path), "", 2)
 
 
 def test_load_documents_reads_files_saved_in_the_library_layout(tmp_path):
@@ -161,7 +161,7 @@ def test_load_documents_reads_files_saved_in_the_library_layout(tmp_path):
     with open(processed_data_path / "doc_ids.json", "w", encoding="utf-8") as f:
         json.dump(["doc1"], f)
 
-    loaded_documents = load_documents(str(tmp_path), 1)
+    loaded_documents = load_documents(str(tmp_path), "", 1)
 
     assert loaded_documents["doc1"].metadata.source == "owner/dataset#1"
     assert loaded_documents["doc1"].type == DocumentType.PDF

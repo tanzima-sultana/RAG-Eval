@@ -96,10 +96,10 @@ build:
     parse_timeout_seconds: 0
     dedup_threshold: 0.0
     pdf_parser: pypdfium2
+    framework: ""                               # langchain or "", used by ingestion, chunking, embedding, indexing and retrieval
 
   # 2. Chunking
   chunking:
-    framework: ""                               # langchain or ""
     model_name: all-MiniLM-L6-v2
     chunk_types: [fixed, sentence, semantic]    # one or more of fixed, sentence, semantic
     min_chunk_size: 128

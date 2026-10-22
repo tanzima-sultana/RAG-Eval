@@ -25,7 +25,8 @@ class IngestArgs:
 	parse_workers: int 
 	parse_timeout_seconds: int 
 	dedup_threshold: float 
-	pdf_parser: str 
+	pdf_parser: str
+	framework: str
 
 @dataclasses.dataclass
 class ChunkingArgs:
@@ -248,6 +249,12 @@ def add_ingest_arguments(parser: argparse.ArgumentParser) -> None:
 		required=False,
 		default=constants.PDF_PARSER,
 		help="Library used to parse PDF files: pypdf or pypdfium2")
+	parser.add_argument(
+		"--framework",
+		type=str,
+		required=False,
+		default="",
+		help="Framework for ingestion, chunking, embedding, indexing and retrieval: langchain, or empty for the built-in code")
 
 def add_chunking_arguments(parser: argparse.ArgumentParser) -> None:
 	"""
@@ -255,12 +262,6 @@ def add_chunking_arguments(parser: argparse.ArgumentParser) -> None:
 	Output: nothing.
 	What it does: adds the chunking and embedding arguments, which build.py and eval.py both take.
 	"""
-	parser.add_argument(
-		"--framework",
-		type=str,
-		required=False,
-		default="",
-		help="Chunking framework: langchain, or empty for the built-in chunkers")
 	parser.add_argument(
 		"--model_name",
 		type=str,
@@ -691,7 +692,8 @@ def make_ingest_args(parsed_args):
 		parse_workers=parsed_args.parse_workers,
 		parse_timeout_seconds=parsed_args.parse_timeout_seconds,
 		dedup_threshold=parsed_args.dedup_threshold,
-		pdf_parser=parsed_args.pdf_parser
+		pdf_parser=parsed_args.pdf_parser,
+		framework=parsed_args.framework
 	)
 	return ingest_args
 
