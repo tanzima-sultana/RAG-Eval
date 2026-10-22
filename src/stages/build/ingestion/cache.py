@@ -8,6 +8,11 @@ framework, such as langchain, have their own processed data folder. A doc_ids.js
 folder keeps the document ids in the order ingestion returned them, so
 the first dataset_size documents are always the same ones.
 
+LangChain ingestion can return fewer documents than the PDFs it read, so
+its folder also holds read_files.json: every raw PDF it has read, in
+order, with the id of the document it gave, or None if it failed to load.
+A request for N documents then means the documents of the first N PDFs.
+
 Each file is first written to a temporary file and then renamed into
 place, so a crash mid-write never leaves a half-written file that a later
 run would mistake for a complete cache.
@@ -77,6 +82,63 @@ def load_documents(output_path: str, framework: str, dataset_size: int) -> dict[
 		if not os.path.exists(document_file):
 			raise FileNotFoundError(
 				f"No document file for {doc_id} in {processed_data_path}, but it is listed in doc_ids.json."
+			)
+		with open(document_file, encoding="utf-8") as f:
+			document_dict = json.load(f)
+		documents[doc_id] = Document.model_validate(document_dict)
+
+	return documents
+
+def save_read_files(output_path: str, framework: str, read_files: list[dict]) -> None:
+	"""
+	Input: output_path, the dataset's output folder; framework, the
+	framework of the cache; read_files, one {"file_name", "doc_id"} per PDF
+	read, in read order, with doc_id None for a PDF that failed to load.
+	Output: nothing.
+	What it does: writes read_files to read_files.json in the processed
+	data folder, through a temporary file.
+	"""
+	processed_data_path = paths.get_processed_data_path(output_path, framework)
+	os.makedirs(processed_data_path, exist_ok=True)
+	read_files_file = os.path.join(processed_data_path, "read_files.json")
+	temporary_file = read_files_file + ".tmp"
+	with open(temporary_file, "w", encoding="utf-8") as f:
+		json.dump(read_files, f)
+	os.replace(temporary_file, read_files_file)
+
+def load_read_files(output_path: str, framework: str) -> list[dict]:
+	"""
+	Input: output_path, the dataset's output folder; framework, the
+	framework of the cache.
+	Output: the {"file_name", "doc_id"} list from read_files.json, or an
+	empty list if the file does not exist.
+	What it does: reads read_files.json from the processed data folder.
+	"""
+	processed_data_path = paths.get_processed_data_path(output_path, framework)
+	read_files_file = os.path.join(processed_data_path, "read_files.json")
+	if not os.path.exists(read_files_file):
+		return []
+
+	with open(read_files_file, encoding="utf-8") as f:
+		read_files = json.load(f)
+	return read_files
+
+def load_documents_by_ids(output_path: str, framework: str, doc_ids: list[str]) -> dict[str, Document]:
+	"""
+	Input: output_path, the dataset's output folder; framework, the
+	framework of the cache; doc_ids, the ids of the documents to load.
+	Output: a dict of doc_id to Document, in the order of doc_ids.
+	What it does: reads each {doc_id}.json from the processed data folder.
+	Raises FileNotFoundError if a document has no file.
+	"""
+	processed_data_path = paths.get_processed_data_path(output_path, framework)
+
+	documents = {}
+	for doc_id in doc_ids:
+		document_file = os.path.join(processed_data_path, f"{doc_id}.json")
+		if not os.path.exists(document_file):
+			raise FileNotFoundError(
+				f"No document file for {doc_id} in {processed_data_path}, but it is listed in read_files.json."
 			)
 		with open(document_file, encoding="utf-8") as f:
 			document_dict = json.load(f)
