@@ -221,7 +221,7 @@ def make_eval_qna_args():
         Output: an EvalQnAArgs with the defaults plus the overrides.
         What it does: fills in defaults for every field not overridden.
         """
-        field_values = {"eval_qna_model": "all-MiniLM-L6-v2", "n_sample_documents": 2, "n_sample_evals": 2}
+        field_values = {"eval_qna_model": "all-MiniLM-L6-v2", "n_sample_documents": 2, "n_sample_evals": 2, "framework": ""}
         for field_name in overrides:
             field_values[field_name] = overrides[field_name]
         return EvalQnAArgs(**field_values)

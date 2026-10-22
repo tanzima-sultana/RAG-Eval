@@ -55,6 +55,7 @@ class EvalQnAArgs:
 	eval_qna_model: str
 	n_sample_documents: int
 	n_sample_evals: int
+	framework: str
 
 @dataclasses.dataclass
 class QueryArgs:
@@ -75,6 +76,7 @@ class GenerationArgs:
 	llm_args: LLMArgs
 	batch_poll_seconds: int
 	batch_timeout_seconds: int
+	framework: str
 
 @dataclasses.dataclass
 class AnswerEvalArgs:
@@ -739,13 +741,14 @@ def make_eval_qna_args(parsed_args):
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args().
 	Output: an EvalQnAArgs object holding the QnA generator settings.
-	What it does: copies the parsed eval embedding model name, number of sample documents and
-	number of eval QnA items into the matching EvalQnAArgs fields. The QnA LLMs are made with make_llm_args.
+	What it does: copies the parsed eval embedding model name, number of sample documents, number of eval QnA items
+	and framework into the matching EvalQnAArgs fields. The QnA LLMs are made with make_llm_args.
 	"""
 	eval_qna_args = EvalQnAArgs(
 		eval_qna_model=parsed_args.eval_qna_model,
 		n_sample_documents=parsed_args.n_sample_documents,
-		n_sample_evals=parsed_args.n_sample_evals
+		n_sample_evals=parsed_args.n_sample_evals,
+		framework=parsed_args.framework
 	)
 	return eval_qna_args
 
@@ -803,7 +806,8 @@ def make_generation_args(parsed_args) -> GenerationArgs:
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args().
 	Output: a GenerationArgs object holding the generation LLM and the batch settings.
-	What it does: makes the generation LLM with make_llm_args and copies batch_poll_seconds and batch_timeout_seconds.
+	What it does: makes the generation LLM with make_llm_args and copies batch_poll_seconds, batch_timeout_seconds and
+	framework.
 	"""
 	generation_llm_args = make_llm_args(
 		parsed_args.generation_llm,
@@ -819,7 +823,8 @@ def make_generation_args(parsed_args) -> GenerationArgs:
 	generation_args = GenerationArgs(
 		llm_args=generation_llm_args,
 		batch_poll_seconds=parsed_args.batch_poll_seconds,
-		batch_timeout_seconds=parsed_args.batch_timeout_seconds
+		batch_timeout_seconds=parsed_args.batch_timeout_seconds,
+		framework=parsed_args.framework
 	)
 	return generation_args
 

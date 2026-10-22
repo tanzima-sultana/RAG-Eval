@@ -107,8 +107,8 @@ def get_generated_list(output_path: str, prompt_list: list[Prompt], generation_a
 	What it does: loads the model's answer cache, then answers every prompt from it or from one LLM batch.
 	"""
 	# 1. Load the cached answers of this model
-	generated_file = paths.get_generated_path(output_path, generation_args.llm_args.llm_model)
-	batch_id_file = paths.get_generated_batch_id_path(output_path, generation_args.llm_args.llm_model)
+	generated_file = paths.get_generated_path(output_path, generation_args.framework, generation_args.llm_args.llm_model)
+	batch_id_file = paths.get_generated_batch_id_path(output_path, generation_args.framework, generation_args.llm_args.llm_model)
 	answer_cache = cache.load_generated_cache(generated_file)
 	print(f"Cached answers : {len(answer_cache)} in {generated_file}")
 

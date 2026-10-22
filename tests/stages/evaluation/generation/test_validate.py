@@ -28,7 +28,7 @@ def make_generation_args(batch_poll_seconds, batch_timeout_seconds):
         timeout_seconds=60,
         cache_ttl="5m"
     )
-    return GenerationArgs(llm_args=llm_args, batch_poll_seconds=batch_poll_seconds, batch_timeout_seconds=batch_timeout_seconds)
+    return GenerationArgs(llm_args=llm_args, batch_poll_seconds=batch_poll_seconds, batch_timeout_seconds=batch_timeout_seconds, framework="")
 
 
 def test_valid_args_pass():

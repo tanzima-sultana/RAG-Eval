@@ -196,7 +196,7 @@ def make_eval_qna_args():
         Output: an EvalQnAArgs.
         What it does: builds the eval set settings the query folder is named by.
         """
-        return EvalQnAArgs(eval_qna_model="claude-model", n_sample_documents=2, n_sample_evals=2)
+        return EvalQnAArgs(eval_qna_model="claude-model", n_sample_documents=2, n_sample_evals=2, framework="")
 
     return build_eval_qna_args
 

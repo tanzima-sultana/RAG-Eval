@@ -193,13 +193,19 @@ def get_eval_qna_path(output_path:str, eval_qna_args: EvalQnAArgs, qna_llm_model
 	that writes the questions and answers.
 	Output: the eval QnA cache file path as a string.
 	What it does: builds {output_path}/eval_qna_{n_sample_documents}_{n_sample_evals}_{qna_llm_model}_{eval_qna_model}.json,
-	with any "/" or ":" in the model names replaced by "-".
+	with any "/" or ":" in the model names replaced by "-". A {framework}_ part is added after eval_qna_ when a
+	framework such as langchain is used, so its eval QnA never mixes with the built-in one.
 	"""
 	qna_llm_model = qna_llm_model.replace("/", "-").replace(":", "-")
 	eval_qna_model = eval_qna_args.eval_qna_model.replace("/", "-")
 
+	if eval_qna_args.framework == NO_FRAMEWORK:
+		framework_part = ""
+	else:
+		framework_part = f"{eval_qna_args.framework}_"
+
 	return (
-		f"{output_path}/eval_qna_{eval_qna_args.n_sample_documents}_"
+		f"{output_path}/eval_qna_{framework_part}{eval_qna_args.n_sample_documents}_"
 		f"{eval_qna_args.n_sample_evals}_{qna_llm_model}_{eval_qna_model}.json"
 	)
 
@@ -209,13 +215,19 @@ def get_eval_kg_path(output_path:str, eval_qna_args: EvalQnAArgs, qna_kg_llm_mod
 	that builds the knowledge graph.
 	Output: the RAGAS knowledge graph cache file path as a string.
 	What it does: builds {output_path}/eval_kg_{n_sample_documents}_{qna_kg_llm_model}_{eval_qna_model}.json,
-	with any "/" or ":" in the model names replaced by "-".
+	with any "/" or ":" in the model names replaced by "-". A {framework}_ part is added after eval_kg_ when a
+	framework such as langchain is used.
 	"""
 	qna_kg_llm_model = qna_kg_llm_model.replace("/", "-").replace(":", "-")
 	eval_qna_model = eval_qna_args.eval_qna_model.replace("/", "-")
 
+	if eval_qna_args.framework == NO_FRAMEWORK:
+		framework_part = ""
+	else:
+		framework_part = f"{eval_qna_args.framework}_"
+
 	return (
-		f"{output_path}/eval_kg_{eval_qna_args.n_sample_documents}_"
+		f"{output_path}/eval_kg_{framework_part}{eval_qna_args.n_sample_documents}_"
 		f"{qna_kg_llm_model}_{eval_qna_model}.json"
 	)
 
@@ -227,15 +239,21 @@ def get_query_path(output_path:str, eval_qna_args: EvalQnAArgs, qna_llm_model: s
 	that transforms the questions.
 	Output: the query cache folder path as a string.
 	What it does: builds {output_path}/queries/{n_sample_documents}_{n_sample_evals}_{qna_llm_model}_{eval_qna_model}_
-	{embedding_model}_{query_llm_model}_{n_multi_qus}, with any "/" or ":" in the model names replaced by "-".
+	{embedding_model}_{query_llm_model}_{n_multi_qus}, with any "/" or ":" in the model names replaced by "-". A
+	{framework}/ folder is added after queries/ when a framework such as langchain is used.
 	"""
 	qna_llm_model = qna_llm_model.replace("/", "-").replace(":", "-")
 	eval_qna_model = eval_qna_args.eval_qna_model.replace("/", "-")
 	embedding_model = query_args.embedding_model.replace("/", "-")
 	query_llm_model = query_llm_model.replace("/", "-").replace(":", "-")
 
+	if eval_qna_args.framework == NO_FRAMEWORK:
+		framework_folder = ""
+	else:
+		framework_folder = f"{eval_qna_args.framework}/"
+
 	return (
-		f"{output_path}/queries/{eval_qna_args.n_sample_documents}_{eval_qna_args.n_sample_evals}_"
+		f"{output_path}/queries/{framework_folder}{eval_qna_args.n_sample_documents}_{eval_qna_args.n_sample_evals}_"
 		f"{qna_llm_model}_{eval_qna_model}_{embedding_model}_"
 		f"{query_llm_model}_{query_args.n_multi_qus}"
 	)
@@ -311,27 +329,40 @@ def get_hybrid_retrieved_path(output_path:str, chunking_args: ChunkingArgs, dens
 	)
 
 # ------ Generation
-def get_generated_path(output_path:str, generation_llm_model: str) -> str:
+def get_generated_path(output_path:str, framework: str, generation_llm_model: str) -> str:
 	"""
-	Input: output_path, the dataset's output folder; generation_llm_model, the model that answers the prompts.
+	Input: output_path, the dataset's output folder; framework, "" for the built-in path or a framework such as
+	langchain; generation_llm_model, the model that answers the prompts.
 	Output: the generation cache file path as a string.
 	What it does: builds {output_path}/generated/{generation_llm_model}/generated.json, with any "/" or ":" in the
-	model name replaced by "-".
+	model name replaced by "-". A {framework}/ folder is added after generated/ when a framework is used.
 	"""
 	generation_llm_model = generation_llm_model.replace("/", "-").replace(":", "-")
 
-	return f"{output_path}/generated/{generation_llm_model}/generated.json"
+	if framework == NO_FRAMEWORK:
+		framework_folder = ""
+	else:
+		framework_folder = f"{framework}/"
 
-def get_generated_batch_id_path(output_path:str, generation_llm_model: str) -> str:
+	return f"{output_path}/generated/{framework_folder}{generation_llm_model}/generated.json"
+
+def get_generated_batch_id_path(output_path:str, framework: str, generation_llm_model: str) -> str:
 	"""
-	Input: output_path, the dataset's output folder; generation_llm_model, the model that answers the prompts.
+	Input: output_path, the dataset's output folder; framework, "" for the built-in path or a framework such as
+	langchain; generation_llm_model, the model that answers the prompts.
 	Output: the batch id file path as a string.
 	What it does: builds {output_path}/generated/{generation_llm_model}/batch_id.txt, next to generated.json, with any
-	"/" or ":" in the model name replaced by "-".
+	"/" or ":" in the model name replaced by "-". A {framework}/ folder is added after generated/ when a framework
+	is used.
 	"""
 	generation_llm_model = generation_llm_model.replace("/", "-").replace(":", "-")
 
-	return f"{output_path}/generated/{generation_llm_model}/batch_id.txt"
+	if framework == NO_FRAMEWORK:
+		framework_folder = ""
+	else:
+		framework_folder = f"{framework}/"
+
+	return f"{output_path}/generated/{framework_folder}{generation_llm_model}/batch_id.txt"
 
 def get_answer_evaluation_path(output_path:str, framework: str, ans_eval_llm_model: str) -> str:
 	"""
