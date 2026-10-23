@@ -157,9 +157,9 @@ def fake_ragas(monkeypatch):
         state["validated"].append(llm_args)
         return True
 
-    def wrap_llm(chat_model, bypass_temperature):
+    def wrap_llm(chat_model, bypass_temperature, is_finished_parser):
         """
-        Input: chat_model and bypass_temperature, as LangchainLLMWrapper takes them.
+        Input: chat_model, bypass_temperature and is_finished_parser, as LangchainLLMWrapper takes them.
         Output: a tuple marking the wrapped model.
         What it does: stands in for ragas.llms.LangchainLLMWrapper.
         """
@@ -176,10 +176,10 @@ def fake_ragas(monkeypatch):
     def make_transforms(documents, llm, embedding_model):
         """
         Input: documents, llm and embedding_model, as default_transforms takes them.
-        Output: an empty list of transforms.
+        Output: a list with one fake transform step.
         What it does: stands in for ragas.testset.transforms.default_transforms.
         """
-        return []
+        return ["fake transform step"]
 
     def run_transforms(knowledge_graph, transforms):
         """
