@@ -16,6 +16,9 @@ It runs on real-world PDF data and compares 3 chunking strategies, 5 indexes (FA
 - **Best setup:** sentence chunks, hybrid retrieval (FAISS + BM25, fused with RRF), top 20, no reranking.
 - **Prompt tuning** raised correctness from 0.55 to 0.61 and halved "I don't know" answers.
 - **Cost:** The 200-question eval set cost $4.88 to generate. The three tuning runs on the validation set cost $9.16 in total, while the test run cost $0.78. Cached re-runs cost nothing.
+- **LangChain comparison:** The same pipeline was also run with LangChain on this dataset of clean, text-based PDFs.
+  Both paths scored about the same. Built-in was slightly higher on retrieval quality and answer correctness. With
+  only 5,000 documents, a gap of 2% to 3% is too small to call one path better.
 
 ## Architecture
 
@@ -269,26 +272,49 @@ calls for generation and judging, so only a filtered list goes to the generation
 
 ### Built-in vs LangChain
 
-Both paths were run on the same 5,000 documents with the same settings. The answer stage was evaluated only on the
-built-in path.
+Both paths were run end to end on the same 5,000 documents with the same settings. LangChain reads the raw PDFs with
+its own loader, so each path has its own documents, eval questions and queries. Each path is scored on its own 150
+validation questions.
 
-| Step | Built-in | LangChain |
+**Retrieval**
+
+The table shows the setups that are in the top 5 of both paths. All use sentence chunks, hybrid search, the original
+question and the top 20 chunks, without reranking.
+
+| Setup | Chunk hit (B / L) | Chunk recall (B / L) | Chunk MRR (B / L) | Doc hit (B / L) |
+|---|---|---|---|---|
+| FAISS flat + BM25 | 0.940 / 0.927 | 0.927 / 0.903 | 0.718 / 0.706 | 0.987 / 0.960 |
+| Qdrant + BM25 | 0.940 / 0.927 | 0.927 / 0.903 | 0.716 / 0.706 | 0.987 / 0.960 |
+| FAISS HNSW + BM25 | 0.940 / 0.920 | 0.923 / 0.897 | 0.705 / 0.672 | 0.980 / 0.960 |
+
+B is built-in and L is LangChain.
+
+- **The same kind of setup wins on both paths.** Hybrid search with the original question and the top 20 chunks
+  scores best, and reranking lowers the scores on both.
+- **The best chunking differs.** Built-in scores best with sentence chunks. LangChain scores best with fixed chunks,
+  with a chunk recall of 0.913 against built-in's 0.927.
+- **Built-in is 1.4% to 2.9% higher on every measure** on these shared setups. Chunk hit is 1.4% to 2.2% higher, and
+  chunk recall is 2.7% to 2.9% higher. Doc hit is 2.1% to 2.8% higher. MRR is up to 4.9% higher with HNSW.
+
+**Generated answers**
+
+Each path answered its own 150 validation questions with its best setup. Both used Gemini Flash-Lite, the same prompt
+and the same judge.
+
+| | Built-in | LangChain |
 |---|---|---|
-| Chunking time (fixed / sentence / semantic) | 42 s / 46 s / 5.4 min | 68 s / 2.1 min / 9.5 min |
-| Embedding time per chunk type | about 2.2 to 2.5 min | about 3% longer |
-| FAISS flat index size (fixed chunks) | 143 MB | 247 MB |
-| BM25 index size (fixed chunks) | 114 MB | 220 MB |
-| Best chunk recall | 0.927 | 0.927 |
+| Setup | sentence, FAISS flat + BM25 | fixed, Qdrant + BM25 |
+| I don't know | 0.067 | 0.053 |
+| Correctness | 0.612 | 0.600 |
+| Faithfulness | 0.894 | 0.898 |
+| Relevance | 0.573 | 0.567 |
+| Cost | $2.56 | $2.45 |
 
-- **Retrieval quality is the same.** On average, chunk hit differs by less than 0.3 points, and both paths pick the
-  same best setups.
-- **LangChain is slower at chunking.** Its splitters return only text, so it tokenizes every chunk a second time to
-  get its size.
-- **LangChain chunks are less clean.** In fixed chunking, 4,252 chunks keep the tokenizer's `[UNK]` placeholder in
-  their text, and 8,873 chunks go over the 256-token limit.
-- **Semantic chunking differs.** LangChain's semantic chunker uses a different rule to split the text, so it made
-  7,318 more chunks (112,218 against 104,900).
-- **LangChain indexes are larger,** because they store every chunk's text next to the vectors.
+- **The answer scores are close.** Built-in is 2.0% higher on correctness and 1.1% higher on relevance. LangChain is
+  0.4% higher on faithfulness.
+- **LangChain says "I don't know" less often.** It gave 8 such answers against built-in's 10.
+- **The small gap follows retrieval.** Built-in retrieval is 1.4% to 2.9% higher, and its answers are 1% to 2% higher.
+- **One LangChain answer has no score.** The judge's reply ran over its output limit.
 
 ## Analysis
 
@@ -479,7 +505,6 @@ ALLOW_PAID_API=1 bash scripts/pipeline.sh
 **Next steps, by stage:**
 - **Build:** Scale to 50,000 and 100,000 documents, and try other chunking settings.
 - **Question:** Write more than one reference answer for questions that have several valid answers.
-- **Evaluation:** Evaluate the answers on the LangChain path, to compare it with the built-in path end to end.
 
 **What a production version would add:**
 - **An API:** a FastAPI service that answers questions, with load tests for speed under many users.
