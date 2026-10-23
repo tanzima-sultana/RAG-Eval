@@ -18,7 +18,7 @@ It runs on real-world PDF data and compares 3 chunking strategies, 5 indexes (FA
 - **Cost:** The 200-question eval set cost $4.88 to generate. The three tuning runs on the validation set cost $9.16 in total, while the test run cost $0.78. Cached re-runs cost nothing.
 - **LangChain comparison:** The same pipeline was also run with LangChain on this dataset of clean, text-based PDFs.
   Both paths scored about the same. Built-in was slightly higher on retrieval quality and answer correctness. With
-  only 5,000 documents, a gap of 2% to 3% is too small to call one path better.
+  only 5,000 documents, a gap of 2% to 3% is too small to call one system better.
 
 ## Architecture
 
