@@ -105,7 +105,7 @@ def langchain_ingestion(ingest_args: IngestArgs) -> dict[str, Document]:
 	first dataset_size PDFs, so the same dataset_size always gives the same
 	documents, whatever was cached before.
 	"""
-	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
+	output_path = paths.get_output_path(ingest_args.dataset_name, ingest_args.output_path)
 	print(f"Processed data folder : {paths.get_processed_data_path(output_path, ingest_args.framework)}")
 
 	# 1. The PDFs already read, in order, with the document each one gave

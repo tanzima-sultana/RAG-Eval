@@ -62,7 +62,7 @@ def built_in_ingestion(ingest_args: IngestArgs) -> dict[str, Document]:
 	library on ingest_args.input_path, prints the run summary, converts each
 	library Document into our own Document, saves them and returns them.
 	"""
-	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
+	output_path = paths.get_output_path(ingest_args.dataset_name, ingest_args.output_path)
 	print(f"Processed data folder : {paths.get_processed_data_path(output_path, NO_FRAMEWORK)}")
 
 	cached_documents = cache.load_documents(output_path, NO_FRAMEWORK, ingest_args.dataset_size)

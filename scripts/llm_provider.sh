@@ -158,6 +158,7 @@ fi
 
 # 1. Dataset: a few documents, in a folder of its own
 DATASET_SIZE=20
+DATASET_NAME="pdfa-eng-wds"
 INPUT_PATH="outputs/pdfa-eng-wds/data/raw"
 OUTPUT_PATH="outputs/llm_check/$PROVIDER"
 DOCUMENT_TYPE="pdf"
@@ -178,6 +179,7 @@ N_MULTI_QUS=3
 
 python3 src/llm_provider.py \
   --dataset_size "$DATASET_SIZE" \
+  --dataset_name "$DATASET_NAME" \
   --input_path "$INPUT_PATH" \
   --output_path "$OUTPUT_PATH" \
   --document_type "$DOCUMENT_TYPE" \

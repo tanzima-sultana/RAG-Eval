@@ -16,7 +16,7 @@ def run_analysis(args) -> AnalysisRun:
 	compares the run with the most recent earlier runs, and saves it with its report.
 	"""
 	ingest_args = make_ingest_args(args)
-	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
+	output_path = paths.get_output_path(ingest_args.dataset_name, ingest_args.output_path)
 	analysis_args = make_analysis_args(args)
 
 	# 1. Load the eval results of the run with these settings

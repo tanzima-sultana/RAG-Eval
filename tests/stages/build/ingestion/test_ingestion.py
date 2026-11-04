@@ -53,6 +53,7 @@ def make_ingest_args(output_path, dataset_size=5):
     """
     ingest_args = IngestArgs(
         dataset_size=dataset_size,
+        dataset_name="dataset",
         input_path="data/dataset",
         output_path=str(output_path),
         document_type="pdf",

@@ -17,7 +17,7 @@ def run_question(args):
 	What it does: loads the documents, then loads or generates the eval QnA and the queries made from them.
 	"""
 	ingest_args = make_ingest_args(args)
-	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
+	output_path = paths.get_output_path(ingest_args.dataset_name, ingest_args.output_path)
 	eval_qna_args = make_eval_qna_args(args)
 	qna_llm_args = make_llm_args(args.qna_llm, args.qna_llm_model, args.qna_input_price, args.qna_output_price, args.qna_cache_write_price, args.qna_cache_read_price, args.llm_max_tokens, args.llm_timeout_seconds, args.llm_cache_ttl)
 	qna_kg_llm_args = make_llm_args(args.qna_kg_llm, args.qna_kg_llm_model, args.qna_kg_input_price, args.qna_kg_output_price, args.qna_kg_cache_write_price, args.qna_kg_cache_read_price, args.llm_max_tokens, args.llm_timeout_seconds, args.llm_cache_ttl)

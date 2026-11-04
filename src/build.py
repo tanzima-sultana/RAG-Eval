@@ -25,7 +25,7 @@ def run_build(args) -> None:
 	e1 = time.time() - s1
 	print("\nIngestion time : ", e1)
 
-	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
+	output_path = paths.get_output_path(ingest_args.dataset_name, ingest_args.output_path)
 
 	# Chunking, embedding and indexing are done once per chunk type
 	for chunk_type in args.chunk_types:

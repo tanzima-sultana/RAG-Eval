@@ -283,7 +283,7 @@ def run_eval(args) -> EvalResults:
 	chosen by query_split, and saves the results for the analysis stage.
 	"""
 	ingest_args = make_ingest_args(args)
-	output_path = paths.get_output_path(ingest_args.input_path, ingest_args.output_path)
+	output_path = paths.get_output_path(ingest_args.dataset_name, ingest_args.output_path)
 
 	# 1. Documents, eval QnA and queries, split into tuning and held-out
 	documents, eval_qna, tuning_queries, held_out_queries = load_eval_inputs(args)

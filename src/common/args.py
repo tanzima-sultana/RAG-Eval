@@ -17,6 +17,7 @@ from llm.schema import LLMArgs
 @dataclasses.dataclass
 class IngestArgs:
 	dataset_size: int 
+	dataset_name: str
 	input_path: str
 	output_path: str 
 	document_type: str
@@ -193,6 +194,11 @@ def add_ingest_arguments(parser: argparse.ArgumentParser) -> None:
 		required=False,
 		default=0,
 		help="Number of documents to ingest")
+	parser.add_argument(
+		"--dataset_name",
+		type=str,
+		required=True,
+		help="Dataset name, used as the dataset's output folder name")
 	parser.add_argument(
 		"--input_path",
 		type=str,
@@ -645,6 +651,7 @@ def make_ingest_args(parsed_args):
 	"""
 	ingest_args = IngestArgs(
 		dataset_size=parsed_args.dataset_size,
+		dataset_name=parsed_args.dataset_name,
 		input_path=parsed_args.input_path,
 		output_path=parsed_args.output_path,
 		document_type=parsed_args.document_type,

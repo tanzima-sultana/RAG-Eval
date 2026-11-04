@@ -87,6 +87,7 @@ build:
   # 1. Ingestion
   ingestion:
     dataset_size: 5000
+    dataset_name: pdfa-eng-wds
     input_path: outputs/pdfa-eng-wds/data/raw
     output_path: outputs
     document_type: pdf

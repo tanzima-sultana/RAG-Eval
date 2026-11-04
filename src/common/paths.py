@@ -9,20 +9,12 @@ from common.constants import NO_FRAMEWORK
 from common.constants import FAISS_FLATIP_INDEX, FAISS_IVF_INDEX, FAISS_HNSW_INDEX, BM25_INDEX, QDRANT_INDEX
 
 # ------ Dataset
-def get_output_path(input_path:str, output_path:str) -> str:
+def get_output_path(dataset_name:str, output_path:str) -> str:
 	"""
-	Input: input_path, a Hugging Face dataset id or a local file/folder path;
-	output_path, the base output folder.
-	Output: the folder "{output_path}/{dataset_name}" as a string.
-	What it does: takes the last part of input_path as the dataset name,
-	without trailing slashes or a file extension. For example
-	"pixparse/pdfa-eng-wds" gives "pdfa-eng-wds", "data/docs/" gives "docs"
-	and "data/report.pdf" gives "report".
+	Input: dataset_name, the dataset's name; output_path, the base output folder.
+	Output: the dataset's output folder "{output_path}/{dataset_name}" as a string.
+	What it does: joins the base output folder and the dataset name.
 	"""
-	path_without_trailing_slash = input_path.rstrip("/")
-	last_path_part = os.path.basename(path_without_trailing_slash)
-	name_and_extension = os.path.splitext(last_path_part)
-	dataset_name = name_and_extension[0]
 	return f"{output_path}/{dataset_name}"
 
 # ------ Ingestion
