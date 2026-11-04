@@ -1,18 +1,3 @@
-# 1. Doc ingestion
-
-# Number of documents downloaded/decoded at the same time
-DOWNLOAD_WORKERS = 64
-MAX_BATCH_ROWS=256
-HUGGING_FACE_SPLIT="train"
-
-# Number of documents parsed at the same time, each in its own process
-PARSE_WORKERS = 16
-PARSE_TIMEOUT_SECONDS=120
-DEDUP_THRESHOLD=0.90
-
-# Number of documents sent to a parse worker process in one go
-PDF_PARSER="pypdf"
-
 # 2. Chunking
 
 # Chunking frameworks: "" uses the built-in chunkers

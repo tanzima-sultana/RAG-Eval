@@ -7,13 +7,13 @@ loads the documents from the processed data folder when enough are cached,
 and otherwise calls doc_ingest.ingest_documents with the IngestArgs values,
 saves the converted documents and returns them keyed by id.
 
-ingest_documents is replaced with a fake in these tests, so no dataset is
-downloaded. Only RAG-Eval's wiring to the library is tested.
+ingest_documents is replaced with a fake in these tests, so no file is
+read. Only RAG-Eval's wiring to the library is tested. The library
+Documents are fakes with the fields its README lists: id, type, source,
+title, pages and text.
 """
 
 import types
-
-from doc_ingest import schema as library_schema
 
 from common.args import IngestArgs
 from stages.build.ingestion import ingestion as ingestion_module
@@ -27,25 +27,18 @@ from stages.build.ingestion.schema import Metadata
 def make_library_document(doc_id="doc1", doc_type="pdf", text="Some text."):
     """
     Input: doc_id, doc_type (a DocumentType value string) and text.
-    Output: a doc_ingest.schema.Document with every metadata field filled in.
+    Output: a fake doc_ingest Document with id, type, source, title, pages and text.
     What it does: builds a library Document to feed into convert_document.
     """
-    library_metadata = library_schema.Metadata(
-        source="https://example.com/file.pdf",
-        file_size_bytes=1234,
-        content_hash="abc123",
-        minhash_signature=[1, 2, 3],
-        page_count=7,
-        parser="pypdfium2",
-        author="An Author",
-        title="A Title",
-        creation_date="2020-01-01",
-    )
-    library_document = library_schema.Document(
+    library_type = types.SimpleNamespace(value=doc_type)
+    library_page = types.SimpleNamespace(number=1, text=text)
+    library_document = types.SimpleNamespace(
         id=doc_id,
-        type=library_schema.DocumentType(doc_type),
+        type=library_type,
+        source="data/raw/file.pdf",
+        title="A Title",
+        pages=[library_page],
         text=text,
-        metadata=library_metadata,
     )
     return library_document
 
@@ -60,15 +53,9 @@ def make_ingest_args(output_path, dataset_size=5):
     """
     ingest_args = IngestArgs(
         dataset_size=dataset_size,
-        input_path="owner/dataset",
+        input_path="data/dataset",
         output_path=str(output_path),
-        download_workers=3,
-        max_batch_rows=11,
-        hugging_face_split="test",
-        parse_workers=4,
-        parse_timeout_seconds=9,
-        dedup_threshold=0.5,
-        pdf_parser="pypdfium2",
+        document_type="pdf",
         framework="",
     )
     return ingest_args
@@ -124,40 +111,35 @@ def test_convert_document_returns_this_projects_schema_types():
     assert type(document.type) is DocumentType
 
 
-def test_convert_document_copies_every_field():
+def test_convert_document_copies_id_type_text_and_source():
     """
-    Input: a library Document with every field filled in.
+    Input: a library Document.
     Output: the converted Document.
-    What it does: checks every field, including every metadata field,
-    has the same value as in the library Document.
+    What it does: checks id, type, text and source have the same values as
+    in the library Document.
+    """
+    library_document = make_library_document(doc_id="doc7", text="Page text.")
+
+    document = convert_document(library_document)
+
+    assert document.id == "doc7"
+    assert document.type == DocumentType.PDF
+    assert document.text == "Page text."
+    assert document.metadata.source == "data/raw/file.pdf"
+
+
+def test_convert_document_leaves_other_metadata_fields_empty():
+    """
+    Input: a library Document.
+    Output: the converted Document.
+    What it does: checks every metadata field except source is None.
     """
     library_document = make_library_document()
 
     document = convert_document(library_document)
 
-    assert document.model_dump() == library_document.model_dump()
-
-
-def test_convert_document_keeps_optional_metadata_fields_as_none():
-    """
-    Input: a library Document whose optional metadata fields are None.
-    Output: the converted Document.
-    What it does: checks the None values are kept, not replaced.
-    """
-    library_metadata = library_schema.Metadata(
-        source="file.pdf",
-        file_size_bytes=0,
-        content_hash="hash",
-    )
-    library_document = library_schema.Document(
-        id="doc1",
-        type=library_schema.DocumentType.PDF,
-        text="text",
-        metadata=library_metadata,
-    )
-
-    document = convert_document(library_document)
-
+    assert document.metadata.file_size_bytes is None
+    assert document.metadata.content_hash is None
     assert document.metadata.minhash_signature is None
     assert document.metadata.page_count is None
     assert document.metadata.parser is None
@@ -170,15 +152,15 @@ def test_convert_document_maps_each_document_type():
     """
     Input: one library Document per DocumentType value.
     Output: each converted Document's type.
-    What it does: checks every library type maps to our type with the
+    What it does: checks every type value maps to our type with the
     same value.
     """
-    for library_type in library_schema.DocumentType:
-        library_document = make_library_document(doc_type=library_type.value)
+    for document_type in DocumentType:
+        library_document = make_library_document(doc_type=document_type.value)
 
         document = convert_document(library_document)
 
-        assert document.type == DocumentType(library_type.value)
+        assert document.type == document_type
 
 
 # ---------- ingestion ----------
@@ -188,9 +170,8 @@ def test_ingestion_passes_ingest_args_to_ingest_documents(monkeypatch, tmp_path)
     """
     Input: IngestArgs with distinct values and a fake ingest_documents.
     Output: the keyword arguments the fake was called with.
-    What it does: checks size, input_path and the settings values ingestion
-    passes come from IngestArgs, and that no cache_dir is passed, so the
-    library never decides where this project's data is saved.
+    What it does: checks ingestion passes only path, size and document_type,
+    each from IngestArgs.
     """
     fake_ingest_documents = FakeIngestDocuments([])
     monkeypatch.setattr(ingestion_module, "ingest_documents", fake_ingest_documents)
@@ -199,12 +180,7 @@ def test_ingestion_passes_ingest_args_to_ingest_documents(monkeypatch, tmp_path)
     ingestion(ingest_args)
 
     called_kwargs = fake_ingest_documents.called_kwargs
-    assert called_kwargs["size"] == 5
-    assert called_kwargs["input_path"] == "owner/dataset"
-    assert "cache_dir" not in called_kwargs
-    assert called_kwargs["download_settings"].download_workers == 3
-    assert called_kwargs["process_settings"].parse_workers == 4
-    assert called_kwargs["parser_settings"].pdf_parser == "pypdfium2"
+    assert called_kwargs == {"path": "data/dataset", "size": 5, "document_type": "pdf"}
 
 
 def test_ingestion_returns_converted_documents_keyed_by_id(monkeypatch, tmp_path):

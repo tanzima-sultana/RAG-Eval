@@ -158,15 +158,9 @@ fi
 
 # 1. Dataset: a few documents, in a folder of its own
 DATASET_SIZE=20
-INPUT_PATH="pixparse/pdfa-eng-wds"
+INPUT_PATH="outputs/pdfa-eng-wds/data/raw"
 OUTPUT_PATH="outputs/llm_check/$PROVIDER"
-DOWNLOAD_WORKERS=1
-MAX_BATCH_ROWS=1
-HUGGING_FACE_SPLIT="train"
-PARSE_WORKERS=16
-PARSE_TIMEOUT_SECONDS=0
-DEDUP_THRESHOLD=0.0
-PDF_PARSER="pypdfium2"
+DOCUMENT_TYPE="pdf"
 
 # 2. Eval QnA: a few questions from a few short documents, to keep the calls small
 # Only documents up to MAX_DOCUMENT_TOKENS are used, so every provider gets the same documents and they fit in
@@ -186,13 +180,7 @@ python3 src/llm_provider.py \
   --dataset_size "$DATASET_SIZE" \
   --input_path "$INPUT_PATH" \
   --output_path "$OUTPUT_PATH" \
-  --download_workers "$DOWNLOAD_WORKERS" \
-  --max_batch_rows "$MAX_BATCH_ROWS" \
-  --hugging_face_split "$HUGGING_FACE_SPLIT" \
-  --parse_workers "$PARSE_WORKERS" \
-  --parse_timeout_seconds "$PARSE_TIMEOUT_SECONDS" \
-  --dedup_threshold "$DEDUP_THRESHOLD" \
-  --pdf_parser "$PDF_PARSER" \
+  --document_type "$DOCUMENT_TYPE" \
   --max_document_tokens "$MAX_DOCUMENT_TOKENS" \
   --eval_qna_model "$EVAL_QNA_MODEL" \
   --n_sample_documents "$N_SAMPLE_DOCUMENTS" \

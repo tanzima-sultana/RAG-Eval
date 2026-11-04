@@ -22,8 +22,8 @@ class DocumentType(str, Enum):
 
 class Metadata(BaseModel):
 	source: str = Field(..., description="Original input file path or URL")
-	file_size_bytes: int = Field(..., ge=0, description="Size of the raw input file")
-	content_hash: str = Field(..., description="SHA-256 hash of raw bytes for exact deduplication")
+	file_size_bytes: int | None = Field(None, ge=0, description="Size of the raw input file")
+	content_hash: str | None = Field(None, description="SHA-256 hash of raw bytes for exact deduplication")
 	minhash_signature: list[int] | None = Field(None, description="MinHash/LSH signature")
 	page_count: int | None = Field(None, ge=0, description="Number of pages (None for types without pages)")
 	parser: str | None = Field(None, description="Library that extracted the text (e.g., pypdf, pypdfium2)")

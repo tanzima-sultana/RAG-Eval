@@ -19,13 +19,7 @@ class IngestArgs:
 	dataset_size: int 
 	input_path: str
 	output_path: str 
-	download_workers: int 
-	max_batch_rows: int 
-	hugging_face_split: str 
-	parse_workers: int 
-	parse_timeout_seconds: int 
-	dedup_threshold: float 
-	pdf_parser: str
+	document_type: str
 	framework: str
 
 @dataclasses.dataclass
@@ -204,7 +198,7 @@ def add_ingest_arguments(parser: argparse.ArgumentParser) -> None:
 		type=str,
 		required=False,
 		default="",
-		help="Input dataset local path or Hugging Face dataset id")
+		help="Input dataset local file or folder path")
 	parser.add_argument(
 		"--output_path",
 		type=str,
@@ -212,47 +206,10 @@ def add_ingest_arguments(parser: argparse.ArgumentParser) -> None:
 		default="",
 		help="Directory where ingested documents are written")
 	parser.add_argument(
-		"--download_workers",
-		type=int,
-		required=False,
-		default=constants.DOWNLOAD_WORKERS,
-		help="Number of parallel download workers")
-	parser.add_argument(
-		"--max_batch_rows",
-		type=int,
-		required=False,
-		default=constants.MAX_BATCH_ROWS,
-		help="Maximum number of source rows per batch")
-	parser.add_argument(
-		"--hugging_face_split",
+		"--document_type",
 		type=str,
-		required=False,
-		default=constants.HUGGING_FACE_SPLIT,
-		help="Hugging Face dataset split to read")
-	parser.add_argument(
-		"--parse_workers",
-		type=int,
-		required=False,
-		default=constants.PARSE_WORKERS,
-		help="Number of parallel parse workers")
-	parser.add_argument(
-		"--parse_timeout_seconds",
-		type=int,
-		required=False,
-		default=constants.PARSE_TIMEOUT_SECONDS,
-		help="Per-document parse timeout in seconds")
-	parser.add_argument(
-		"--dedup_threshold",
-		type=float,
-		required=False,
-		default=constants.DEDUP_THRESHOLD,
-		help="Near-duplicate similarity threshold")
-	parser.add_argument(
-		"--pdf_parser",
-		type=str,
-		required=False,
-		default=constants.PDF_PARSER,
-		help="Library used to parse PDF files: pypdf or pypdfium2")
+		required=True,
+		help="Type of documents to ingest, e.g. pdf")
 	parser.add_argument(
 		"--framework",
 		type=str,
@@ -690,13 +647,7 @@ def make_ingest_args(parsed_args):
 		dataset_size=parsed_args.dataset_size,
 		input_path=parsed_args.input_path,
 		output_path=parsed_args.output_path,
-		download_workers=parsed_args.download_workers,
-		max_batch_rows=parsed_args.max_batch_rows,
-		hugging_face_split=parsed_args.hugging_face_split,
-		parse_workers=parsed_args.parse_workers,
-		parse_timeout_seconds=parsed_args.parse_timeout_seconds,
-		dedup_threshold=parsed_args.dedup_threshold,
-		pdf_parser=parsed_args.pdf_parser,
+		document_type=parsed_args.document_type,
 		framework=parsed_args.framework
 	)
 	return ingest_args

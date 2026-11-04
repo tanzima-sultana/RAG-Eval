@@ -29,7 +29,7 @@ It runs on real-world PDF data and compares 3 chunking strategies, 5 indexes (FA
 | Layer | Tools |
 |---|---|
 | **Core** | Python 3.10, PyYAML config, Pydantic, NumPy, PyTorch, pytest (436 tests) |
-| **Ingestion** | `doc_ingest` (PDF parsing with pypdfium2, MinHash deduplication), Hugging Face `datasets` |
+| **Ingestion** | [`doc_ingest`](https://github.com/tanzima-sultana/Document_Ingestion_Engine) (built on LangChain's document parsers, text cleanup, deduplication) |
 | **Chunking** | Fixed, sentence and semantic chunkers implemented, NLTK for sentence splitting |
 | **Embedding** | sentence-transformers (`all-MiniLM-L6-v2`) |
 | **Indexing** | FAISS (flat, IVF, HNSW), `rank-bm25` for BM25, Qdrant in Docker |
@@ -432,8 +432,7 @@ Claude, Gemini and ChatGPT are needed only for runs that call them.
 1. **Install the document ingestion library**, `doc_ingest`, from its repository:
 
    ```bash
-   git clone https://github.com/tanzima-sultana/DocIngestEngine.git
-   pip install -e DocIngestEngine
+   pip install git+https://github.com/tanzima-sultana/Document_Ingestion_Engine.git
    ```
 
 2. **Install the project's other requirements** and the NLTK sentence splitter data:
@@ -471,11 +470,11 @@ Claude, Gemini and ChatGPT are needed only for runs that call them.
    | `bash scripts/eval.sh` | Retrieval, generation and scoring |
    | `bash scripts/analysis.sh` | The report and the comparison with earlier runs |
 
-   The documents come from the `input_path` setting. It can be a Hugging Face dataset, like `pixparse/pdfa-eng-wds`
-   used here, or a local file or folder. For example, this builds a small test set from the first 20 documents:
+   The documents come from the `input_path` setting, a local file or folder. The `document_type` setting picks the
+   type of documents to read, e.g. `pdf`. For example, this builds a small test set from the first 20 documents:
 
    ```bash
-   bash scripts/build.sh --input_path pixparse/pdfa-eng-wds --dataset_size 20
+   bash scripts/build.sh --input_path outputs/pdfa-eng-wds/data/raw --dataset_size 20
    ```
 
 **Paid calls:** The project never calls a paid API by accident. Claude, Gemini and ChatGPT are only called when the

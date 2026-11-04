@@ -1,5 +1,4 @@
 from doc_ingest import ingest_documents
-from doc_ingest import settings
 
 from common import paths
 from common.constants import NO_FRAMEWORK
@@ -14,24 +13,14 @@ from stages.build.ingestion.schema import Metadata
 
 def convert_document(library_document) -> Document:
 	"""
-	Input: library_document, one doc_ingest.schema.Document returned by
+	Input: library_document, one doc_ingest Document returned by
 	ingest_documents.
 	Output: the same document as this project's stages.build.ingestion.schema.Document.
-	What it does: copies every field, including each metadata field, from
-	the library's Document into a new Document of our own schema.
+	What it does: copies id, type, text and source into a new Document of
+	our own schema. The other metadata fields are left empty (None).
 	"""
-	library_metadata = library_document.metadata
-
 	metadata = Metadata(
-		source=library_metadata.source,
-		file_size_bytes=library_metadata.file_size_bytes,
-		content_hash=library_metadata.content_hash,
-		minhash_signature=library_metadata.minhash_signature,
-		page_count=library_metadata.page_count,
-		parser=library_metadata.parser,
-		author=library_metadata.author,
-		title=library_metadata.title,
-		creation_date=library_metadata.creation_date,
+		source=library_document.source,
 	)
 
 	document_type = DocumentType(library_document.type.value)
@@ -81,16 +70,10 @@ def built_in_ingestion(ingest_args: IngestArgs) -> dict[str, Document]:
 		print(f"Documents : {len(cached_documents)} (all from cache)")
 		return cached_documents
 
-	download_settings = settings.DownloadSettings(download_workers=ingest_args.download_workers)
-	process_settings = settings.ProcessSettings(parse_workers=ingest_args.parse_workers)
-	parser_settings = settings.ParserSettings(pdf_parser=ingest_args.pdf_parser)
-
 	ingest_result = ingest_documents(
+		path=ingest_args.input_path,
 		size=ingest_args.dataset_size,
-		input_path=ingest_args.input_path,
-		download_settings=download_settings,
-		process_settings=process_settings,
-		parser_settings=parser_settings,
+		document_type=ingest_args.document_type,
 	)
 
 	library_documents = ingest_result.documents
