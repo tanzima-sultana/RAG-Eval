@@ -59,11 +59,11 @@ def convert_langchain_document(langchain_document: LangchainDocument, document_t
 	return document
 
 
-def save_documents(processed_data_path: str, documents: dict[str, Document]) -> None:
+def save_documents(processed_data_path: str, documents: dict[str, Document], dataset_size: int) -> None:
 	"""
-	Input: processed_data_path; documents.
+	Input: processed_data_path; documents; dataset_size.
 	Output: nothing.
-	What it does: saves each document to {doc_id}.json, then doc_ids.json.
+	What it does: saves each document to {doc_id}.json, then doc_ids_{dataset_size}.json.
 	"""
 	os.makedirs(processed_data_path, exist_ok=True)
 
@@ -75,18 +75,18 @@ def save_documents(processed_data_path: str, documents: dict[str, Document]) -> 
 		doc_ids.append(doc_id)
 
 	# Written last, so it only lists documents whose files are saved
-	doc_ids_file = os.path.join(processed_data_path, "doc_ids.json")
+	doc_ids_file = os.path.join(processed_data_path, f"doc_ids_{dataset_size}.json")
 	with open(doc_ids_file, "w", encoding="utf-8") as f:
 		json.dump(doc_ids, f)
 
 
-def load_documents(processed_data_path: str) -> dict[str, Document] | None:
+def load_documents(processed_data_path: str, dataset_size: int) -> dict[str, Document] | None:
 	"""
-	Input: processed_data_path.
-	Output: a dict of doc_id to Document, or None if nothing is saved.
-	What it does: loads every document listed in doc_ids.json.
+	Input: processed_data_path; dataset_size.
+	Output: a dict of doc_id to Document, or None if this dataset_size is not saved.
+	What it does: loads every document listed in doc_ids_{dataset_size}.json.
 	"""
-	doc_ids_file = os.path.join(processed_data_path, "doc_ids.json")
+	doc_ids_file = os.path.join(processed_data_path, f"doc_ids_{dataset_size}.json")
 	if not os.path.exists(doc_ids_file):
 		return None
 
@@ -136,13 +136,13 @@ def ingestion(ingestion_args: IngestionArgs) -> dict[str, Document]:
 	# 1. Validate the settings
 	validate(ingestion_args)
 
-	# 2. Load from the cache of this dataset_size if it exists
+	# 2. Load from the cache if this dataset_size was saved before
 	output_path = paths_temp.get_output_path(
 		ingestion_args.output_path, LANGCHAIN_FRAMEWORK, ingestion_args.dataset_name
 	)
-	processed_data_path = paths_temp.get_documents_path(output_path, ingestion_args.dataset_size)
+	processed_data_path = paths_temp.get_documents_path(output_path)
 	print(f"Processed data folder : {processed_data_path}")
-	cached_documents = load_documents(processed_data_path)
+	cached_documents = load_documents(processed_data_path, ingestion_args.dataset_size)
 	if cached_documents is not None:
 		print(f"Documents : {len(cached_documents)} (all from cache)")
 		return cached_documents
@@ -185,6 +185,6 @@ def ingestion(ingestion_args: IngestionArgs) -> dict[str, Document]:
 	)
 
 	# 5. Save, so the next run loads them from the cache
-	save_documents(processed_data_path, documents)
+	save_documents(processed_data_path, documents, ingestion_args.dataset_size)
 
 	return documents

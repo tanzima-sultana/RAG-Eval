@@ -56,6 +56,23 @@ def make_chunking_args(parsed_args: argparse.Namespace, chunk_type: str) -> Chun
 	return chunking_args
 
 
+@dataclasses.dataclass
+class EmbeddingArgs:
+	chunking_args: ChunkingArgs
+
+
+def make_embedding_args(chunking_args: ChunkingArgs) -> EmbeddingArgs:
+	"""
+	Input: chunking_args, the chunking settings of one chunk type.
+	Output: an EmbeddingArgs holding them.
+	What it does: wraps chunking_args into an EmbeddingArgs.
+	"""
+	embedding_args = EmbeddingArgs(
+		chunking_args=chunking_args
+	)
+	return embedding_args
+
+
 def parse_chunking_args(parser: argparse.ArgumentParser) -> None:
 	"""
 	Input: parser, the argument parser of main.py.
