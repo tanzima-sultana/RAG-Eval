@@ -248,6 +248,11 @@ class QueryArgs:
 	# The chunking model_name, so the query vectors match the chunk vectors
 	embedding_model: str
 	n_multi_qus: int
+	query_types: list[str]
+	# True to split the queries into val and test, False to use all of them as both
+	query_split: bool
+	val_queries_size: int
+	test_queries_size: int
 
 
 def make_query_args(parsed_args: argparse.Namespace) -> QueryArgs:
@@ -265,7 +270,11 @@ def make_query_args(parsed_args: argparse.Namespace) -> QueryArgs:
 	query_args = QueryArgs(
 		query_llm_args=query_llm_args,
 		embedding_model=parsed_args.model_name,
-		n_multi_qus=parsed_args.n_multi_qus
+		n_multi_qus=parsed_args.n_multi_qus,
+		query_types=parsed_args.query_types,
+		query_split=parsed_args.query_split == "true",
+		val_queries_size=parsed_args.val_queries_size,
+		test_queries_size=parsed_args.test_queries_size
 	)
 	return query_args
 
@@ -286,6 +295,89 @@ def parse_query_args(parser: argparse.ArgumentParser) -> None:
 		type=int,
 		required=True,
 		help="Phrasings the query LLM writes for each eval question")
+	parser.add_argument(
+		"--query_types",
+		type=str,
+		nargs="+",
+		required=True,
+		help="Query types to make and search with: original, rewritten, multi and/or hyde")
+	# The config's true is read as the string "True", so the value is lowercased first
+	parser.add_argument(
+		"--query_split",
+		type=str.lower,
+		required=True,
+		choices=["true", "false"],
+		help="true to split the queries into val and test, false to use all of them as both")
+	parser.add_argument(
+		"--val_queries_size",
+		type=int,
+		required=True,
+		help="Used only with query_split true: queries for retrieval and retrieval evaluation")
+	parser.add_argument(
+		"--test_queries_size",
+		type=int,
+		required=True,
+		help="Used only with query_split true: queries for answer generation and answer evaluation")
+
+
+@dataclasses.dataclass
+class RetrievalArgs:
+	# The chunk type's index settings, used to name the retrieved folders. Its index_type is empty: each retrieval
+	# names its own index type
+	index_args: IndexArgs
+	retrieval_types: list[str]
+	top_k: int
+	reranking: bool
+	rerank_top_k: int
+
+
+def make_retrieval_args(parsed_args: argparse.Namespace, chunking_args: ChunkingArgs) -> RetrievalArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args(); chunking_args, the chunking settings of one
+	chunk type.
+	Output: a RetrievalArgs holding the retrieval settings for that chunk type.
+	What it does: builds the chunk type's index settings with an empty index type, and copies each retrieval setting.
+	"""
+	index_args = make_index_args(parsed_args, chunking_args, "")
+	retrieval_args = RetrievalArgs(
+		index_args=index_args,
+		retrieval_types=parsed_args.retrieval_types,
+		top_k=parsed_args.top_k,
+		reranking=parsed_args.reranking == "true",
+		rerank_top_k=parsed_args.rerank_top_k
+	)
+	return retrieval_args
+
+
+def parse_retrieval_args(parser: argparse.ArgumentParser) -> None:
+	"""
+	Input: parser, the argument parser of main.py.
+	Output: nothing.
+	What it does: adds the retrieval arguments to parser.
+	"""
+	parser.add_argument(
+		"--retrieval_types",
+		type=str,
+		nargs="+",
+		required=True,
+		help="Retrieval types to run: dense, bm25 and/or hybrid")
+	parser.add_argument(
+		"--top_k",
+		type=int,
+		required=True,
+		help="Chunks each retriever returns for a query")
+	# The config's false is read as the string "False", so the value is lowercased first
+	parser.add_argument(
+		"--reranking",
+		type=str.lower,
+		required=True,
+		choices=["true", "false"],
+		help="true to also rerank the top_k chunks with the cross-encoder, false not to")
+	parser.add_argument(
+		"--rerank_top_k",
+		type=int,
+		required=True,
+		help="Chunks kept after the cross-encoder reranks the top_k chunks")
 
 
 def parse_llm_provider_args(parser: argparse.ArgumentParser) -> None:
@@ -480,6 +572,7 @@ def parse_args() -> argparse.Namespace:
 	parse_llm_provider_args(parser)
 	parse_qna_args(parser)
 	parse_query_args(parser)
+	parse_retrieval_args(parser)
 
 	parsed_args = parser.parse_args(config_arguments + override_arguments)
 	return parsed_args

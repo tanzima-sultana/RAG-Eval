@@ -6,9 +6,12 @@ from common.args_temp import IndexArgs
 from common.args_temp import VectorDbArgs
 from common.args_temp import QnaArgs
 from common.args_temp import QueryArgs
+from common.args_temp import RetrievalArgs
 from common.constants import FAISS_FLATIP_INDEX
 from common.constants import FAISS_IVF_INDEX
 from common.constants import FAISS_HNSW_INDEX
+from common.constants import BM25_INDEX
+from common.constants import QDRANT_INDEX
 
 
 # ------ Dataset
@@ -174,3 +177,47 @@ def get_query_path(output_path: str, qna_args: QnaArgs, query_args: QueryArgs) -
 		f"{embedding_model}_{query_llm_model}_{query_args.n_multi_qus}"
 	)
 	return os.path.join(output_path, "queries", folder_name)
+
+
+# ------ Retrieval
+def get_retrieved_path(output_path: str, retrieval_args: RetrievalArgs, query_args: QueryArgs, val_queries_count: int, index_type: str) -> str:
+	"""
+	Input: output_path, the dataset's output folder; retrieval_args; query_args, for the query types;
+	val_queries_count, the number of val queries searched; index_type, one index type, or a dense and the
+	BM25 index type joined with "+" for hybrid, e.g. faiss_flatip+bm25.
+	Output: {output_path}/retrieved/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/{index_folder}/
+	val_{val_queries_count}/{query_types joined by "_"}
+	where index_folder is flatip, ivf_{nlist}, hnsw_{m}_{ef_construction}, bm25_{k1}_{b}_{tokenizer} or qdrant,
+	joined with "+" for hybrid.
+	What it does: builds the folder that holds the retrieved results of one index or hybrid pair.
+	"""
+	index_args = retrieval_args.index_args
+	chunking_args = index_args.chunking_args
+	settings_folder = (
+		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
+		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
+	)
+
+	index_folders = []
+	for one_index_type in index_type.split("+"):
+		if one_index_type == FAISS_FLATIP_INDEX:
+			index_folders.append("flatip")
+		elif one_index_type == FAISS_IVF_INDEX:
+			index_folders.append(f"ivf_{index_args.ivf_nlist}")
+		elif one_index_type == FAISS_HNSW_INDEX:
+			index_folders.append(f"hnsw_{index_args.hnsw_m}_{index_args.hnsw_ef_construction}")
+		elif one_index_type == BM25_INDEX:
+			index_folders.append(f"bm25_{index_args.bm25_k1}_{index_args.bm25_b}_{index_args.bm25_tokenizer}")
+		elif one_index_type == QDRANT_INDEX:
+			index_folders.append("qdrant")
+		else:
+			raise ValueError(f"index_type ({one_index_type}) is not a supported index type.")
+	index_folder = "+".join(index_folders)
+
+	split_folder = f"val_{val_queries_count}"
+	query_types_folder = "_".join(query_args.query_types)
+
+	return os.path.join(
+		output_path, "retrieved", chunking_args.chunk_type, chunking_args.model_name, settings_folder,
+		index_folder, split_folder, query_types_folder
+	)

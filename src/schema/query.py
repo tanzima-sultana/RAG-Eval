@@ -24,12 +24,13 @@ class Ans:
 class Query:
 	# Same as the Qna id, linking the query to its eval question
 	id: str
-	original_qus: Qus
-	rewritten_qus: Qus
+	# Each query type is None when it is not in query_types of this run
+	original_qus: Qus | None
+	rewritten_qus: Qus | None
 	# n_multi_qus phrasings. Empty if the LLM did not return exactly n_multi_qus of them
-	multi_qus: list[Qus]
+	multi_qus: list[Qus] | None
 	# Its ans is I_DONT_KNOW if the LLM did not know
-	hyde_ans: Ans
+	hyde_ans: Ans | None
 	normalized: bool
 	embedding_model: str
 	# The provider and model that wrote rewritten_qus, multi_qus and hyde_ans, e.g. ollama and llama3.1:8b
