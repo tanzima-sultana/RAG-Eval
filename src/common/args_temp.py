@@ -29,6 +29,72 @@ def make_ingestion_args(parsed_args: argparse.Namespace) -> IngestionArgs:
 	return ingestion_args
 
 
+@dataclasses.dataclass
+class ChunkingArgs:
+	model_name: str
+	chunk_type: str
+	min_chunk_size: int
+	max_chunk_size: int
+	fixed_chunk_overlap: int
+	semantic_threshold: float
+
+
+def make_chunking_args(parsed_args: argparse.Namespace, chunk_type: str) -> ChunkingArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args(); chunk_type, one of chunk_types.
+	Output: a ChunkingArgs holding the chunking settings for that chunk type.
+	What it does: copies each chunking setting and chunk_type into the matching ChunkingArgs field.
+	"""
+	chunking_args = ChunkingArgs(
+		model_name=parsed_args.model_name,
+		chunk_type=chunk_type,
+		min_chunk_size=parsed_args.min_chunk_size,
+		max_chunk_size=parsed_args.max_chunk_size,
+		fixed_chunk_overlap=parsed_args.fixed_chunk_overlap,
+		semantic_threshold=parsed_args.semantic_threshold
+	)
+	return chunking_args
+
+
+def parse_chunking_args(parser: argparse.ArgumentParser) -> None:
+	"""
+	Input: parser, the argument parser of main.py.
+	Output: nothing.
+	What it does: adds the chunking arguments to parser.
+	"""
+	parser.add_argument(
+		"--model_name",
+		type=str,
+		required=True,
+		help="SentenceTransformer model used for token counts and semantic embeddings")
+	parser.add_argument(
+		"--chunk_types",
+		type=str,
+		nargs="+",
+		required=True,
+		help="Chunk types to build, one after another: fixed, sentence and/or semantic")
+	parser.add_argument(
+		"--min_chunk_size",
+		type=int,
+		required=True,
+		help="Minimum chunk size")
+	parser.add_argument(
+		"--max_chunk_size",
+		type=int,
+		required=True,
+		help="Maximum chunk size")
+	parser.add_argument(
+		"--fixed_chunk_overlap",
+		type=int,
+		required=True,
+		help="Overlap between consecutive fixed-size chunks")
+	parser.add_argument(
+		"--semantic_threshold",
+		type=float,
+		required=True,
+		help="Similarity threshold used by semantic chunking")
+
+
 def parse_ingestion_args(parser: argparse.ArgumentParser) -> None:
 	"""
 	Input: parser, the argument parser of main.py.
@@ -84,7 +150,13 @@ def parse_args() -> argparse.Namespace:
 		if isinstance(value, dict):
 			for setting_key in value:
 				config_arguments.append("--" + setting_key)
-				config_arguments.append(str(value[setting_key]))
+				setting_value = value[setting_key]
+				# A list is passed as one flag followed by its values, e.g. --chunk_types fixed sentence
+				if isinstance(setting_value, list):
+					for item in setting_value:
+						config_arguments.append(str(item))
+				else:
+					config_arguments.append(str(setting_value))
 		else:
 			config_arguments.append("--" + key)
 			config_arguments.append(str(value))
@@ -98,6 +170,7 @@ def parse_args() -> argparse.Namespace:
 		help="rag or langchain")
 	
 	parse_ingestion_args(parser)
+	parse_chunking_args(parser)
 
 	parsed_args = parser.parse_args(config_arguments + override_arguments)
 	return parsed_args

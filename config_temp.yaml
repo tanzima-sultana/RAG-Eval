@@ -6,3 +6,12 @@ ingestion:
   input_path: data/pdfa-eng-wds/
   output_path: temp/
   document_type: pdf
+
+# 2. Chunking
+chunking:
+  model_name: all-MiniLM-L6-v2
+  chunk_types: [fixed, sentence, semantic]    # one or more of fixed, sentence, semantic
+  min_chunk_size: 128
+  max_chunk_size: 256
+  fixed_chunk_overlap: 32
+  semantic_threshold: 0.2
