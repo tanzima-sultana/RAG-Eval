@@ -58,6 +58,7 @@ src/
 		chunk.py
 		embed.py
 		index.py
+		vectordb.py
 		qna.py
 		query.py
 		retrieved.py
@@ -78,6 +79,7 @@ src/
 		chunking.py
 		embedding.py
 		indexing.py
+		indexing_vectordb.py
 		qna_set.py
 		query_transformation.py
 		retrieval.py        
@@ -112,7 +114,7 @@ src/
 				indexers/
 					faiss.py
 					bm25.py
-					qdrant.py
+				indexing_vectordb.py
 
 		query_transformation/                              
 			validate.py

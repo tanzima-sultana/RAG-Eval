@@ -73,6 +73,82 @@ def make_embedding_args(chunking_args: ChunkingArgs) -> EmbeddingArgs:
 	return embedding_args
 
 
+@dataclasses.dataclass
+class IndexArgs:
+	chunking_args: ChunkingArgs
+	index_type: str
+	ivf_nlist: int
+	hnsw_m: int
+	hnsw_ef_construction: int
+	bm25_k1: float
+	bm25_b: float
+	bm25_tokenizer: str
+
+
+def make_index_args(parsed_args: argparse.Namespace, chunking_args: ChunkingArgs, index_type: str) -> IndexArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args(); chunking_args, the chunking settings of one
+	chunk type; index_type, one of index_types.
+	Output: an IndexArgs holding the indexing settings for that index type.
+	What it does: copies chunking_args, index_type and each indexing setting into the matching IndexArgs field.
+	"""
+	index_args = IndexArgs(
+		chunking_args=chunking_args,
+		index_type=index_type,
+		ivf_nlist=parsed_args.ivf_nlist,
+		hnsw_m=parsed_args.hnsw_m,
+		hnsw_ef_construction=parsed_args.hnsw_ef_construction,
+		bm25_k1=parsed_args.bm25_k1,
+		bm25_b=parsed_args.bm25_b,
+		bm25_tokenizer=parsed_args.bm25_tokenizer
+	)
+	return index_args
+
+
+def parse_indexing_args(parser: argparse.ArgumentParser) -> None:
+	"""
+	Input: parser, the argument parser of main.py.
+	Output: nothing.
+	What it does: adds the indexing arguments to parser.
+	"""
+	parser.add_argument(
+		"--index_types",
+		type=str,
+		nargs="+",
+		required=True,
+		help="Index types to build, one after another: faiss_flatip, faiss_ivf, faiss_hnsw and/or bm25")
+	parser.add_argument(
+		"--ivf_nlist",
+		type=int,
+		required=True,
+		help="Number of clusters of the FAISS IVF index")
+	parser.add_argument(
+		"--hnsw_m",
+		type=int,
+		required=True,
+		help="Number of neighbours per node of the FAISS HNSW index")
+	parser.add_argument(
+		"--hnsw_ef_construction",
+		type=int,
+		required=True,
+		help="Candidate list size used while building the FAISS HNSW index")
+	parser.add_argument(
+		"--bm25_k1",
+		type=float,
+		required=True,
+		help="BM25 term frequency saturation")
+	parser.add_argument(
+		"--bm25_b",
+		type=float,
+		required=True,
+		help="BM25 document length normalization")
+	parser.add_argument(
+		"--bm25_tokenizer",
+		type=str,
+		required=True,
+		help="Tokenizer used by BM25: whitespace")
+
+
 def parse_chunking_args(parser: argparse.ArgumentParser) -> None:
 	"""
 	Input: parser, the argument parser of main.py.
@@ -188,6 +264,7 @@ def parse_args() -> argparse.Namespace:
 	
 	parse_ingestion_args(parser)
 	parse_chunking_args(parser)
+	parse_indexing_args(parser)
 
 	parsed_args = parser.parse_args(config_arguments + override_arguments)
 	return parsed_args

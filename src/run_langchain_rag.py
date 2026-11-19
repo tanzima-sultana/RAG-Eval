@@ -5,16 +5,18 @@ from common.constants import LANGCHAIN_FRAMEWORK
 from common.args_temp import make_ingestion_args
 from common.args_temp import make_chunking_args
 from common.args_temp import make_embedding_args
+from common.args_temp import make_index_args
 from langchain_rag.ingestion import ingestion
 from langchain_rag.chunking import Chunking
 from langchain_rag.embedding import Embedding
+from langchain_rag.indexing import Indexing
 
 
 def run_langchain_rag(args) -> None:
 	"""
 	Input: args, the parsed args.
 	Output: nothing.
-	What it does: runs the LangChain RAG. For now ingestion, chunking and embedding.
+	What it does: runs the LangChain RAG. For now ingestion, chunking, embedding and indexing.
 	"""
 	# 1. Ingestion
 	print("\n\nIngestion")
@@ -47,3 +49,13 @@ def run_langchain_rag(args) -> None:
 		embeddings = Embedding(embedding_args).compute_embeddings(chunks, output_path)
 		e3 = time.time() - s3
 		print("\nEmbedding time : ", e3)
+
+		# 4. Indexing, once per index type
+		for index_type in args.index_types:
+			print(f"\n\nIndexing : {index_type}")
+			index_args = make_index_args(args, chunking_args, index_type)
+
+			s4 = time.time()
+			index = Indexing(index_args).compute_index(chunks, embeddings, output_path)
+			e4 = time.time() - s4
+			print("\nIndexing time : ", e4)
