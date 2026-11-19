@@ -4,6 +4,7 @@ from common.args_temp import ChunkingArgs
 from common.args_temp import EmbeddingArgs
 from common.args_temp import IndexArgs
 from common.args_temp import VectorDbArgs
+from common.args_temp import QnaArgs
 from common.constants import FAISS_FLATIP_INDEX
 from common.constants import FAISS_IVF_INDEX
 from common.constants import FAISS_HNSW_INDEX
@@ -124,3 +125,31 @@ def get_qdrant_collection_name(output_path: str, vectordb_args: VectorDbArgs) ->
 		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
 	)
 	return collection_name.replace("/", "-")
+
+
+# ------ QnA
+def get_qna_path(output_path: str, qna_args: QnaArgs) -> str:
+	"""
+	Input: output_path, the dataset's output folder; qna_args.
+	Output: {output_path}/qna/qna_{n_sample_documents}_{n_sample_evals}_{qna_llm_model}_{qna_embedding_model}.json
+	What it does: builds the QnA file path. Any "/" or ":" in a model name is replaced with "-".
+	"""
+	qna_llm_model = qna_args.qna_llm_args.llm_model.replace("/", "-").replace(":", "-")
+	qna_embedding_model = qna_args.qna_embedding_model.replace("/", "-").replace(":", "-")
+	file_name = (
+		f"qna_{qna_args.n_sample_documents}_{qna_args.n_sample_evals}_"
+		f"{qna_llm_model}_{qna_embedding_model}.json"
+	)
+	return os.path.join(output_path, "qna", file_name)
+
+
+def get_qna_kg_path(output_path: str, qna_args: QnaArgs) -> str:
+	"""
+	Input: output_path, the dataset's output folder; qna_args.
+	Output: {output_path}/qna/kg_{n_sample_documents}_{qna_kg_llm_model}_{qna_embedding_model}.json
+	What it does: builds the RAGAS knowledge graph file path. Any "/" or ":" in a model name is replaced with "-".
+	"""
+	qna_kg_llm_model = qna_args.qna_kg_llm_args.llm_model.replace("/", "-").replace(":", "-")
+	qna_embedding_model = qna_args.qna_embedding_model.replace("/", "-").replace(":", "-")
+	file_name = f"kg_{qna_args.n_sample_documents}_{qna_kg_llm_model}_{qna_embedding_model}.json"
+	return os.path.join(output_path, "qna", file_name)

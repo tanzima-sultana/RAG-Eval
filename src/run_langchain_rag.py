@@ -7,18 +7,21 @@ from common.args_temp import make_chunking_args
 from common.args_temp import make_embedding_args
 from common.args_temp import make_index_args
 from common.args_temp import make_vectordb_args
+from common.args_temp import make_qna_args
+from common.args_temp import make_ollama_args
 from langchain_rag.ingestion import ingestion
 from langchain_rag.chunking import Chunking
 from langchain_rag.embedding import Embedding
 from langchain_rag.indexing import Indexing
 from langchain_rag.indexing_vectordb import IndexingVectorDb
+from langchain_rag.qna_set import QnaSet
 
 
 def run_langchain_rag(args) -> None:
 	"""
 	Input: args, the parsed args.
 	Output: nothing.
-	What it does: runs the LangChain RAG. For now ingestion, chunking, embedding, indexing and vector DB indexing.
+	What it does: runs the LangChain RAG. For now the build layers and QnA.
 	"""
 	# 1. Ingestion
 	print("\n\nIngestion")
@@ -71,3 +74,13 @@ def run_langchain_rag(args) -> None:
 			vectordb = IndexingVectorDb(vectordb_args).compute_vectordb(chunks, embeddings, output_path)
 			e5 = time.time() - s5
 			print("\nVector DB indexing time : ", e5)
+
+	# 6. QnA, once for the dataset
+	print("\n\nQnA")
+	qna_args = make_qna_args(args)
+	ollama_args = make_ollama_args(args)
+
+	s6 = time.time()
+	qna_items = QnaSet(qna_args, ollama_args).compute_qna(documents, output_path)
+	e6 = time.time() - s6
+	print("\nQnA time : ", e6)
