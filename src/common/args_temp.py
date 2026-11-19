@@ -153,6 +153,43 @@ def parse_vectordb_args(parser: argparse.ArgumentParser) -> None:
 		help="Number of points uploaded to Qdrant in one request")
 
 
+@dataclasses.dataclass
+class OllamaArgs:
+	ollama_api_base: str
+	ollama_context_length: int
+
+
+def make_ollama_args(parsed_args: argparse.Namespace) -> OllamaArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args().
+	Output: an OllamaArgs holding the Ollama settings.
+	What it does: copies each Ollama setting into the matching OllamaArgs field.
+	"""
+	ollama_args = OllamaArgs(
+		ollama_api_base=parsed_args.ollama_api_base,
+		ollama_context_length=parsed_args.ollama_context_length
+	)
+	return ollama_args
+
+
+def parse_ollama_args(parser: argparse.ArgumentParser) -> None:
+	"""
+	Input: parser, the argument parser of main.py.
+	Output: nothing.
+	What it does: adds the Ollama arguments to parser.
+	"""
+	parser.add_argument(
+		"--ollama_api_base",
+		type=str,
+		required=True,
+		help="URL of the local Ollama server, e.g. http://localhost:11434")
+	parser.add_argument(
+		"--ollama_context_length",
+		type=int,
+		required=True,
+		help="Context window in tokens of an Ollama model; the prompt and the reply must fit in it together")
+
+
 def parse_indexing_args(parser: argparse.ArgumentParser) -> None:
 	"""
 	Input: parser, the argument parser of main.py.
@@ -314,6 +351,7 @@ def parse_args() -> argparse.Namespace:
 	parse_chunking_args(parser)
 	parse_indexing_args(parser)
 	parse_vectordb_args(parser)
+	parse_ollama_args(parser)
 
 	parsed_args = parser.parse_args(config_arguments + override_arguments)
 	return parsed_args

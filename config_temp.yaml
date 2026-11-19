@@ -31,3 +31,8 @@ vectordb:
   vectordb_types: [qdrant]    # one or more of qdrant
   qdrant_url: http://localhost:6333
   qdrant_batch_size: 256
+
+# LLM provider: shared by every layer, used only for Ollama models
+llm_provider:
+  ollama_api_base: http://localhost:11434
+  ollama_context_length: 32768    # Ollama's default of 4096 cuts long RAGAS prompts
