@@ -69,26 +69,26 @@ src/
 		analysis.py
 		llm.py
 
-	llm/
+	llm_provider/
 		validate.py
-		llm.py
+		llm_provider.py
 
 	langchain_rag/                
 		ingestion.py
 		chunking.py
 		embedding.py
 		indexing.py
-		qna.py
-		query.py
+		qna_set.py
+		query_transformation.py
 		retrieval.py        
 		retrieval_evaluation.py     
-		context.py
-		prompt.py
-		answer.py
+		context_creation.py
+		prompt_construction.py
+		answer_generation.py
 		answer_evaluation.py               
 
 	rag/
-		build/                              # Phase 1 (unchanged)
+		build/                              
 			ingestion/
 				validate.py
 				cache.py
@@ -114,12 +114,12 @@ src/
 					bm25.py
 					qdrant.py
 
-		query/                              # Phase 3 QueryTransform
+		query_transformation/                              
 			validate.py
 			cache.py
-			query.py
+			query_transformation.py
 
-		retrieval/                          # Phase 4 Retrieval
+		retrieval/                          
 			validate.py
 			cache.py
 			rerank.py
@@ -129,30 +129,30 @@ src/
 				bm25.py
 				hybrid.py
 
-		context.py
-		prompt.py
+		context_creation.py
+		prompt_construction.py
 
-		answer/                             # Phase 8 AnsGeneration
+		answer_generation/                             
 			validate.py
 			cache.py
-			answer.py
+			answer_generation.py
 
-	qna/                                # Phase 2 QnA
+	qna/                                
 		validate.py
 		cache.py
 		qna.py
 
-	retrieval_evaluation/               # Phase 5 RetrievalEvaluation
+	retrieval_evaluation/               
 		validate.py
 		cache.py
 		retrieval_evaluation.py
 
-	answer_evaluation/                  # Phase 9 AnsEvaluation
+	answer_evaluation/                  
 		validate.py
 		cache.py
 		answer_evaluation.py
 
-	analysis/                           # Phase 10 Analysis (unchanged)
+	analysis/                           
 		validate.py
 		cache.py
 		summary.py

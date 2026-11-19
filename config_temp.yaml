@@ -1,8 +1,8 @@
 framework: "langchain" 
 # 1. Ingestion
 ingestion:
-  dataset_size: 5000
+  dataset_size: 15
   dataset_name: pdfa-eng-wds
   input_path: data/pdfa-eng-wds/
-  output_path: temp
+  output_path: temp/
   document_type: pdf

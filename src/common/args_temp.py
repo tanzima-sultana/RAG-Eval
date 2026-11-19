@@ -1,6 +1,32 @@
 import argparse
+import dataclasses
 
 import yaml
+
+
+@dataclasses.dataclass
+class IngestionArgs:
+	dataset_size: int
+	dataset_name: str
+	input_path: str
+	output_path: str
+	document_type: str
+
+
+def make_ingestion_args(parsed_args: argparse.Namespace) -> IngestionArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args().
+	Output: an IngestionArgs holding the ingestion settings.
+	What it does: copies each ingestion setting into the matching IngestionArgs field.
+	"""
+	ingestion_args = IngestionArgs(
+		dataset_size=parsed_args.dataset_size,
+		dataset_name=parsed_args.dataset_name,
+		input_path=parsed_args.input_path,
+		output_path=parsed_args.output_path,
+		document_type=parsed_args.document_type
+	)
+	return ingestion_args
 
 
 def parse_ingestion_args(parser: argparse.ArgumentParser) -> None:
