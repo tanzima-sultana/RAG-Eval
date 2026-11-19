@@ -46,3 +46,8 @@ qna:
   qna_embedding_model: all-MiniLM-L6-v2          # Local embedding model RAGAS uses to build its knowledge graph
   n_sample_documents: 100         # Documents randomly picked for RAGAS to generate the QnA from
   n_sample_evals: 200             # QnA items to generate
+
+# 7. Query transformation
+query_transformation:
+  query_llm_model: ollama_chat/llama3.1:8b   # Transforms the eval questions
+  n_multi_qus: 3                             # Phrasings the query LLM writes for each eval question

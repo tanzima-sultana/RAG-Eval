@@ -242,6 +242,52 @@ def parse_qna_args(parser: argparse.ArgumentParser) -> None:
 		help="QnA items to generate")
 
 
+@dataclasses.dataclass
+class QueryArgs:
+	query_llm_args: LLMArgs
+	# The chunking model_name, so the query vectors match the chunk vectors
+	embedding_model: str
+	n_multi_qus: int
+
+
+def make_query_args(parsed_args: argparse.Namespace) -> QueryArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args().
+	Output: a QueryArgs holding the query transformation settings.
+	What it does: builds the query LLM's LLMArgs with the shared LLM settings, and takes the embedding model from
+	the chunking model_name.
+	"""
+	query_llm_args = LLMArgs(
+		llm_model=parsed_args.query_llm_model,
+		max_tokens=parsed_args.llm_max_tokens,
+		timeout_seconds=parsed_args.llm_timeout_seconds
+	)
+	query_args = QueryArgs(
+		query_llm_args=query_llm_args,
+		embedding_model=parsed_args.model_name,
+		n_multi_qus=parsed_args.n_multi_qus
+	)
+	return query_args
+
+
+def parse_query_args(parser: argparse.ArgumentParser) -> None:
+	"""
+	Input: parser, the argument parser of main.py.
+	Output: nothing.
+	What it does: adds the query transformation arguments to parser.
+	"""
+	parser.add_argument(
+		"--query_llm_model",
+		type=str,
+		required=True,
+		help="LiteLLM model that transforms the eval questions, e.g. ollama_chat/llama3.1:8b")
+	parser.add_argument(
+		"--n_multi_qus",
+		type=int,
+		required=True,
+		help="Phrasings the query LLM writes for each eval question")
+
+
 def parse_llm_provider_args(parser: argparse.ArgumentParser) -> None:
 	"""
 	Input: parser, the argument parser of main.py.
@@ -433,6 +479,7 @@ def parse_args() -> argparse.Namespace:
 	parse_vectordb_args(parser)
 	parse_llm_provider_args(parser)
 	parse_qna_args(parser)
+	parse_query_args(parser)
 
 	parsed_args = parser.parse_args(config_arguments + override_arguments)
 	return parsed_args

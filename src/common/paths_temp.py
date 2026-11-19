@@ -5,6 +5,7 @@ from common.args_temp import EmbeddingArgs
 from common.args_temp import IndexArgs
 from common.args_temp import VectorDbArgs
 from common.args_temp import QnaArgs
+from common.args_temp import QueryArgs
 from common.constants import FAISS_FLATIP_INDEX
 from common.constants import FAISS_IVF_INDEX
 from common.constants import FAISS_HNSW_INDEX
@@ -153,3 +154,23 @@ def get_qna_kg_path(output_path: str, qna_args: QnaArgs) -> str:
 	qna_embedding_model = qna_args.qna_embedding_model.replace("/", "-").replace(":", "-")
 	file_name = f"kg_{qna_args.n_sample_documents}_{qna_kg_llm_model}_{qna_embedding_model}.json"
 	return os.path.join(output_path, "qna", file_name)
+
+
+# ------ Query transformation
+def get_query_path(output_path: str, qna_args: QnaArgs, query_args: QueryArgs) -> str:
+	"""
+	Input: output_path, the dataset's output folder; qna_args, the settings of the QnA set the queries are made from;
+	query_args.
+	Output: {output_path}/queries/{n_sample_documents}_{n_sample_evals}_{qna_llm_model}_{qna_embedding_model}_
+	{embedding_model}_{query_llm_model}_{n_multi_qus}
+	What it does: builds the folder that holds one query run. Any "/" or ":" in a model name is replaced with "-".
+	"""
+	qna_llm_model = qna_args.qna_llm_args.llm_model.replace("/", "-").replace(":", "-")
+	qna_embedding_model = qna_args.qna_embedding_model.replace("/", "-").replace(":", "-")
+	embedding_model = query_args.embedding_model.replace("/", "-").replace(":", "-")
+	query_llm_model = query_args.query_llm_args.llm_model.replace("/", "-").replace(":", "-")
+	folder_name = (
+		f"{qna_args.n_sample_documents}_{qna_args.n_sample_evals}_{qna_llm_model}_{qna_embedding_model}_"
+		f"{embedding_model}_{query_llm_model}_{query_args.n_multi_qus}"
+	)
+	return os.path.join(output_path, "queries", folder_name)

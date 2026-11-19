@@ -9,19 +9,21 @@ from common.args_temp import make_index_args
 from common.args_temp import make_vectordb_args
 from common.args_temp import make_qna_args
 from common.args_temp import make_ollama_args
+from common.args_temp import make_query_args
 from langchain_rag.ingestion import ingestion
 from langchain_rag.chunking import Chunking
 from langchain_rag.embedding import Embedding
 from langchain_rag.indexing import Indexing
 from langchain_rag.indexing_vectordb import IndexingVectorDb
 from langchain_rag.qna_set import QnaSet
+from langchain_rag.query_transformation import QueryTransformation
 
 
 def run_langchain_rag(args) -> None:
 	"""
 	Input: args, the parsed args.
 	Output: nothing.
-	What it does: runs the LangChain RAG. For now the build layers and QnA.
+	What it does: runs the LangChain RAG. For now the build layers, QnA and query transformation.
 	"""
 	# 1. Ingestion
 	print("\n\nIngestion")
@@ -84,3 +86,12 @@ def run_langchain_rag(args) -> None:
 	qna_items = QnaSet(qna_args, ollama_args).compute_qna(documents, output_path)
 	e6 = time.time() - s6
 	print("\nQnA time : ", e6)
+
+	# 7. Query transformation, once for the QnA set
+	print("\n\nQuery transformation")
+	query_args = make_query_args(args)
+
+	s7 = time.time()
+	queries = QueryTransformation(query_args, ollama_args).compute_queries(qna_items, qna_args, output_path)
+	e7 = time.time() - s7
+	print("\nQuery transformation time : ", e7)
