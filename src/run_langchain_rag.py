@@ -12,15 +12,15 @@ from common.args_temp import make_qna_args
 from common.args_temp import make_ollama_args
 from common.args_temp import make_query_args
 from common.args_temp import make_retrieval_args
-from langchain_rag.ingestion import ingestion
-from langchain_rag.chunking import Chunking
-from langchain_rag.embedding import Embedding
-from langchain_rag.indexing import Indexing
-from langchain_rag.indexing_vectordb import IndexingVectorDb
-from langchain_rag.qna_set import QnaSet
-from langchain_rag.query_transformation import QueryTransformation
-from langchain_rag.retrieval import Retrieval
-from langchain_rag.retrieval_evaluation import RetrievalEvaluation
+from langchain_rag.build.ingestion import ingestion
+from langchain_rag.build.chunking import Chunking
+from langchain_rag.build.embedding import Embedding
+from langchain_rag.build.indexing import Indexing
+from langchain_rag.build.indexing_vectordb import IndexingVectorDb
+from evaluation.qna_set import QnaSet
+from langchain_rag.serving.query_transformation import QueryTransformation
+from langchain_rag.serving.retrieval import Retrieval
+from evaluation.retrieval_evaluation import RetrievalEvaluation
 
 
 def run_langchain_rag(args) -> None:

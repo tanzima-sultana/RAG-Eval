@@ -1,16 +1,16 @@
 """
 test_indexing_vectordb.py
 
-Tests for langchain_rag.indexing_vectordb. Qdrant runs in memory and HuggingFaceEmbeddings is replaced with a fake,
+Tests for langchain_rag.build.indexing_vectordb. Qdrant runs in memory and HuggingFaceEmbeddings is replaced with a fake,
 so no server is needed and no model is downloaded.
 """
 
 import pytest
 from qdrant_client import QdrantClient
 
-from langchain_rag import indexing_vectordb as indexing_vectordb_module
-from langchain_rag.indexing_vectordb import IndexingVectorDb
-from langchain_rag.indexing_vectordb import qdrant_collection_holds_chunks
+from langchain_rag.build import indexing_vectordb as indexing_vectordb_module
+from langchain_rag.build.indexing_vectordb import IndexingVectorDb
+from langchain_rag.build.indexing_vectordb import qdrant_collection_holds_chunks
 
 OUTPUT_PATH = "out/langchain/dataset"
 

@@ -1,14 +1,14 @@
 """
 test_retrieval_evaluation.py
 
-Tests for langchain_rag.retrieval_evaluation on small hand-built results, at chunk level and at doc level.
+Tests for evaluation.retrieval_evaluation on small hand-built results, at chunk level and at doc level.
 """
 
 import math
 
 import pytest
 
-from langchain_rag.retrieval_evaluation import RetrievalEvaluation
+from evaluation.retrieval_evaluation import RetrievalEvaluation
 from schema.chunk import Chunk
 from schema.qna import Qna
 from schema.retrieved import Retrieved

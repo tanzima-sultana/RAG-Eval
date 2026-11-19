@@ -1,7 +1,7 @@
 """
 test_retrieval.py
 
-Tests for langchain_rag.retrieval and paths_temp.get_retrieved_path. No model is loaded: the vector stores, the BM25
+Tests for langchain_rag.serving.retrieval and paths_temp.get_retrieved_path. No model is loaded: the vector stores, the BM25
 model and the cross-encoder are fakes that return fixed scores.
 """
 
@@ -16,9 +16,9 @@ from common.args_temp import QueryArgs
 from common.args_temp import RetrievalArgs
 from common.constants import I_DONT_KNOW
 from common.constants import RRF_K
-from langchain_rag import retrieval as retrieval_module
-from langchain_rag.retrieval import Retrieval
-from langchain_rag.retrieval import load_retrieved
+from langchain_rag.serving import retrieval as retrieval_module
+from langchain_rag.serving.retrieval import Retrieval
+from langchain_rag.serving.retrieval import load_retrieved
 from schema.chunk import Chunk
 from schema.index import Bm25Index
 from schema.index import FaissIndex

@@ -39,13 +39,15 @@ All commands below assume current working directory is the repo root (`rag-eval/
 
 config.yaml
 
-main.py
 scripts/
-	main.sh 
+	build.sh
+	benchmark.sh
+	serve.sh
+	monitor.sh
 
 src/
-	run_rag.py                      
-	run_langchain_rag.py         
+	run_build.py                    # --framework rag | langchain: builds the indexes
+	run_benchmark.py                # --framework rag | langchain: retrieval benchmark on val, answer benchmark on test for top n
 
 	common/
 		constants.py
@@ -69,28 +71,14 @@ src/
 		answer_eval.py
 		analysis.py
 		llm.py
+		setup.py                      # one setup: chunk type, index type, query type, retrieval type, reranking
 
 	llm_provider/
 		validate.py
 		llm_provider.py
 
-	langchain_rag/                
-		ingestion.py
-		chunking.py
-		embedding.py
-		indexing.py
-		indexing_vectordb.py
-		qna_set.py
-		query_transformation.py
-		retrieval.py        
-		retrieval_evaluation.py     
-		context_creation.py
-		prompt_construction.py
-		answer_generation.py
-		answer_evaluation.py               
-
-	rag/
-		build/                              
+	rag/                            # built-in RAG
+		build/
 			ingestion/
 				validate.py
 				cache.py
@@ -116,49 +104,69 @@ src/
 					bm25.py
 				indexing_vectordb.py
 
-		query_transformation/                              
-			validate.py
-			cache.py
+		serving/
+			query_transformation/
+				validate.py
+				cache.py
+				query_transformation.py
+			retrieval/
+				validate.py
+				cache.py
+				rerank.py
+				retrieval.py
+				retrievars/
+					dense.py
+					bm25.py
+					hybrid.py
+			context_creation.py
+			prompt_construction.py
+			answer_generation/
+				validate.py
+				cache.py
+				answer_generation.py
+			rag_pipeline.py             # RagPipeline(setup): retrieve(q), answer(q)
+
+	langchain_rag/                  # LangChain RAG
+		build/
+			ingestion.py
+			chunking.py
+			embedding.py
+			indexing.py
+			indexing_vectordb.py
+
+		serving/
 			query_transformation.py
-
-		retrieval/                          
-			validate.py
-			cache.py
-			rerank.py
 			retrieval.py
-			retrievars/
-				dense.py
-				bm25.py
-				hybrid.py
+			context_creation.py
+			prompt_construction.py
+			answer_generation.py
+			rag_pipeline.py             # LangChainRagPipeline(setup): retrieve(q), answer(q)
 
-		context_creation.py
-		prompt_construction.py
-
-		answer_generation/                             
+	evaluation/                     # shared by both frameworks, by the benchmark and by api monitoring
+		qna/
 			validate.py
 			cache.py
-			answer_generation.py
+			qna.py
+		retrieval_evaluation/         # benchmark only: needs ground truth
+			validate.py
+			cache.py
+			retrieval_evaluation.py
+		answer_evaluation/            # benchmark: all metrics; api monitoring: reference-free metrics only
+			validate.py
+			cache.py
+			answer_evaluation.py
+		analysis/
+			validate.py
+			cache.py
+			summary.py
+			comparison.py
+			diagnosis.py
+			report.py
+			analysis.py
 
-	qna/                                
-		validate.py
-		cache.py
-		qna.py
-
-	retrieval_evaluation/               
-		validate.py
-		cache.py
-		retrieval_evaluation.py
-
-	answer_evaluation/                  
-		validate.py
-		cache.py
-		answer_evaluation.py
-
-	analysis/                           
-		validate.py
-		cache.py
-		summary.py
-		comparison.py
-		diagnosis.py
-		report.py
-		analysis.py
+	api/                            # live serving: --framework rag | langchain, one best setup
+		app.py                        # FastAPI: startup builds the pipeline; POST /ask, POST /feedback
+		schema.py                     # AskRequest, AskResponse, FeedbackRequest
+		call_log.py                   # saves each call: id, question, chunks, answer, latency, cost, time
+		feedback.py                   # saves thumbs up/down for a call id
+		monitoring.py                 # batch job: reads the call log, runs reference-free answer eval, writes a report

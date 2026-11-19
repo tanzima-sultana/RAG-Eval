@@ -1,7 +1,7 @@
 """
 test_qna_set.py
 
-Tests for langchain_rag.qna_set. No LLM is called: the cached path never builds one, and a cache miss without
+Tests for evaluation.qna_set. No LLM is called: the cached path never builds one, and a cache miss without
 ALLOW_PAID_API stops before any call.
 """
 
@@ -13,12 +13,12 @@ import pytest
 from common import paths_temp
 from common.args_temp import OllamaArgs
 from common.args_temp import QnaArgs
-from langchain_rag import qna_set as qna_set_module
-from langchain_rag.qna_set import QnaSet
-from langchain_rag.qna_set import ReplyDidNotFinishError
-from langchain_rag.qna_set import check_reply_finished
-from langchain_rag.qna_set import load_qna
-from langchain_rag.qna_set import save_qna
+from evaluation import qna_set as qna_set_module
+from evaluation.qna_set import QnaSet
+from evaluation.qna_set import ReplyDidNotFinishError
+from evaluation.qna_set import check_reply_finished
+from evaluation.qna_set import load_qna
+from evaluation.qna_set import save_qna
 from schema.llm import LLMArgs
 from schema.qna import Qna
 

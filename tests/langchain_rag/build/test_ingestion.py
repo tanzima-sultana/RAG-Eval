@@ -1,7 +1,7 @@
 """
 test_ingestion.py
 
-Tests for langchain_rag.ingestion. PyPDFium2Loader is replaced with a fake that reads each file as plain text,
+Tests for langchain_rag.build.ingestion. PyPDFium2Loader is replaced with a fake that reads each file as plain text,
 so the test files do not need to be real PDFs.
 """
 
@@ -13,10 +13,10 @@ import pytest
 from langchain_core.documents import Document as LangchainDocument
 
 from common.args_temp import IngestionArgs
-from langchain_rag import ingestion as ingestion_module
-from langchain_rag.ingestion import convert_langchain_document
-from langchain_rag.ingestion import ingestion
-from langchain_rag.ingestion import validate
+from langchain_rag.build import ingestion as ingestion_module
+from langchain_rag.build.ingestion import convert_langchain_document
+from langchain_rag.build.ingestion import ingestion
+from langchain_rag.build.ingestion import validate
 
 
 class FakePyPDFium2Loader:

@@ -1,7 +1,7 @@
 """
 test_indexing.py
 
-Tests for langchain_rag.indexing. HuggingFaceEmbeddings is replaced with a fake, so no model is downloaded.
+Tests for langchain_rag.build.indexing. HuggingFaceEmbeddings is replaced with a fake, so no model is downloaded.
 FAISS and BM25 are real.
 """
 
@@ -10,9 +10,9 @@ import os
 import pytest
 
 from common import paths_temp
-from langchain_rag import indexing as indexing_module
-from langchain_rag.indexing import Indexing
-from langchain_rag.indexing import lowercase_whitespace_tokenize
+from langchain_rag.build import indexing as indexing_module
+from langchain_rag.build.indexing import Indexing
+from langchain_rag.build.indexing import lowercase_whitespace_tokenize
 from schema.index import Bm25Index
 from schema.index import FaissIndex
 

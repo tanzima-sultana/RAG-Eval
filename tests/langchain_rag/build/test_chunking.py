@@ -1,7 +1,7 @@
 """
 test_chunking.py
 
-Tests for langchain_rag.chunking.Chunking. The SentenceTransformer that LangChain and Chunking load is replaced
+Tests for langchain_rag.build.chunking.Chunking. The SentenceTransformer that LangChain and Chunking load is replaced
 with a fake whose tokenizer gives one token per word, so no model is downloaded.
 """
 
@@ -10,10 +10,10 @@ import os
 import pytest
 
 from common import paths_temp
-from langchain_rag.chunking import Chunking
-from langchain_rag.chunking import SentenceTransformerEmbeddings
-from langchain_rag.chunking import load_chunks
-from langchain_rag.chunking import save_chunks
+from langchain_rag.build.chunking import Chunking
+from langchain_rag.build.chunking import SentenceTransformerEmbeddings
+from langchain_rag.build.chunking import load_chunks
+from langchain_rag.build.chunking import save_chunks
 from schema.chunk import Chunk
 
 

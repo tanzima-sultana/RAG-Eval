@@ -1,7 +1,7 @@
 """
 test_query_transformation.py
 
-Tests for langchain_rag.query_transformation. No LLM is called: the query LLM is replaced with a fake that answers
+Tests for langchain_rag.serving.query_transformation. No LLM is called: the query LLM is replaced with a fake that answers
 by prompt, and HuggingFaceEmbeddings with the fake from conftest. The saved 200 queries are only read, never written.
 """
 
@@ -21,10 +21,10 @@ from common.constants import HYDE_QUERY
 from common.constants import MULTI_QUERY
 from common.constants import ORIGINAL_QUERY
 from common.constants import REWRITTEN_QUERY
-from langchain_rag import query_transformation as query_transformation_module
-from langchain_rag.query_transformation import QueryTransformation
-from langchain_rag.query_transformation import load_queries
-from langchain_rag.query_transformation import save_queries
+from langchain_rag.serving import query_transformation as query_transformation_module
+from langchain_rag.serving.query_transformation import QueryTransformation
+from langchain_rag.serving.query_transformation import load_queries
+from langchain_rag.serving.query_transformation import save_queries
 from schema.llm import LLMArgs
 from schema.qna import Qna
 from schema.query import Ans
