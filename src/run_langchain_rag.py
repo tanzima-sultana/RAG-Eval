@@ -6,17 +6,19 @@ from common.args_temp import make_ingestion_args
 from common.args_temp import make_chunking_args
 from common.args_temp import make_embedding_args
 from common.args_temp import make_index_args
+from common.args_temp import make_vectordb_args
 from langchain_rag.ingestion import ingestion
 from langchain_rag.chunking import Chunking
 from langchain_rag.embedding import Embedding
 from langchain_rag.indexing import Indexing
+from langchain_rag.indexing_vectordb import IndexingVectorDb
 
 
 def run_langchain_rag(args) -> None:
 	"""
 	Input: args, the parsed args.
 	Output: nothing.
-	What it does: runs the LangChain RAG. For now ingestion, chunking, embedding and indexing.
+	What it does: runs the LangChain RAG. For now ingestion, chunking, embedding, indexing and vector DB indexing.
 	"""
 	# 1. Ingestion
 	print("\n\nIngestion")
@@ -59,3 +61,13 @@ def run_langchain_rag(args) -> None:
 			index = Indexing(index_args).compute_index(chunks, embeddings, output_path)
 			e4 = time.time() - s4
 			print("\nIndexing time : ", e4)
+
+		# 5. Vector DB indexing, once per vector DB type
+		for vectordb_type in args.vectordb_types:
+			print(f"\n\nVector DB indexing : {vectordb_type}")
+			vectordb_args = make_vectordb_args(args, chunking_args, vectordb_type)
+
+			s5 = time.time()
+			vectordb = IndexingVectorDb(vectordb_args).compute_vectordb(chunks, embeddings, output_path)
+			e5 = time.time() - s5
+			print("\nVector DB indexing time : ", e5)

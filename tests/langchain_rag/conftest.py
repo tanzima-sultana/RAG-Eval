@@ -8,9 +8,11 @@ The real models are replaced with fakes, so no model is downloaded.
 import numpy as np
 import pytest
 import sentence_transformers
+from langchain_core.embeddings import Embeddings
 
 from common.args_temp import ChunkingArgs
 from common.args_temp import IndexArgs
+from common.args_temp import VectorDbArgs
 from schema.chunk import Chunk
 from schema.document import Document
 from schema.document import DocumentType
@@ -85,7 +87,7 @@ class FakeSentenceTransformer:
         return np.array(vectors)
 
 
-class FakeHuggingFaceEmbeddings:
+class FakeHuggingFaceEmbeddings(Embeddings):
     """
     Stand-in for langchain_huggingface.HuggingFaceEmbeddings. A text is embedded as
     [len(text), 1, 0, 0]. Every embed_documents call is recorded in embed_documents_calls.
@@ -199,6 +201,31 @@ def make_index_args(make_chunking_args):
         return IndexArgs(**field_values)
 
     return build_index_args
+
+
+@pytest.fixture
+def make_vectordb_args(make_chunking_args):
+    """
+    Input: the make_chunking_args fixture.
+    Output: a function that builds a VectorDbArgs.
+    What it does: returns a builder with small defaults (batch size 3) where any field can be overridden.
+    """
+    def build_vectordb_args(**overrides):
+        """
+        Input: any VectorDbArgs field as a keyword argument.
+        Output: a VectorDbArgs with the defaults plus the overrides.
+        What it does: fills in defaults for every field not overridden.
+        """
+        field_values = {}
+        field_values["chunking_args"] = make_chunking_args()
+        field_values["vectordb_type"] = "qdrant"
+        field_values["qdrant_url"] = "http://localhost:6333"
+        field_values["qdrant_batch_size"] = 3
+        for field_name in overrides:
+            field_values[field_name] = overrides[field_name]
+        return VectorDbArgs(**field_values)
+
+    return build_vectordb_args
 
 
 @pytest.fixture

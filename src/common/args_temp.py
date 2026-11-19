@@ -105,6 +105,54 @@ def make_index_args(parsed_args: argparse.Namespace, chunking_args: ChunkingArgs
 	return index_args
 
 
+@dataclasses.dataclass
+class VectorDbArgs:
+	chunking_args: ChunkingArgs
+	vectordb_type: str
+	qdrant_url: str
+	qdrant_batch_size: int
+
+
+def make_vectordb_args(parsed_args: argparse.Namespace, chunking_args: ChunkingArgs, vectordb_type: str) -> VectorDbArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args(); chunking_args, the chunking settings of one
+	chunk type; vectordb_type, one of vectordb_types.
+	Output: a VectorDbArgs holding the vector DB settings for that vector DB type.
+	What it does: copies chunking_args, vectordb_type and each vector DB setting into the matching VectorDbArgs field.
+	"""
+	vectordb_args = VectorDbArgs(
+		chunking_args=chunking_args,
+		vectordb_type=vectordb_type,
+		qdrant_url=parsed_args.qdrant_url,
+		qdrant_batch_size=parsed_args.qdrant_batch_size
+	)
+	return vectordb_args
+
+
+def parse_vectordb_args(parser: argparse.ArgumentParser) -> None:
+	"""
+	Input: parser, the argument parser of main.py.
+	Output: nothing.
+	What it does: adds the vector DB arguments to parser.
+	"""
+	parser.add_argument(
+		"--vectordb_types",
+		type=str,
+		nargs="+",
+		required=True,
+		help="Vector DB types to build, one after another: qdrant")
+	parser.add_argument(
+		"--qdrant_url",
+		type=str,
+		required=True,
+		help="URL of the Qdrant server, e.g. http://localhost:6333")
+	parser.add_argument(
+		"--qdrant_batch_size",
+		type=int,
+		required=True,
+		help="Number of points uploaded to Qdrant in one request")
+
+
 def parse_indexing_args(parser: argparse.ArgumentParser) -> None:
 	"""
 	Input: parser, the argument parser of main.py.
@@ -265,6 +313,7 @@ def parse_args() -> argparse.Namespace:
 	parse_ingestion_args(parser)
 	parse_chunking_args(parser)
 	parse_indexing_args(parser)
+	parse_vectordb_args(parser)
 
 	parsed_args = parser.parse_args(config_arguments + override_arguments)
 	return parsed_args

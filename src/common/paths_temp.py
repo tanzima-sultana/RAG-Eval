@@ -3,6 +3,7 @@ import os
 from common.args_temp import ChunkingArgs
 from common.args_temp import EmbeddingArgs
 from common.args_temp import IndexArgs
+from common.args_temp import VectorDbArgs
 from common.constants import FAISS_FLATIP_INDEX
 from common.constants import FAISS_IVF_INDEX
 from common.constants import FAISS_HNSW_INDEX
@@ -103,3 +104,23 @@ def get_bm25_index_path(output_path: str, index_args: IndexArgs) -> str:
 		output_path, "indexes", "bm25", chunking_args.chunk_type, chunking_args.model_name,
 		settings_folder, bm25_folder
 	)
+
+
+# ------ Vector DB
+def get_qdrant_collection_name(output_path: str, vectordb_args: VectorDbArgs) -> str:
+	"""
+	Input: output_path, the dataset's output folder ({root}/{framework}/{dataset_name}); vectordb_args.
+	Output: {framework}_{dataset_name}_{chunk_type}_{model_name}_{min}_{max}_{overlap}_{threshold}
+	What it does: builds the Qdrant collection name. Any "/" is replaced with "-", as Qdrant does not allow it.
+	"""
+	chunking_args = vectordb_args.chunking_args
+	normalized_output_path = os.path.normpath(output_path)
+	dataset_name = os.path.basename(normalized_output_path)
+	framework = os.path.basename(os.path.dirname(normalized_output_path))
+
+	collection_name = (
+		f"{framework}_{dataset_name}_{chunking_args.chunk_type}_{chunking_args.model_name}_"
+		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
+		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
+	)
+	return collection_name.replace("/", "-")

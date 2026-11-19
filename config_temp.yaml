@@ -25,3 +25,9 @@ indexing:
   bm25_k1: 1.5
   bm25_b: 0.75
   bm25_tokenizer: whitespace
+
+# 5. Vector DB
+vectordb:
+  vectordb_types: [qdrant]    # one or more of qdrant
+  qdrant_url: http://localhost:6333
+  qdrant_batch_size: 256
