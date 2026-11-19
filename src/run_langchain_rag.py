@@ -20,6 +20,7 @@ from langchain_rag.indexing_vectordb import IndexingVectorDb
 from langchain_rag.qna_set import QnaSet
 from langchain_rag.query_transformation import QueryTransformation
 from langchain_rag.retrieval import Retrieval
+from langchain_rag.retrieval_evaluation import RetrievalEvaluation
 
 
 def run_langchain_rag(args) -> None:
@@ -64,6 +65,10 @@ def run_langchain_rag(args) -> None:
 	# 4. Query split: val for retrieval and retrieval evaluation, test for answer generation and answer evaluation
 	print("\n\nQuery split")
 	val_queries, test_queries = query_transformation.split_queries(queries)
+
+	# Scores of every plain and reranked result, of every chunk type
+	retrieval_evaluation = RetrievalEvaluation(qna_items)
+	retrieved_evals = []
 
 	# 5. Chunking, once per chunk type
 	for chunk_type in args.chunk_types:
@@ -133,13 +138,22 @@ def run_langchain_rag(args) -> None:
 			e11 = time.time() - s11
 			print("\nHybrid retrieval time : ", e11)
 
-		# 10. Reranking of every plain result, kept as a separate list
+		# 10. Reranking of every plain result. The reranked results are added to the same list
 		if retrieval_args.reranking:
 			print("\n\nReranking")
 			s12 = time.time()
 			reranked_retrieved_items = retrieval.rerank_retrieval(retrieved_items, chunks, qna_items, output_path)
+			retrieved_items.extend(reranked_retrieved_items)
 			e12 = time.time() - s12
 			print(f"Reranked results : {len(reranked_retrieved_items)}")
 			print("\nReranking time : ", e12)
 
-		print(f"\nPlain results : {len(retrieved_items)}")
+		# 11. Retrieval evaluation of the plain and reranked results, while this chunk type's chunks are loaded
+		print("\n\nRetrieval evaluation")
+		s13 = time.time()
+		chunk_type_retrieved_evals = retrieval_evaluation.compute_retrieved_evals(retrieved_items, chunks)
+		retrieved_evals.extend(chunk_type_retrieved_evals)
+		e13 = time.time() - s13
+		print("\nRetrieval evaluation time : ", e13)
+
+	print(f"\n\nRetrieved evals : {len(retrieved_evals)}")
