@@ -3,6 +3,7 @@
 # Chunking frameworks: "" uses the built-in chunkers
 NO_FRAMEWORK=""
 LANGCHAIN_FRAMEWORK="langchain"
+RAG_FRAMEWORK="rag"
 RAGAS_FRAMEWORK="ragas"
 
 FIXED_CHUNKING="fixed"

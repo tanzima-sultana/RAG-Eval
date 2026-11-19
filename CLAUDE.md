@@ -37,138 +37,126 @@ All commands below assume current working directory is the repo root (`rag-eval/
 ```
 ## Project Structure
 
-config.yaml					# Command line args
-src/
-	pipeline.py				# CLI entry point for the entire RAG pipeline
-	build.py                # CLI entry point for the RAG build phase
-	question.py             # CLI entry point for the RAG question phase
-	eval.py                 # CLI entry point for the RAG eval phase
-	analysis.py             # CLI entry point for the RAG analysis phase
-	llm_provider.py         # CLI entry point to run and check the LLM providers (dev)
+config.yaml
 
-	api/
-	common/
-		constants.py          # Hardcoded project-wide constants
-		args.py               # Layer related command line args
-		paths.py              # Output paths for each layer.
-		timing.py			  # Time 
-	
-	llm/
-		llm.py		        # LLM orchatrator, decides which llm to return
-		constants.py        # Hardcoded LLM related constants
-		schema.py		    # LLMModel, LLMCost and LLMResponse.
-		validate.py		    # Validate LLM, model and prices
-		ollama.py 			# Local llama
-		claude.py		    # Anthropic models
-		gemini.py		    # Gemini models
-		chatgpt.py		    # OpenAI/Chatgpt models
-	stages/
-		build/
-			ingestion/
-				schema.py              # Defines the Document dataclass — the normalized record format every parsed document is converted into
-				ingestion.py           # Library for document ingestion
-				cache.py	           # Store and retrieve cached documents
-				langchain.py		   # langchain ingestion
-
-			chunking/
-				schema.py              # Defines the Chunk dataclass — the normalized record format every created chunk is converted into
-				chunker.py             # Abstract base class and common shared methods for chunking types classes
-				chunkers/
-					fixed.py           		# Fixed-size chunking strategy
-					sentence.py        		# Sentence-aware chunking strategy
-					semantic.py        		# Semantic chunking strategy
-				chunking.py            # Chunking orchestrator
-				validate.py		       # Validate given parameters
-				cache.py	           # Store and retrieve cached chunks
-				langchain.py		   # langchain chunking
-
-			embedding/
-				schema.py              # Defines the Embedded dataclass — the normalized record format every created embedding is converted into
-				embedding.py           # Embedding orchestrator
-				cache.py	           # Store and retrieve cached embeddings
-				langchain.py		   # langchain embeddings
-
-			indexing/
-				schema.py            	# Defines the Index dataclass — the normalized record format every created index is converted into
-				indexers/
-					faiss.py           		# FAISS(flatip, ivf, hnsw) strategy
-					bm25.py            		# BM25 strategy
-					qdrant.py          		# Vector store qdrant strategy
-				indexing.py            # Indexing orchestrator
-				validate.py		   	   # Validate given parameters
-				cache.py	           # Store and retrieve cached index
-				langchain.py		   # langchain indexing
-	
-		question/
-			qna/
-				schema.py           # Defines the EvalQnA dataclass
-				validate.py		    # Validate given parameters
-				qna.py		        # Generates QnA sets 
-
-			query/
-				schema.py            # Defines the Query dataclass
-				validate.py		   	 # Validate given parameters
-				cache.py	         # Store and retrieve cached index
-				prompt.py            # Prompt template for query transform
-				query.py             # Query orchestrator
-
-		evaluation/
-			retrieval/
-				schema.py            # Defines the Retrieved dataclass 
-				retrievars/
-					dense.py           # Dense retrieval (on faiss and qdrant index)
-					bm25.py            # BM25 retrieval (on bm25 index)
-					hybrid.py          # On both Dense and BM25
-				rerank.py            # Reranking
-				retrieval.py         # Retrieval orchastrator
-				validate.py		     # Validate given parameters
-				cache.py	         # Store and retrieve cached index
-				langchain.py		 # langchain indexing
-			
-			context/
-				schema.py            # Defines the Context dataclass
-				context.py           # Creates context list for prompt 
-			
-			prompt/
-				schema.py            # Defines the Prompt dataclass
-				prompt_template.py   # Prompt template
-				prompt.py            # Creates prompt list for generation
-			
-			generation/
-				schema.py            # Defines the Generated dataclass
-				validate.py		     # Validate given parameters
-				cache.py	         # Store and retrieve cached answers
-				generation.py        # Answer generation orchastrator
-			
-			evaluation/
-				schema.py            			# Defines dataclass for eval results
-				validate.py		     			# Validate given parameters
-				answer_evaluation.py            # Evaluates generated ans
-				retrieval_evaluation.py         # Evaluates retrieval quality and filters them 
-				cache.py	         			# Store evals
-		
-		analysis/
-			analysis.py            			# Orchastrator
-			schema.py		    			# Analysis summary schema
-			validate.py		     			# Validate given parameters
-			cache.py	           			# Store and retrieve analysis results
-			summary.py            			# Prints analysis results
-			comparison.py            		# Comapre runs upto 5
-			diagnosis.py         			# Explains where answers lose points
-			report.py         				# Writes the summary tables
-
-
-tests/                  # Test suite
-outputs/dataset_name/	# A folder for each dataset
-
-log/
-  log_test.txt              # Run log for test runs
-  log.txt                   # General run log
-
+main.py
 scripts/
-  pipeline.sh                    # Runs the entire pipeline end-to-end
-  build.sh                       # Runs build stage
-  question.sh                    # Runs question stage
-  eval.sh                        # Runs eval stage
-  analysis.sh                    # Runs analysis stage
-  llm_provider.sh                # Runs llm
+	main.sh 
+
+src/
+	run_rag.py                      
+	run_langchain_rag.py         
+
+	common/
+		constants.py
+		args.py
+		paths.py
+		timing.py
+
+	schema/
+		document.py
+		chunk.py
+		embed.py
+		index.py
+		qna.py
+		query.py
+		retrieved.py
+		retrieved_eval.py
+		context.py
+		prompt.py
+		answer.py
+		answer_eval.py
+		analysis.py
+		llm.py
+
+	llm/
+		validate.py
+		llm.py
+
+	langchain_rag/                
+		ingestion.py
+		chunking.py
+		embedding.py
+		indexing.py
+		qna.py
+		query.py
+		retrieval.py        
+		retrieval_evaluation.py     
+		context.py
+		prompt.py
+		answer.py
+		answer_evaluation.py               
+
+	rag/
+		build/                              # Phase 1 (unchanged)
+			ingestion/
+				validate.py
+				cache.py
+				ingestion.py
+			chunking/
+				validate.py
+				cache.py
+				chunking.py
+				chunkers/
+					fixed.py
+					sentence.py
+					semantic.py
+			embedding/
+				validate.py
+				cache.py
+				embedding.py
+			indexing/
+				validate.py
+				cache.py
+				indexing.py
+				indexers/
+					faiss.py
+					bm25.py
+					qdrant.py
+
+		query/                              # Phase 3 QueryTransform
+			validate.py
+			cache.py
+			query.py
+
+		retrieval/                          # Phase 4 Retrieval
+			validate.py
+			cache.py
+			rerank.py
+			retrieval.py
+			retrievars/
+				dense.py
+				bm25.py
+				hybrid.py
+
+		context.py
+		prompt.py
+
+		answer/                             # Phase 8 AnsGeneration
+			validate.py
+			cache.py
+			answer.py
+
+	qna/                                # Phase 2 QnA
+		validate.py
+		cache.py
+		qna.py
+
+	retrieval_evaluation/               # Phase 5 RetrievalEvaluation
+		validate.py
+		cache.py
+		retrieval_evaluation.py
+
+	answer_evaluation/                  # Phase 9 AnsEvaluation
+		validate.py
+		cache.py
+		answer_evaluation.py
+
+	analysis/                           # Phase 10 Analysis (unchanged)
+		validate.py
+		cache.py
+		summary.py
+		comparison.py
+		diagnosis.py
+		report.py
+		analysis.py
