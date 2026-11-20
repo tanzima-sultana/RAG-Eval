@@ -243,7 +243,7 @@ def parse_eval_dataset_config() -> argparse.Namespace:
 	"""
 	# 1. Get the config file path. The other command line flags are overrides
 	config_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
-	config_parser.add_argument("--config", type=str, required=True, help="YAML config file, e.g. eval_dataset_config.yaml")
+	config_parser.add_argument("--config", type=str, required=True, help="YAML config file, e.g. config/eval_dataset_config.yaml")
 	config_args, override_arguments = config_parser.parse_known_args()
 
 	with open(config_args.config, encoding="utf-8") as config_file:
@@ -660,7 +660,7 @@ def parse_args() -> argparse.Namespace:
 	"""
 	# 1. Get the config file path. The other command line flags are overrides
 	config_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
-	config_parser.add_argument("--config", type=str, required=True, help="YAML config file, e.g. build_config.yaml")
+	config_parser.add_argument("--config", type=str, required=True, help="YAML config file, e.g. config/build_config.yaml")
 	config_args, override_arguments = config_parser.parse_known_args()
 
 	with open(config_args.config, encoding="utf-8") as config_file:

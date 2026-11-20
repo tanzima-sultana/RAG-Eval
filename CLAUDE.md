@@ -48,7 +48,9 @@ All commands below assume current working directory is the repo root (`rag-eval/
 ```
 ## Project Structure
 
-config.yaml
+config/
+        build_config.yaml
+        eval_dataset_config.yaml
 
 scripts/
         build.sh                          # -> run_build.py
