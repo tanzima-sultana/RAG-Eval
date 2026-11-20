@@ -18,7 +18,7 @@ from common.constants import I_DONT_KNOW
 from common.constants import RRF_K
 from rag.serving.retrieval import single_retrieval as single_retrieval_module
 from rag.serving.retrieval.retrieval import Retrieval
-from rag.serving.retrieval.single_retrieval import Search
+from rag.serving.retrieval.single_retrieval import SingleRetrieval
 from schema.setup import Setup
 from rag.serving.retrieval.cache import load_retrieved
 from schema.chunk import Chunk
@@ -119,7 +119,7 @@ def fake_cross_encoder(monkeypatch):
     """
     Input: pytest's monkeypatch fixture.
     Output: the FakeCrossEncoder class.
-    What it does: makes Search load the fake cross-encoder.
+    What it does: makes SingleRetrieval load the fake cross-encoder.
     """
     monkeypatch.setattr(single_retrieval_module, "CrossEncoder", FakeCrossEncoder)
     FakeCrossEncoder.scored_questions = []
@@ -318,7 +318,7 @@ def test_dense_search_keeps_top_k_and_merges_multi_by_best_score(make_retrieval_
     Output: the dense results.
     What it does: checks each query type's chunks, scores and doc ids, and that multi keeps doc1_1 once with its best score.
     """
-    retrieved_items = Search(make_retrieval_args()).dense_search(FakeVectorStore(make_dense_results()), "faiss_flatip", make_query())
+    retrieved_items = SingleRetrieval(make_retrieval_args()).dense_search(FakeVectorStore(make_dense_results()), "faiss_flatip", make_query())
 
     original = find_retrieved(retrieved_items, "original")
     assert original.chunk_ids == ["doc1_0", "doc1_1", "doc2_0"]
@@ -339,7 +339,7 @@ def test_dense_search_does_not_search_a_hyde_i_dont_know(make_retrieval_args):
     """
     vector_store = FakeVectorStore(make_dense_results())
 
-    retrieved_items = Search(make_retrieval_args()).dense_search(vector_store, "faiss_flatip", make_query(hyde_text=I_DONT_KNOW))
+    retrieved_items = SingleRetrieval(make_retrieval_args()).dense_search(vector_store, "faiss_flatip", make_query(hyde_text=I_DONT_KNOW))
 
     assert find_retrieved(retrieved_items, "hyde").chunk_ids == []
     searched_first_values = []
@@ -358,7 +358,7 @@ def test_dense_search_searches_only_the_query_types_the_query_holds(make_retriev
     query.rewritten_qus = None
     query.multi_qus = None
 
-    retrieved_items = Search(make_retrieval_args()).dense_search(FakeVectorStore(make_dense_results()), "faiss_flatip", query)
+    retrieved_items = SingleRetrieval(make_retrieval_args()).dense_search(FakeVectorStore(make_dense_results()), "faiss_flatip", query)
 
     query_types = []
     for retrieved in retrieved_items:
@@ -375,7 +375,7 @@ def test_bm25_search_drops_zero_scores_and_has_no_hyde(make_retrieval_args):
     Output: the BM25 results.
     What it does: checks chunks with score 0 are dropped, multi is merged and HyDE has no result.
     """
-    retrieved_items = Search(make_retrieval_args()).bm25_search(make_bm25_index(), make_query())
+    retrieved_items = SingleRetrieval(make_retrieval_args()).bm25_search(make_bm25_index(), make_query())
 
     query_types = []
     for retrieved in retrieved_items:
@@ -401,7 +401,7 @@ def test_hybrid_fuse_fuses_one_dense_and_bm25_result(make_retrieval_args):
     dense_retrieved = make_retrieved("original", "dense", "faiss_flatip", ["doc1_0", "doc1_1"])
     bm25_retrieved = make_retrieved("original", "bm25", "bm25", ["doc1_1", "doc2_0"])
 
-    hybrid_retrieved = Search(make_retrieval_args()).hybrid_fuse(dense_retrieved, bm25_retrieved)
+    hybrid_retrieved = SingleRetrieval(make_retrieval_args()).hybrid_fuse(dense_retrieved, bm25_retrieved)
 
     assert hybrid_retrieved.setup.index_type == "faiss_flatip+bm25"
     assert hybrid_retrieved.setup.retrieval_type == "hybrid"
@@ -422,7 +422,7 @@ def test_rerank_result_keeps_the_best_rerank_top_k(make_retrieval_args, fake_cro
     }
     retrieved = make_retrieved("original", "dense", "faiss_flatip", ["doc1_0", "doc1_1", "doc2_0"])
 
-    reranked = Search(make_retrieval_args(reranking=True)).rerank_result(retrieved, "What is X?", chunks)
+    reranked = SingleRetrieval(make_retrieval_args(reranking=True)).rerank_result(retrieved, "What is X?", chunks)
 
     assert reranked.chunk_ids == ["doc1_1", "doc2_0"]
     assert reranked.chunk_scores == pytest.approx([0.9, 0.5])

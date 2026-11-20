@@ -15,7 +15,7 @@ from schema.retrieved import Retrieved
 from schema.setup import Setup
 
 
-class Search:
+class SingleRetrieval:
 	def __init__(self, retrieval_args: RetrievalArgs):
 		"""
 		Input: retrieval_args, the retrieval settings of one chunk type.

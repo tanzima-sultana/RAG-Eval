@@ -9,7 +9,7 @@ from common.args_temp import QueryArgs
 from common.args_temp import RetrievalArgs
 from rag.serving.retrieval.cache import load_retrieved
 from rag.serving.retrieval.cache import save_retrieved
-from rag.serving.retrieval.single_retrieval import Search
+from rag.serving.retrieval.single_retrieval import SingleRetrieval
 from schema.chunk import Chunk
 from schema.eval_sample import EvalSample
 from schema.index import Bm25Index
@@ -25,12 +25,12 @@ class Retrieval:
 		Input: retrieval_args, the retrieval settings of one chunk type; query_args and val_queries_count, the number
 		of val queries searched, used only to name the retrieved folders.
 		Output: nothing.
-		What it does: stores them and builds the Search, which validates retrieval_args and loads the cross-encoder.
+		What it does: stores them and builds the SingleRetrieval, which validates retrieval_args and loads the cross-encoder.
 		"""
 		self.retrieval_args = retrieval_args
 		self.query_args = query_args
 		self.val_queries_count = val_queries_count
-		self.search = Search(retrieval_args)
+		self.search = SingleRetrieval(retrieval_args)
 
 	def compute_retrieval(self, index: FaissIndex | Bm25Index, index_type: str, queries: list[Query], output_path: str) -> list[Retrieved]:
 		"""
@@ -80,7 +80,7 @@ class Retrieval:
 			print(f"Dense {index_type} results loaded from cache : {retrieved_file}")
 			return retrieved_items
 
-		# 2. Search each query
+		# 2. SingleRetrieval each query
 		retrieved_items = []
 		for query in queries:
 			retrieved_items.extend(self.search.dense_search(vector_store, index_type, query))
@@ -106,7 +106,7 @@ class Retrieval:
 			print(f"BM25 results loaded from cache : {retrieved_file}")
 			return retrieved_items
 
-		# 2. Search each query
+		# 2. SingleRetrieval each query
 		retrieved_items = []
 		for query in queries:
 			retrieved_items.extend(self.search.bm25_search(index, query))
