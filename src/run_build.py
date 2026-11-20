@@ -1,12 +1,12 @@
 import time
 
-from common import paths_temp
-from common.args_temp import parse_args
-from common.args_temp import make_ingestion_args
-from common.args_temp import make_chunking_args
-from common.args_temp import make_embedding_args
-from common.args_temp import make_index_args
-from common.args_temp import make_vectordb_args
+from common import paths
+from common.args import parse_args
+from common.args import make_ingestion_args
+from common.args import make_chunking_args
+from common.args import make_embedding_args
+from common.args import make_index_args
+from common.args import make_vectordb_args
 from rag.build.ingestion import ingestion
 from rag.build.chunking import Chunking
 from rag.build.embedding import Embedding
@@ -37,7 +37,7 @@ def run_build(args) -> None:
 	print(f"Documents : {len(documents)}")
 	print("\nIngestion time : ", e1)
 
-	output_path = paths_temp.get_output_path(args.output_path, args.dataset_name)
+	output_path = paths.get_output_path(args.output_path, args.dataset_name)
 	manifest = start_build_manifest(ingestion_args, args.model_name)
 
 	# 2. Chunking, once per chunk type

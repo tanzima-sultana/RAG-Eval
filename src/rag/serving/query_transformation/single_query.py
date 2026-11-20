@@ -3,7 +3,7 @@ import numpy as np
 from langchain_huggingface import HuggingFaceEmbeddings
 
 from common import constants
-from common.args_temp import QueryArgs
+from common.args import QueryArgs
 from llm_provider.llm_provider import LLMProvider
 from rag.serving.query_transformation.query_prompts import HYDE_PROMPT
 from rag.serving.query_transformation.query_prompts import MULTI_QUERY_PROMPT

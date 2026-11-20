@@ -1,7 +1,7 @@
 """
 test_retrieval.py
 
-Tests for rag.serving.retrieval (retrieval, single_retrieval and cache) and paths_temp.get_retrieved_path. No model is loaded: the vector stores, the BM25
+Tests for rag.serving.retrieval (retrieval, single_retrieval and cache) and paths.get_retrieved_path. No model is loaded: the vector stores, the BM25
 model and the cross-encoder are fakes that return fixed scores.
 """
 
@@ -11,9 +11,9 @@ import types
 import numpy as np
 import pytest
 
-from common import paths_temp
-from common.args_temp import QueryArgs
-from common.args_temp import RetrievalArgs
+from common import paths
+from common.args import QueryArgs
+from common.args import RetrievalArgs
 from common.constants import I_DONT_KNOW
 from common.constants import RRF_K
 from rag.serving.retrieval import single_retrieval as single_retrieval_module
@@ -301,7 +301,7 @@ def test_get_retrieved_path_names_the_index_split_and_query_types(make_retrieval
     """
     query_args = make_query_args(query_types=["original", "hyde"])
 
-    retrieved_path = paths_temp.get_retrieved_path("out", make_retrieval_args(), query_args, 150, "faiss_hnsw+bm25")
+    retrieved_path = paths.get_retrieved_path("out", make_retrieval_args(), query_args, 150, "faiss_hnsw+bm25")
 
     assert retrieved_path == os.path.join(
         "out", "retrieved", "fixed", "fake-model", "2_6_2_0.5", "hnsw_4_8+bm25_1.5_0.75_whitespace",
@@ -538,7 +538,7 @@ def test_hybrid_retrieval_fuses_ranks_for_each_dense_index(make_retrieval_args, 
     assert flatip_hybrid.chunk_scores[0] == pytest.approx(1.0 / (RRF_K + 2) + 1.0 / (RRF_K + 1))
     assert hybrid_items[1].setup.index_type == "qdrant+bm25"
     for hybrid_index_type in ["faiss_flatip+bm25", "qdrant+bm25"]:
-        retrieved_path = paths_temp.get_retrieved_path(str(tmp_path), retrieval_args, query_args, 1, hybrid_index_type)
+        retrieved_path = paths.get_retrieved_path(str(tmp_path), retrieval_args, query_args, 1, hybrid_index_type)
         assert load_retrieved(os.path.join(retrieved_path, "hybrid_top3.json")) is not None
 
 

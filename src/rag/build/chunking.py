@@ -15,8 +15,8 @@ from langchain_text_splitters import Tokenizer
 from langchain_text_splitters import split_text_on_tokens
 
 from common import constants
-from common import paths_temp
-from common.args_temp import ChunkingArgs
+from common import paths
+from common.args import ChunkingArgs
 from schema.document import Document
 from schema.chunk import Chunk
 
@@ -151,7 +151,7 @@ class Chunking:
 		for doc_id in documents:
 			saved_chunks = load_chunks(chunk_path, doc_id)
 			if saved_chunks is None:
-				raise FileNotFoundError(f"No saved chunks for document {doc_id} in {chunk_path}. Run scripts/build_temp.sh first.")
+				raise FileNotFoundError(f"No saved chunks for document {doc_id} in {chunk_path}. Run scripts/build.sh first.")
 			chunks.update(saved_chunks)
 
 		print(f"Chunks : {len(chunks)} (all from cache)")
@@ -167,7 +167,7 @@ class Chunking:
 		self.validate()
 
 		# 2. Load saved chunks, and collect the documents that still need chunking
-		chunk_path = paths_temp.get_chunk_path(output_path, self.chunking_args)
+		chunk_path = paths.get_chunk_path(output_path, self.chunking_args)
 		print(f"Chunk folder : {chunk_path}")
 		self.chunk_path = chunk_path
 		chunks = {}

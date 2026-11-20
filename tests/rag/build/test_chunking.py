@@ -9,7 +9,7 @@ import os
 
 import pytest
 
-from common import paths_temp
+from common import paths
 from rag.build.chunking import Chunking
 from rag.build.chunking import SentenceTransformerEmbeddings
 from rag.build.chunking import load_chunks
@@ -102,7 +102,7 @@ def test_compute_chunks_saves_one_file_per_document_and_loads_from_cache(fake_se
     fake_sentence_transformer.loaded_model_names = []
     second_chunks = Chunking(chunking_args).compute_chunks(documents, output_path)
 
-    chunk_path = paths_temp.get_chunk_path(output_path, chunking_args)
+    chunk_path = paths.get_chunk_path(output_path, chunking_args)
     assert sorted(os.listdir(chunk_path)) == ["d1.json", "d2.json"]
     assert second_chunks == first_chunks
     assert "Documents : 2 (2 from cache, 0 newly chunked)" in capsys.readouterr().out

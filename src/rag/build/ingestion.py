@@ -5,8 +5,8 @@ import os
 from langchain_community.document_loaders import PyPDFium2Loader
 from langchain_core.documents import Document as LangchainDocument
 
-from common import paths_temp
-from common.args_temp import IngestionArgs
+from common import paths
+from common.args import IngestionArgs
 from schema.document import Document
 from schema.document import DocumentType
 from schema.document import Metadata
@@ -136,7 +136,7 @@ def load_saved_documents(documents_path: str, dataset_size: int) -> dict[str, Do
 	documents = load_documents(documents_path, dataset_size)
 	if documents is None:
 		raise FileNotFoundError(
-			f"No saved documents for dataset_size {dataset_size} in {documents_path}. Run scripts/build_temp.sh first."
+			f"No saved documents for dataset_size {dataset_size} in {documents_path}. Run scripts/build.sh first."
 		)
 
 	print(f"Documents : {len(documents)} (all from cache)")
@@ -153,8 +153,8 @@ def ingestion(ingestion_args: IngestionArgs) -> dict[str, Document]:
 	validate(ingestion_args)
 
 	# 2. Load from the cache if this dataset_size was saved before
-	output_path = paths_temp.get_output_path(ingestion_args.output_path, ingestion_args.dataset_name)
-	processed_data_path = paths_temp.get_documents_path(output_path)
+	output_path = paths.get_output_path(ingestion_args.output_path, ingestion_args.dataset_name)
+	processed_data_path = paths.get_documents_path(output_path)
 	print(f"Processed data folder : {processed_data_path}")
 	cached_documents = load_documents(processed_data_path, ingestion_args.dataset_size)
 	if cached_documents is not None:

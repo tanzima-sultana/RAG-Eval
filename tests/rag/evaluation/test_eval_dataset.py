@@ -10,9 +10,9 @@ import types
 
 import pytest
 
-from common import paths_temp
-from common.args_temp import OllamaArgs
-from common.args_temp import EvalDatasetArgs
+from common import paths
+from common.args import OllamaArgs
+from common.args import EvalDatasetArgs
 from evaluation import eval_dataset as eval_dataset_module
 from evaluation.eval_dataset import EvalDataset
 from evaluation.eval_dataset import ReplyDidNotFinishError
@@ -129,7 +129,7 @@ def test_compute_eval_dataset_returns_saved_eval_dataset_without_building_an_llm
     eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
     eval_samples = [make_eval_sample(0), make_eval_sample(1)]
-    save_eval_dataset(paths_temp.get_eval_dataset_path(output_path, eval_dataset_args), eval_samples)
+    save_eval_dataset(paths.get_eval_dataset_path(output_path, eval_dataset_args), eval_samples)
 
     def fail_to_build_llm(llm_args, ollama_args):
         """
@@ -177,7 +177,7 @@ def test_load_saved_eval_dataset_returns_saved_eval_dataset(tmp_path):
     eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
     eval_samples = [make_eval_sample(0), make_eval_sample(1)]
-    save_eval_dataset(paths_temp.get_eval_dataset_path(output_path, eval_dataset_args), eval_samples)
+    save_eval_dataset(paths.get_eval_dataset_path(output_path, eval_dataset_args), eval_samples)
 
     loaded_eval_samples = EvalDataset(eval_dataset_args, make_ollama_args()).load_saved_eval_dataset(output_path)
 

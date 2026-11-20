@@ -5,7 +5,7 @@ import urllib.request
 
 import litellm
 
-from common.args_temp import OllamaArgs
+from common.args import OllamaArgs
 from schema.llm import LLMArgs
 
 

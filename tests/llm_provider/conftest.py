@@ -11,7 +11,7 @@ import urllib.error
 
 import pytest
 
-from common.args_temp import OllamaArgs
+from common.args import OllamaArgs
 from llm_provider import validate as validate_module
 from schema.llm import LLMArgs
 

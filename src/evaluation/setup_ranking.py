@@ -2,7 +2,7 @@ import dataclasses
 import json
 import os
 
-from common import paths_temp
+from common import paths
 from schema.manifest import BuildManifest
 from schema.retrieved_eval import RetrievedEval
 from schema.retrieved_eval import SetupScore
@@ -114,7 +114,7 @@ def save_best_setups(best_setups: list[Setup], manifest: BuildManifest, output_p
 			chunk_path=chunk_path
 		))
 
-	best_setups_file = paths_temp.get_best_setups_path(output_path)
+	best_setups_file = paths.get_best_setups_path(output_path)
 	os.makedirs(os.path.dirname(best_setups_file), exist_ok=True)
 	setup_record_dicts = []
 	for setup_record in setup_records:
@@ -133,9 +133,9 @@ def load_best_setups(output_path: str) -> list[SetupRecord]:
 	Output: the saved SetupRecord list, best first.
 	What it does: reads the best setups JSON, and raises FileNotFoundError if the benchmark has not saved it.
 	"""
-	best_setups_file = paths_temp.get_best_setups_path(output_path)
+	best_setups_file = paths.get_best_setups_path(output_path)
 	if not os.path.exists(best_setups_file):
-		raise FileNotFoundError(f"No saved best setups at {best_setups_file}. Run scripts/benchmark_temp.sh first.")
+		raise FileNotFoundError(f"No saved best setups at {best_setups_file}. Run scripts/benchmark.sh first.")
 
 	with open(best_setups_file, encoding="utf-8") as f:
 		setup_record_dicts = json.load(f)

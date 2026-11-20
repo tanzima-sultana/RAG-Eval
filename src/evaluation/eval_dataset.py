@@ -21,9 +21,9 @@ from ragas.testset.transforms.base import LLMBasedNodeFilter
 from ragas.testset.transforms.engine import Parallel
 from ragas.utils import num_tokens_from_string
 
-from common import paths_temp
-from common.args_temp import OllamaArgs
-from common.args_temp import EvalDatasetArgs
+from common import paths
+from common.args import OllamaArgs
+from common.args import EvalDatasetArgs
 from common.constants import EVAL_MIN_DOCUMENT_TOKENS
 from common.constants import EVAL_PASSAGE_MATCH_CHARS
 from common.constants import SAMPLE_DOCUMENTS_SEED
@@ -245,7 +245,7 @@ class EvalDataset:
 		self.validate()
 
 		# 2. Load the saved eval dataset. No LLM is built, so a cached run needs no API key or ALLOW_PAID_API
-		eval_dataset_path = paths_temp.get_eval_dataset_path(output_path, self.eval_dataset_args)
+		eval_dataset_path = paths.get_eval_dataset_path(output_path, self.eval_dataset_args)
 		print(f"Eval dataset file : {eval_dataset_path}")
 		eval_samples = load_eval_dataset(eval_dataset_path)
 		if eval_samples is not None:
@@ -266,7 +266,7 @@ class EvalDataset:
 		"""
 		self.validate()
 
-		eval_dataset_path = paths_temp.get_eval_dataset_path(output_path, self.eval_dataset_args)
+		eval_dataset_path = paths.get_eval_dataset_path(output_path, self.eval_dataset_args)
 		print(f"Eval dataset file : {eval_dataset_path}")
 		eval_samples = load_eval_dataset(eval_dataset_path)
 		if eval_samples is None:
@@ -338,7 +338,7 @@ class EvalDataset:
 		ragas_embeddings = LangchainEmbeddingsWrapper(huggingface_embeddings)
 
 		# 5. Build or load the knowledge graph. Saved after building, so a failed or repeated run does not pay again
-		kg_path = paths_temp.get_eval_dataset_kg_path(output_path, eval_dataset_args)
+		kg_path = paths.get_eval_dataset_kg_path(output_path, eval_dataset_args)
 		if os.path.exists(kg_path):
 			knowledge_graph = KnowledgeGraph.load(kg_path)
 			print(f"Knowledge graph loaded from cache : {kg_path}")

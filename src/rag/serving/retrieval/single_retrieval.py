@@ -7,7 +7,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_qdrant import QdrantVectorStore
 
 from common import constants
-from common.args_temp import RetrievalArgs
+from common.args import RetrievalArgs
 from schema.chunk import Chunk
 from schema.index import Bm25Index
 from schema.query import Query

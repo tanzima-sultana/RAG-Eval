@@ -6,10 +6,10 @@ import torch
 from langchain_huggingface import HuggingFaceEmbeddings
 
 from common import constants
-from common import paths_temp
-from common.args_temp import OllamaArgs
-from common.args_temp import EvalDatasetArgs
-from common.args_temp import QueryArgs
+from common import paths
+from common.args import OllamaArgs
+from common.args import EvalDatasetArgs
+from common.args import QueryArgs
 from llm_provider.llm_provider import LLMProvider
 from rag.serving.query_transformation.cache import load_queries
 from rag.serving.query_transformation.cache import save_queries
@@ -72,7 +72,7 @@ class QueryTransformation:
 		self.validate()
 
 		# 2. Load the saved queries, or start one empty Query per eval question
-		query_path = paths_temp.get_query_path(output_path, eval_dataset_args, query_args)
+		query_path = paths.get_query_path(output_path, eval_dataset_args, query_args)
 		print(f"Query folder : {query_path}")
 		saved_queries = load_queries(query_path)
 		if saved_queries is None:

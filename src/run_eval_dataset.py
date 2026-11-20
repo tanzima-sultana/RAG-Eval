@@ -1,10 +1,10 @@
 import time
 
-from common import paths_temp
-from common.args_temp import parse_args
-from common.args_temp import make_ingestion_args
-from common.args_temp import make_eval_dataset_args
-from common.args_temp import make_ollama_args
+from common import paths
+from common.args import parse_args
+from common.args import make_ingestion_args
+from common.args import make_eval_dataset_args
+from common.args import make_ollama_args
 from rag.build.ingestion import ingestion
 from evaluation.eval_dataset import EvalDataset
 
@@ -26,7 +26,7 @@ def run_eval_dataset(args) -> None:
 	print(f"Documents : {len(documents)}")
 	print("\nIngestion time : ", e1)
 
-	output_path = paths_temp.get_output_path(args.output_path, args.dataset_name)
+	output_path = paths.get_output_path(args.output_path, args.dataset_name)
 
 	# 2. Eval dataset
 	print("\n\nEval dataset")

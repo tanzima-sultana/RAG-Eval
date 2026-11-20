@@ -10,9 +10,9 @@ import pytest
 import sentence_transformers
 from langchain_core.embeddings import Embeddings
 
-from common.args_temp import ChunkingArgs
-from common.args_temp import IndexArgs
-from common.args_temp import VectorDbArgs
+from common.args import ChunkingArgs
+from common.args import IndexArgs
+from common.args import VectorDbArgs
 from schema.chunk import Chunk
 from schema.document import Document
 from schema.document import DocumentType

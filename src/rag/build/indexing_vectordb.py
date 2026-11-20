@@ -8,8 +8,8 @@ from qdrant_client.models import PointStruct
 from qdrant_client.models import VectorParams
 
 from common import constants
-from common import paths_temp
-from common.args_temp import VectorDbArgs
+from common import paths
+from common.args import VectorDbArgs
 from schema.chunk import Chunk
 from schema.embed import Embedded
 from schema.vectordb import VectorDb
@@ -109,7 +109,7 @@ class IndexingVectorDb:
 		# 2. The collection must hold exactly these chunks
 		if not qdrant_collection_holds_chunks(qdrant_client, collection_name, chunk_ids):
 			raise FileNotFoundError(
-				f"No Qdrant collection {collection_name} holding these chunks. Run scripts/build_temp.sh first."
+				f"No Qdrant collection {collection_name} holding these chunks. Run scripts/build.sh first."
 			)
 		print(f"Qdrant collection loaded from cache : {len(chunk_ids)} points")
 
@@ -169,7 +169,7 @@ class IndexingVectorDb:
 			) from error
 
 		# 3. Reuse the collection if it holds exactly the same chunks, otherwise rebuild it
-		collection_name = paths_temp.get_qdrant_collection_name(output_path, self.vectordb_args)
+		collection_name = paths.get_qdrant_collection_name(output_path, self.vectordb_args)
 		print(f"Qdrant collection : {collection_name}")
 		if qdrant_collection_holds_chunks(qdrant_client, collection_name, chunk_ids):
 			print(f"Qdrant collection loaded from cache : {len(chunk_ids)} points")

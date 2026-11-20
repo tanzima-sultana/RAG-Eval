@@ -3,7 +3,7 @@ ingestion:
   dataset_size: 15
   dataset_name: pdfa-eng-wds
   input_path: data/pdfa-eng-wds/
-  output_path: temp/
+  output_path: outputs/
   document_type: pdf
 
 # 2. Chunking

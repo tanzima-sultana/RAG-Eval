@@ -5,8 +5,8 @@ import torch
 
 from langchain_huggingface import HuggingFaceEmbeddings
 
-from common import paths_temp
-from common.args_temp import EmbeddingArgs
+from common import paths
+from common.args import EmbeddingArgs
 from schema.chunk import Chunk
 from schema.embed import Embedded
 
@@ -88,7 +88,7 @@ class Embedding:
 		"""
 		# 1. Load saved embeddings, and collect the chunks that still need embeddings
 		# Saved per document. A chunk id is "{doc_id}_{n}", so its doc_id is the part before the last "_"
-		embedding_path = paths_temp.get_embedding_path(output_path, self.embedding_args)
+		embedding_path = paths.get_embedding_path(output_path, self.embedding_args)
 		print(f"Embedding folder : {embedding_path}")
 		self.embedding_path = embedding_path
 		cached_embeddings = {}

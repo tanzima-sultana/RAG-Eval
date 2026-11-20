@@ -11,8 +11,8 @@ import types
 import numpy as np
 import pytest
 
-from common.args_temp import QueryArgs
-from common.args_temp import RetrievalArgs
+from common.args import QueryArgs
+from common.args import RetrievalArgs
 from rag.serving import rag_pipeline as rag_pipeline_module
 from rag.serving.rag_pipeline import RagPipeline
 from rag.serving.retrieval import single_retrieval as single_retrieval_module

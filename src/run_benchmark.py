@@ -1,16 +1,16 @@
 import time
 
-from common import paths_temp
+from common import paths
 from common.constants import HYBRID_RETRIEVAL
-from common.args_temp import parse_args
-from common.args_temp import make_ingestion_args
-from common.args_temp import make_chunking_args
-from common.args_temp import make_index_args
-from common.args_temp import make_vectordb_args
-from common.args_temp import make_eval_dataset_args
-from common.args_temp import make_ollama_args
-from common.args_temp import make_query_args
-from common.args_temp import make_retrieval_args
+from common.args import parse_args
+from common.args import make_ingestion_args
+from common.args import make_chunking_args
+from common.args import make_index_args
+from common.args import make_vectordb_args
+from common.args import make_eval_dataset_args
+from common.args import make_ollama_args
+from common.args import make_query_args
+from common.args import make_retrieval_args
 from rag.build.ingestion import load_saved_documents
 from rag.build.chunking import Chunking
 from rag.build.indexing import Indexing
@@ -36,7 +36,7 @@ def run_benchmark(args) -> None:
 	queries and scores them. The config says what to benchmark, the manifest says where it is. It never builds: a
 	missing or differently built output raises an error. It never generates the eval dataset.
 	"""
-	output_path = paths_temp.get_output_path(args.output_path, args.dataset_name)
+	output_path = paths.get_output_path(args.output_path, args.dataset_name)
 
 	# 1. The build manifest: what the build saved and where
 	print("\n\nBuild manifest")

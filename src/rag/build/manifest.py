@@ -4,11 +4,11 @@ import json
 import os
 
 from common import constants
-from common import paths_temp
-from common.args_temp import ChunkingArgs
-from common.args_temp import IndexArgs
-from common.args_temp import IngestionArgs
-from common.args_temp import VectorDbArgs
+from common import paths
+from common.args import ChunkingArgs
+from common.args import IndexArgs
+from common.args import IngestionArgs
+from common.args import VectorDbArgs
 from schema.index import Bm25Index
 from schema.index import FaissIndex
 from schema.manifest import BuildManifest
@@ -41,11 +41,11 @@ def start_build_manifest(ingestion_args: IngestionArgs, embedding_model: str) ->
 	Output: a BuildManifest with no entries yet.
 	What it does: fills in the dataset and the documents folder. The build adds an entry per output as it goes.
 	"""
-	output_path = paths_temp.get_output_path(ingestion_args.output_path, ingestion_args.dataset_name)
+	output_path = paths.get_output_path(ingestion_args.output_path, ingestion_args.dataset_name)
 	return BuildManifest(
 		dataset_name=ingestion_args.dataset_name,
 		dataset_size=ingestion_args.dataset_size,
-		documents_path=paths_temp.get_documents_path(output_path),
+		documents_path=paths.get_documents_path(output_path),
 		embedding_model=embedding_model,
 		built_at="",
 		chunk_entries=[],
@@ -115,7 +115,7 @@ def save_build_manifest(manifest: BuildManifest, output_path: str) -> None:
 	"""
 	manifest.built_at = datetime.datetime.now().isoformat(timespec="seconds")
 
-	manifest_file = paths_temp.get_build_manifest_path(output_path)
+	manifest_file = paths.get_build_manifest_path(output_path)
 	os.makedirs(os.path.dirname(manifest_file), exist_ok=True)
 	with open(manifest_file + ".tmp", "w", encoding="utf-8") as f:
 		json.dump(dataclasses.asdict(manifest), f, indent=2)
@@ -129,9 +129,9 @@ def load_build_manifest(output_path: str) -> BuildManifest:
 	Output: the saved BuildManifest.
 	What it does: reads the manifest JSON, and raises FileNotFoundError if the build has not saved one.
 	"""
-	manifest_file = paths_temp.get_build_manifest_path(output_path)
+	manifest_file = paths.get_build_manifest_path(output_path)
 	if not os.path.exists(manifest_file):
-		raise FileNotFoundError(f"No build manifest at {manifest_file}. Run scripts/build_temp.sh first.")
+		raise FileNotFoundError(f"No build manifest at {manifest_file}. Run scripts/build.sh first.")
 
 	with open(manifest_file, encoding="utf-8") as f:
 		manifest_dict = json.load(f)
@@ -157,7 +157,7 @@ def find_chunk_entry(manifest: BuildManifest, chunking_args: ChunkingArgs) -> Ch
 	if manifest.embedding_model != chunking_args.model_name:
 		raise ValueError(
 			f"The build used embedding model {manifest.embedding_model}, not {chunking_args.model_name}. "
-			"Run scripts/build_temp.sh with these settings first."
+			"Run scripts/build.sh with these settings first."
 		)
 
 	for chunk_entry in manifest.chunk_entries:
@@ -168,11 +168,11 @@ def find_chunk_entry(manifest: BuildManifest, chunking_args: ChunkingArgs) -> Ch
 		if built_settings != wanted_settings:
 			raise ValueError(
 				f"The build made {chunking_args.chunk_type} chunks with settings {built_settings}, not {wanted_settings}. "
-				"Run scripts/build_temp.sh with these settings first."
+				"Run scripts/build.sh with these settings first."
 			)
 		return chunk_entry
 
-	raise ValueError(f"The build has no {chunking_args.chunk_type} chunks. Run scripts/build_temp.sh with this chunk type first.")
+	raise ValueError(f"The build has no {chunking_args.chunk_type} chunks. Run scripts/build.sh with this chunk type first.")
 
 
 def find_index_entry(manifest: BuildManifest, chunk_type: str, index_type: str, index_settings: dict) -> IndexEntry:
@@ -188,8 +188,8 @@ def find_index_entry(manifest: BuildManifest, chunk_type: str, index_type: str, 
 		if index_entry.index_settings != index_settings:
 			raise ValueError(
 				f"The build made the {chunk_type} {index_type} index with settings {index_entry.index_settings}, not "
-				f"{index_settings}. Run scripts/build_temp.sh with these settings first."
+				f"{index_settings}. Run scripts/build.sh with these settings first."
 			)
 		return index_entry
 
-	raise ValueError(f"The build has no {chunk_type} {index_type} index. Run scripts/build_temp.sh with this index type first.")
+	raise ValueError(f"The build has no {chunk_type} {index_type} index. Run scripts/build.sh with this index type first.")

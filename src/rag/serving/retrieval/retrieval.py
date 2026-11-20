@@ -4,9 +4,9 @@ from langchain_community.vectorstores import FAISS
 from langchain_qdrant import QdrantVectorStore
 
 from common import constants
-from common import paths_temp
-from common.args_temp import QueryArgs
-from common.args_temp import RetrievalArgs
+from common import paths
+from common.args import QueryArgs
+from common.args import RetrievalArgs
 from rag.serving.retrieval.cache import load_retrieved
 from rag.serving.retrieval.cache import save_retrieved
 from rag.serving.retrieval.single_retrieval import SingleRetrieval
@@ -73,7 +73,7 @@ class Retrieval:
 		top_k = self.retrieval_args.top_k
 
 		# 1. Load the saved results
-		retrieved_path = paths_temp.get_retrieved_path(output_path, self.retrieval_args, self.query_args, self.val_queries_count, index_type)
+		retrieved_path = paths.get_retrieved_path(output_path, self.retrieval_args, self.query_args, self.val_queries_count, index_type)
 		retrieved_file = os.path.join(retrieved_path, f"{constants.DENSE_RETRIEVAL}_top{top_k}.json")
 		retrieved_items = load_retrieved(retrieved_file)
 		if retrieved_items is not None:
@@ -99,7 +99,7 @@ class Retrieval:
 		top_k = self.retrieval_args.top_k
 
 		# 1. Load the saved results
-		retrieved_path = paths_temp.get_retrieved_path(output_path, self.retrieval_args, self.query_args, self.val_queries_count, constants.BM25_INDEX)
+		retrieved_path = paths.get_retrieved_path(output_path, self.retrieval_args, self.query_args, self.val_queries_count, constants.BM25_INDEX)
 		retrieved_file = os.path.join(retrieved_path, f"{constants.BM25_RETRIEVAL}_top{top_k}.json")
 		retrieved_items = load_retrieved(retrieved_file)
 		if retrieved_items is not None:
@@ -140,7 +140,7 @@ class Retrieval:
 			hybrid_index_type = f"{dense_index_type}+{constants.BM25_INDEX}"
 
 			# 2. Load the saved results
-			retrieved_path = paths_temp.get_retrieved_path(output_path, self.retrieval_args, self.query_args, self.val_queries_count, hybrid_index_type)
+			retrieved_path = paths.get_retrieved_path(output_path, self.retrieval_args, self.query_args, self.val_queries_count, hybrid_index_type)
 			retrieved_file = os.path.join(retrieved_path, f"{constants.HYBRID_RETRIEVAL}_top{top_k}.json")
 			index_hybrid_items = load_retrieved(retrieved_file)
 			if index_hybrid_items is not None:
@@ -192,7 +192,7 @@ class Retrieval:
 		reranked_items = []
 		for retrieval_type, index_type in setups:
 			# 3. Load the saved reranked results
-			retrieved_path = paths_temp.get_retrieved_path(output_path, self.retrieval_args, self.query_args, self.val_queries_count, index_type)
+			retrieved_path = paths.get_retrieved_path(output_path, self.retrieval_args, self.query_args, self.val_queries_count, index_type)
 			retrieved_file = os.path.join(
 				retrieved_path, f"{retrieval_type}_top{top_k}_rerank{rerank_top_k}_{cross_encoder_name}.json"
 			)

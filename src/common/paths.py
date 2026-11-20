@@ -1,115 +1,81 @@
-
 import os
 
 from common.args import ChunkingArgs
+from common.args import EmbeddingArgs
 from common.args import IndexArgs
-from common.args import EvalQnAArgs
+from common.args import VectorDbArgs
+from common.args import EvalDatasetArgs
 from common.args import QueryArgs
-from common.constants import NO_FRAMEWORK
-from common.constants import FAISS_FLATIP_INDEX, FAISS_IVF_INDEX, FAISS_HNSW_INDEX, BM25_INDEX, QDRANT_INDEX
+from common.args import RetrievalArgs
+from common.constants import FAISS_FLATIP_INDEX
+from common.constants import FAISS_IVF_INDEX
+from common.constants import FAISS_HNSW_INDEX
+from common.constants import BM25_INDEX
+from common.constants import QDRANT_INDEX
+
 
 # ------ Dataset
-def get_output_path(dataset_name:str, output_path:str) -> str:
+def get_output_path(output_path: str, dataset_name: str) -> str:
 	"""
-	Input: dataset_name, the dataset's name; output_path, the base output folder.
-	Output: the dataset's output folder "{output_path}/{dataset_name}" as a string.
-	What it does: joins the base output folder and the dataset name.
+	Input: output_path, the root output folder; dataset_name.
+	Output: {output_path}/{dataset_name}
+	What it does: builds the dataset's output folder.
 	"""
-	return f"{output_path}/{dataset_name}"
+	return os.path.join(output_path, dataset_name)
+
 
 # ------ Ingestion
-def get_processed_data_path(output_path:str, framework:str) -> str:
-	"""
-	Input: output_path, the dataset's output folder; framework, "" for the
-	built-in ingestion or a framework such as langchain.
-	Output: the processed data folder path as a string, ending with "/".
-	What it does: builds the folder that holds the ingested documents:
-	{output_path}/data/processed/ for the built-in ingestion, and
-	{output_path}/data/processed/{framework}/ when a framework is used, so
-	the two never share a cache.
-	"""
-
-	if framework == NO_FRAMEWORK:
-		framework_folder = ""
-	else:
-		framework_folder = f"{framework}/"
-
-	return f"{output_path}/data/processed/{framework_folder}"
-
-def get_raw_data_path(output_path:str) -> str:
+def get_documents_path(output_path: str) -> str:
 	"""
 	Input: output_path, the dataset's output folder.
-	Output: the raw data folder path as a string, ending with "/".
-	What it does: builds the folder where doc_ingest saved the raw input
-	files, one {doc_id}.pdf per document: {output_path}/data/raw/
+	Output: {output_path}/documents
+	What it does: builds the folder that holds the ingested documents.
 	"""
-	return f"{output_path}/data/raw/"
+	return os.path.join(output_path, "documents")
+
 
 # ------ Chunking
-def get_chunk_path(output_path:str, chunking_args: ChunkingArgs) -> str:
+def get_chunk_path(output_path: str, chunking_args: ChunkingArgs) -> str:
 	"""
-	Input: output_path, the dataset's output folder; chunking_args, the
-	chunking parameters.
-	Output: the chunk folder path as a string, ending with "/".
-	What it does: builds the folder that holds one chunking run's chunks:
-	{output_path}/chunks/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/
-	for the built-in chunkers, and the same with a {framework}/ folder after
-	chunks/ when a framework such as langchain is used, so the two never
-	share a cache.
+	Input: output_path, the dataset's output folder; chunking_args.
+	Output: {output_path}/chunks/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}
+	What it does: builds the folder that holds one chunking run's chunks.
 	"""
-
-	if chunking_args.framework == NO_FRAMEWORK:
-		framework_folder = ""
-	else:
-		framework_folder = f"{chunking_args.framework}/"
-
-	return (
-		f"{output_path}/chunks/{framework_folder}{chunking_args.chunk_type}/{chunking_args.model_name}/"
+	settings_folder = (
 		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
-		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}/"
+		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
 	)
+	return os.path.join(output_path, "chunks", chunking_args.chunk_type, chunking_args.model_name, settings_folder)
+
 
 # ------ Embedding
-def get_embedding_path(output_path:str, chunking_args: ChunkingArgs) -> str:
+def get_embedding_path(output_path: str, embedding_args: EmbeddingArgs) -> str:
 	"""
-	Input: output_path, the dataset's output folder; chunking_args, the
-	chunking parameters.
-	Output: the chunk folder path as a string, ending with "/".
-	What it does: builds the folder that holds one chunking run's chunks:
-	{output_path}/chunks/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/
-	for the built-in chunkers, and the same with a {framework}/ folder after
-	chunks/ when a framework such as langchain is used, so the two never
-	share a cache.
+	Input: output_path, the dataset's output folder; embedding_args.
+	Output: {output_path}/embeddings/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}
+	What it does: builds the folder that holds one chunking run's embeddings.
 	"""
-
-	if chunking_args.framework == NO_FRAMEWORK:
-		framework_folder = ""
-	else:
-		framework_folder = f"{chunking_args.framework}/"
-
-	return (
-		f"{output_path}/embeddings/{framework_folder}{chunking_args.chunk_type}/{chunking_args.model_name}/"
+	chunking_args = embedding_args.chunking_args
+	settings_folder = (
 		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
-		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}/"
+		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
 	)
+	return os.path.join(output_path, "embeddings", chunking_args.chunk_type, chunking_args.model_name, settings_folder)
+
 
 # ------ Indexing
-def get_faiss_index_path(output_path:str, chunking_args: ChunkingArgs, index_args: IndexArgs) -> str:
+def get_faiss_index_path(output_path: str, index_args: IndexArgs) -> str:
 	"""
-	Input: output_path, the dataset's output folder; chunking_args, the
-	chunking parameters; index_args, the indexing parameters.
-	Output: the FAISS index folder path as a string, ending with "/".
-	What it does: builds the folder that holds one FAISS index build:
-	{output_path}/indexes/faiss/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/{faiss_folder}/
-	where faiss_folder is "flatip", "ivf_{nlist}" or "hnsw_{m}_{ef_construction}",
-	so changing a FAISS parameter never reuses an old index. A {framework}/
-	folder is added after faiss/ when a framework such as langchain is used.
+	Input: output_path, the dataset's output folder; index_args.
+	Output: {output_path}/indexes/{index_type}/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/{faiss_folder}
+	where faiss_folder is flatip, ivf_{nlist} or hnsw_{m}_{ef_construction}.
+	What it does: builds the folder that holds one FAISS index.
 	"""
-
-	if chunking_args.framework == NO_FRAMEWORK:
-		framework_folder = ""
-	else:
-		framework_folder = f"{chunking_args.framework}/"
+	chunking_args = index_args.chunking_args
+	settings_folder = (
+		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
+		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
+	)
 
 	if index_args.index_type == FAISS_FLATIP_INDEX:
 		faiss_folder = "flatip"
@@ -118,282 +84,161 @@ def get_faiss_index_path(output_path:str, chunking_args: ChunkingArgs, index_arg
 	elif index_args.index_type == FAISS_HNSW_INDEX:
 		faiss_folder = f"hnsw_{index_args.hnsw_m}_{index_args.hnsw_ef_construction}"
 	else:
-		raise ValueError(f"index_type ({index_args.index_type}) is not supported")
+		raise ValueError(f"index_type ({index_args.index_type}) is not a FAISS index type.")
 
-	return (
-		f"{output_path}/indexes/faiss/{framework_folder}{chunking_args.chunk_type}/{chunking_args.model_name}/"
-		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
-		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}/"
-		f"{faiss_folder}/"
+	return os.path.join(
+		output_path, "indexes", index_args.index_type, chunking_args.chunk_type, chunking_args.model_name,
+		settings_folder, faiss_folder
 	)
 
-def get_bm25_index_path(output_path:str, chunking_args: ChunkingArgs, index_args: IndexArgs) -> str:
-	"""
-	Input: output_path, the dataset's output folder; chunking_args, the
-	chunking parameters; index_args, the indexing parameters.
-	Output: the BM25 index folder path as a string, ending with "/".
-	What it does: builds the folder that holds one BM25 index build:
-	{output_path}/indexes/bm25/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/{k1}_{b}_{tokenizer}/
-	so changing a BM25 parameter never reuses an old index. A {framework}/
-	folder is added after bm25/ when a framework such as langchain is used.
-	"""
 
-	if chunking_args.framework == NO_FRAMEWORK:
-		framework_folder = ""
-	else:
-		framework_folder = f"{chunking_args.framework}/"
-
-	return (
-		f"{output_path}/indexes/bm25/{framework_folder}{chunking_args.chunk_type}/{chunking_args.model_name}/"
+def get_bm25_index_path(output_path: str, index_args: IndexArgs) -> str:
+	"""
+	Input: output_path, the dataset's output folder; index_args.
+	Output: {output_path}/indexes/bm25/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/{k1}_{b}_{tokenizer}
+	What it does: builds the folder that holds one BM25 index.
+	"""
+	chunking_args = index_args.chunking_args
+	settings_folder = (
 		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
-		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}/"
-		f"{index_args.bm25_k1}_{index_args.bm25_b}_{index_args.bm25_tokenizer}/"
+		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
+	)
+	bm25_folder = f"{index_args.bm25_k1}_{index_args.bm25_b}_{index_args.bm25_tokenizer}"
+
+	return os.path.join(
+		output_path, "indexes", "bm25", chunking_args.chunk_type, chunking_args.model_name,
+		settings_folder, bm25_folder
 	)
 
-def get_qdrant_collection_name(output_path:str, chunking_args: ChunkingArgs) -> str:
+
+# ------ Vector DB
+def get_qdrant_collection_name(output_path: str, vectordb_args: VectorDbArgs) -> str:
 	"""
-	Input: output_path, the dataset's output folder; chunking_args, the
-	chunking parameters.
-	Output: the Qdrant collection name as a string.
-	What it does: builds the name of the collection on the Qdrant server
-	that holds one Qdrant index build:
-	{dataset_name}_{chunk_type}_{model_name}_{min}_{max}_{overlap}_{threshold}
-	where dataset_name is the last folder of output_path. A {framework}_
-	part is added after the dataset name when a framework such as
-	langchain is used. Any "/" in model_name is replaced with "-", because
-	Qdrant does not allow "/" in collection names.
+	Input: output_path, the dataset's output folder ({root}/{dataset_name}); vectordb_args.
+	Output: {root folder name}_{dataset_name}_{chunk_type}_{model_name}_{min}_{max}_{overlap}_{threshold}
+	What it does: builds the Qdrant collection name. The root folder name keeps a temp/ run and an outputs/ run of the
+	same dataset in separate collections. Any "/" is replaced with "-", as Qdrant does not allow it.
 	"""
+	chunking_args = vectordb_args.chunking_args
+	normalized_output_path = os.path.normpath(output_path)
+	dataset_name = os.path.basename(normalized_output_path)
+	root_folder_name = os.path.basename(os.path.dirname(normalized_output_path))
 
-	if chunking_args.framework == NO_FRAMEWORK:
-		framework_part = ""
-	else:
-		framework_part = f"{chunking_args.framework}_"
+	collection_name = (
+		f"{root_folder_name}_{dataset_name}_{chunking_args.chunk_type}_{chunking_args.model_name}_"
+		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
+		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
+	)
+	return collection_name.replace("/", "-")
 
-	dataset_name = os.path.basename(output_path.rstrip("/"))
-	model_name = chunking_args.model_name.replace("/", "-")
 
-	return (
-		f"{dataset_name}_{framework_part}{chunking_args.chunk_type}_{model_name}_"
+# ------ Build manifest
+def get_build_manifest_path(output_path: str) -> str:
+	"""
+	Input: output_path, the dataset's output folder.
+	Output: {output_path}/build/manifest.json
+	What it does: builds the file the build saves its manifest to.
+	"""
+	return os.path.join(output_path, "build", "manifest.json")
+
+
+# ------ Setup ranking
+def get_best_setups_path(output_path: str) -> str:
+	"""
+	Input: output_path, the dataset's output folder.
+	Output: {output_path}/best_setups/best_setups.json
+	What it does: builds the file the benchmark saves its best setups to.
+	"""
+	return os.path.join(output_path, "best_setups", "best_setups.json")
+
+
+# ------ Eval dataset
+def get_eval_dataset_path(output_path: str, eval_dataset_args: EvalDatasetArgs) -> str:
+	"""
+	Input: output_path, the dataset's output folder; eval_dataset_args.
+	Output: {output_path}/eval_dataset/eval_dataset_{n_sample_documents}_{n_sample_evals}_{eval_dataset_llm_model}_{eval_dataset_embedding_model}.json
+	What it does: builds the eval dataset file path. Any "/" or ":" in a model name is replaced with "-".
+	"""
+	eval_dataset_llm_model = eval_dataset_args.eval_dataset_llm_args.llm_model.replace("/", "-").replace(":", "-")
+	eval_dataset_embedding_model = eval_dataset_args.eval_dataset_embedding_model.replace("/", "-").replace(":", "-")
+	file_name = (
+		f"eval_dataset_{eval_dataset_args.n_sample_documents}_{eval_dataset_args.n_sample_evals}_"
+		f"{eval_dataset_llm_model}_{eval_dataset_embedding_model}.json"
+	)
+	return os.path.join(output_path, "eval_dataset", file_name)
+
+
+def get_eval_dataset_kg_path(output_path: str, eval_dataset_args: EvalDatasetArgs) -> str:
+	"""
+	Input: output_path, the dataset's output folder; eval_dataset_args.
+	Output: {output_path}/eval_dataset/kg_{n_sample_documents}_{eval_dataset_kg_llm_model}_{eval_dataset_embedding_model}.json
+	What it does: builds the RAGAS knowledge graph file path. Any "/" or ":" in a model name is replaced with "-".
+	"""
+	eval_dataset_kg_llm_model = eval_dataset_args.eval_dataset_kg_llm_args.llm_model.replace("/", "-").replace(":", "-")
+	eval_dataset_embedding_model = eval_dataset_args.eval_dataset_embedding_model.replace("/", "-").replace(":", "-")
+	file_name = f"kg_{eval_dataset_args.n_sample_documents}_{eval_dataset_kg_llm_model}_{eval_dataset_embedding_model}.json"
+	return os.path.join(output_path, "eval_dataset", file_name)
+
+
+# ------ Query transformation
+def get_query_path(output_path: str, eval_dataset_args: EvalDatasetArgs, query_args: QueryArgs) -> str:
+	"""
+	Input: output_path, the dataset's output folder; eval_dataset_args, the settings of the eval dataset the queries are made from;
+	query_args.
+	Output: {output_path}/queries/{n_sample_documents}_{n_sample_evals}_{eval_dataset_llm_model}_{eval_dataset_embedding_model}_
+	{embedding_model}_{query_llm_model}_{n_multi_qus}
+	What it does: builds the folder that holds one query run. Any "/" or ":" in a model name is replaced with "-".
+	"""
+	eval_dataset_llm_model = eval_dataset_args.eval_dataset_llm_args.llm_model.replace("/", "-").replace(":", "-")
+	eval_dataset_embedding_model = eval_dataset_args.eval_dataset_embedding_model.replace("/", "-").replace(":", "-")
+	embedding_model = query_args.embedding_model.replace("/", "-").replace(":", "-")
+	query_llm_model = query_args.query_llm_args.llm_model.replace("/", "-").replace(":", "-")
+	folder_name = (
+		f"{eval_dataset_args.n_sample_documents}_{eval_dataset_args.n_sample_evals}_{eval_dataset_llm_model}_{eval_dataset_embedding_model}_"
+		f"{embedding_model}_{query_llm_model}_{query_args.n_multi_qus}"
+	)
+	return os.path.join(output_path, "queries", folder_name)
+
+
+# ------ Retrieval
+def get_retrieved_path(output_path: str, retrieval_args: RetrievalArgs, query_args: QueryArgs, val_queries_count: int, index_type: str) -> str:
+	"""
+	Input: output_path, the dataset's output folder; retrieval_args; query_args, for the query types;
+	val_queries_count, the number of val queries searched; index_type, one index type, or a dense and the
+	BM25 index type joined with "+" for hybrid, e.g. faiss_flatip+bm25.
+	Output: {output_path}/retrieved/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/{index_folder}/
+	val_{val_queries_count}/{query_types joined by "_"}
+	where index_folder is flatip, ivf_{nlist}, hnsw_{m}_{ef_construction}, bm25_{k1}_{b}_{tokenizer} or qdrant,
+	joined with "+" for hybrid.
+	What it does: builds the folder that holds the retrieved results of one index or hybrid pair.
+	"""
+	index_args = retrieval_args.index_args
+	chunking_args = index_args.chunking_args
+	settings_folder = (
 		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
 		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
 	)
 
-# ------ Eval QnA
-def get_eval_qna_path(output_path:str, eval_qna_args: EvalQnAArgs, qna_llm_model: str) -> str:
-	"""
-	Input: output_path, the dataset's output folder; eval_qna_args, the eval QnA settings; qna_llm_model, the model
-	that writes the questions and answers.
-	Output: the eval QnA cache file path as a string.
-	What it does: builds {output_path}/eval_qna_{n_sample_documents}_{n_sample_evals}_{qna_llm_model}_{eval_qna_model}.json,
-	with any "/" or ":" in the model names replaced by "-". A {framework}_ part is added after eval_qna_ when a
-	framework such as langchain is used, so its eval QnA never mixes with the built-in one.
-	"""
-	qna_llm_model = qna_llm_model.replace("/", "-").replace(":", "-")
-	eval_qna_model = eval_qna_args.eval_qna_model.replace("/", "-")
+	index_folders = []
+	for one_index_type in index_type.split("+"):
+		if one_index_type == FAISS_FLATIP_INDEX:
+			index_folders.append("flatip")
+		elif one_index_type == FAISS_IVF_INDEX:
+			index_folders.append(f"ivf_{index_args.ivf_nlist}")
+		elif one_index_type == FAISS_HNSW_INDEX:
+			index_folders.append(f"hnsw_{index_args.hnsw_m}_{index_args.hnsw_ef_construction}")
+		elif one_index_type == BM25_INDEX:
+			index_folders.append(f"bm25_{index_args.bm25_k1}_{index_args.bm25_b}_{index_args.bm25_tokenizer}")
+		elif one_index_type == QDRANT_INDEX:
+			index_folders.append("qdrant")
+		else:
+			raise ValueError(f"index_type ({one_index_type}) is not a supported index type.")
+	index_folder = "+".join(index_folders)
 
-	if eval_qna_args.framework == NO_FRAMEWORK:
-		framework_part = ""
-	else:
-		framework_part = f"{eval_qna_args.framework}_"
+	split_folder = f"val_{val_queries_count}"
+	query_types_folder = "_".join(query_args.query_types)
 
-	return (
-		f"{output_path}/eval_qna_{framework_part}{eval_qna_args.n_sample_documents}_"
-		f"{eval_qna_args.n_sample_evals}_{qna_llm_model}_{eval_qna_model}.json"
+	return os.path.join(
+		output_path, "retrieved", chunking_args.chunk_type, chunking_args.model_name, settings_folder,
+		index_folder, split_folder, query_types_folder
 	)
-
-def get_eval_kg_path(output_path:str, eval_qna_args: EvalQnAArgs, qna_kg_llm_model: str) -> str:
-	"""
-	Input: output_path, the dataset's output folder; eval_qna_args, the eval QnA settings; qna_kg_llm_model, the model
-	that builds the knowledge graph.
-	Output: the RAGAS knowledge graph cache file path as a string.
-	What it does: builds {output_path}/eval_kg_{n_sample_documents}_{qna_kg_llm_model}_{eval_qna_model}.json,
-	with any "/" or ":" in the model names replaced by "-". A {framework}_ part is added after eval_kg_ when a
-	framework such as langchain is used.
-	"""
-	qna_kg_llm_model = qna_kg_llm_model.replace("/", "-").replace(":", "-")
-	eval_qna_model = eval_qna_args.eval_qna_model.replace("/", "-")
-
-	if eval_qna_args.framework == NO_FRAMEWORK:
-		framework_part = ""
-	else:
-		framework_part = f"{eval_qna_args.framework}_"
-
-	return (
-		f"{output_path}/eval_kg_{framework_part}{eval_qna_args.n_sample_documents}_"
-		f"{qna_kg_llm_model}_{eval_qna_model}.json"
-	)
-
-# ------ Query
-def get_query_path(output_path:str, eval_qna_args: EvalQnAArgs, qna_llm_model: str, query_args: QueryArgs, query_llm_model: str) -> str:
-	"""
-	Input: output_path, the dataset's output folder; eval_qna_args, the settings of the eval set the queries are made from;
-	qna_llm_model, the model that wrote the eval questions; query_args, the query settings; query_llm_model, the model
-	that transforms the questions.
-	Output: the query cache folder path as a string.
-	What it does: builds {output_path}/queries/{n_sample_documents}_{n_sample_evals}_{qna_llm_model}_{eval_qna_model}_
-	{embedding_model}_{query_llm_model}_{n_multi_qus}, with any "/" or ":" in the model names replaced by "-". A
-	{framework}/ folder is added after queries/ when a framework such as langchain is used.
-	"""
-	qna_llm_model = qna_llm_model.replace("/", "-").replace(":", "-")
-	eval_qna_model = eval_qna_args.eval_qna_model.replace("/", "-")
-	embedding_model = query_args.embedding_model.replace("/", "-")
-	query_llm_model = query_llm_model.replace("/", "-").replace(":", "-")
-
-	if eval_qna_args.framework == NO_FRAMEWORK:
-		framework_folder = ""
-	else:
-		framework_folder = f"{eval_qna_args.framework}/"
-
-	return (
-		f"{output_path}/queries/{framework_folder}{eval_qna_args.n_sample_documents}_{eval_qna_args.n_sample_evals}_"
-		f"{qna_llm_model}_{eval_qna_model}_{embedding_model}_"
-		f"{query_llm_model}_{query_args.n_multi_qus}"
-	)
-
-# ------ Retrieval
-def get_retrieved_index_folder(index_args: IndexArgs) -> str:
-	"""
-	Input: index_args, the indexing parameters of one index.
-	Output: the index's folder name in the retrieved folder.
-	What it does: names the index by its type and parameters: "flatip", "ivf_{nlist}", "hnsw_{m}_{ef_construction}",
-	"bm25_{k1}_{b}_{tokenizer}" or "qdrant", so changing an index parameter never reuses old outputs.
-	"""
-	if index_args.index_type == FAISS_FLATIP_INDEX:
-		return "flatip"
-	if index_args.index_type == FAISS_IVF_INDEX:
-		return f"ivf_{index_args.ivf_nlist}"
-	if index_args.index_type == FAISS_HNSW_INDEX:
-		return f"hnsw_{index_args.hnsw_m}_{index_args.hnsw_ef_construction}"
-	if index_args.index_type == BM25_INDEX:
-		return f"bm25_{index_args.bm25_k1}_{index_args.bm25_b}_{index_args.bm25_tokenizer}"
-	if index_args.index_type == QDRANT_INDEX:
-		return "qdrant"
-	raise ValueError(f"index_type ({index_args.index_type}) is not supported")
-
-def get_retrieved_path(output_path:str, chunking_args: ChunkingArgs, index_args: IndexArgs, query_split: str, tuning_queries_size: int, query_types: list[str]) -> str:
-	"""
-	Input: output_path, the dataset's output folder; chunking_args and index_args, the chunks and index searched;
-	query_split, tuning or held_out; tuning_queries_size, the number of tuning queries; query_types, the query types
-	searched with.
-	Output: the retrieved folder path of one index, as a string ending with "/".
-	What it does: builds {output_path}/retrieved/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/
-	{index_folder}/{query_split}_{tuning_queries_size}/{query_types joined by "_"}/, with a {framework}/ folder after
-	retrieved/ when a framework such as langchain is used.
-	"""
-	if chunking_args.framework == NO_FRAMEWORK:
-		framework_folder = ""
-	else:
-		framework_folder = f"{chunking_args.framework}/"
-
-	index_folder = get_retrieved_index_folder(index_args)
-	query_types_folder = "_".join(query_types)
-
-	return (
-		f"{output_path}/retrieved/{framework_folder}{chunking_args.chunk_type}/{chunking_args.model_name}/"
-		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
-		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}/"
-		f"{index_folder}/{query_split}_{tuning_queries_size}/{query_types_folder}/"
-	)
-
-def get_hybrid_retrieved_path(output_path:str, chunking_args: ChunkingArgs, dense_index_args: IndexArgs, bm25_index_args: IndexArgs, query_split: str, tuning_queries_size: int, query_types: list[str]) -> str:
-	"""
-	Input: output_path, the dataset's output folder; chunking_args, the chunks searched; dense_index_args and
-	bm25_index_args, the two indexes fused; query_split, tuning or held_out; tuning_queries_size, the number of tuning
-	queries; query_types, the query types searched with.
-	Output: the retrieved folder path of one hybrid pair, as a string ending with "/".
-	What it does: the same as get_retrieved_path, with both index folders joined by "+" as the index folder,
-	e.g. flatip+bm25_1.5_0.75_whitespace.
-	"""
-	if chunking_args.framework == NO_FRAMEWORK:
-		framework_folder = ""
-	else:
-		framework_folder = f"{chunking_args.framework}/"
-
-	dense_index_folder = get_retrieved_index_folder(dense_index_args)
-	bm25_index_folder = get_retrieved_index_folder(bm25_index_args)
-	query_types_folder = "_".join(query_types)
-
-	return (
-		f"{output_path}/retrieved/{framework_folder}{chunking_args.chunk_type}/{chunking_args.model_name}/"
-		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
-		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}/"
-		f"{dense_index_folder}+{bm25_index_folder}/{query_split}_{tuning_queries_size}/{query_types_folder}/"
-	)
-
-# ------ Generation
-def get_generated_path(output_path:str, framework: str, generation_llm_model: str) -> str:
-	"""
-	Input: output_path, the dataset's output folder; framework, "" for the built-in path or a framework such as
-	langchain; generation_llm_model, the model that answers the prompts.
-	Output: the generation cache file path as a string.
-	What it does: builds {output_path}/generated/{generation_llm_model}/generated.json, with any "/" or ":" in the
-	model name replaced by "-". A {framework}/ folder is added after generated/ when a framework is used.
-	"""
-	generation_llm_model = generation_llm_model.replace("/", "-").replace(":", "-")
-
-	if framework == NO_FRAMEWORK:
-		framework_folder = ""
-	else:
-		framework_folder = f"{framework}/"
-
-	return f"{output_path}/generated/{framework_folder}{generation_llm_model}/generated.json"
-
-def get_generated_batch_id_path(output_path:str, framework: str, generation_llm_model: str) -> str:
-	"""
-	Input: output_path, the dataset's output folder; framework, "" for the built-in path or a framework such as
-	langchain; generation_llm_model, the model that answers the prompts.
-	Output: the batch id file path as a string.
-	What it does: builds {output_path}/generated/{generation_llm_model}/batch_id.txt, next to generated.json, with any
-	"/" or ":" in the model name replaced by "-". A {framework}/ folder is added after generated/ when a framework
-	is used.
-	"""
-	generation_llm_model = generation_llm_model.replace("/", "-").replace(":", "-")
-
-	if framework == NO_FRAMEWORK:
-		framework_folder = ""
-	else:
-		framework_folder = f"{framework}/"
-
-	return f"{output_path}/generated/{framework_folder}{generation_llm_model}/batch_id.txt"
-
-def get_answer_evaluation_path(output_path:str, framework: str, ans_eval_framework: str, ans_eval_llm_model: str) -> str:
-	"""
-	Input: output_path, the dataset's output folder; framework, "" for the built-in path or a framework such as
-	langchain; ans_eval_framework, the answer evaluation framework; ans_eval_llm_model, the model that judges the answers.
-	Output: the answer evaluation cache file path as a string.
-	What it does: builds {output_path}/answer_evaluation/{ans_eval_framework}/{ans_eval_llm_model}/answer_evaluation.json,
-	with any "/" or ":" in the model name replaced by "-". A {framework}/ folder is added after answer_evaluation/ when
-	a framework is used.
-	"""
-	ans_eval_llm_model = ans_eval_llm_model.replace("/", "-").replace(":", "-")
-
-	if framework == NO_FRAMEWORK:
-		framework_folder = ""
-	else:
-		framework_folder = f"{framework}/"
-
-	return f"{output_path}/answer_evaluation/{framework_folder}{ans_eval_framework}/{ans_eval_llm_model}/answer_evaluation.json"
-
-def get_eval_results_path(output_path:str, settings_hash: str) -> str:
-	"""
-	Input: output_path, the dataset's output folder; settings_hash, the sha256 of the eval run's settings.
-	Output: the eval results file path, as a string.
-	What it does: builds {output_path}/eval_results/{settings_hash}.json.
-	"""
-	return f"{output_path}/eval_results/{settings_hash}.json"
-
-def get_analysis_runs_path(output_path:str, framework: str) -> str:
-	"""
-	Input: output_path, the dataset's output folder; framework, "" for the built-in path or a framework such as
-	langchain.
-	Output: the folder holding one subfolder per analysed run, as a string.
-	What it does: builds {output_path}/analysis/runs, with a {framework}/ folder after analysis/ when a framework is
-	used, so each framework's report compares only its own runs.
-	"""
-
-	if framework == NO_FRAMEWORK:
-		framework_folder = ""
-	else:
-		framework_folder = f"{framework}/"
-
-	return f"{output_path}/analysis/{framework_folder}runs"

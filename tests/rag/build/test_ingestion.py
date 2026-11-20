@@ -12,7 +12,7 @@ import os
 import pytest
 from langchain_core.documents import Document as LangchainDocument
 
-from common.args_temp import IngestionArgs
+from common.args import IngestionArgs
 from rag.build import ingestion as ingestion_module
 from rag.build.ingestion import convert_langchain_document
 from rag.build.ingestion import ingestion

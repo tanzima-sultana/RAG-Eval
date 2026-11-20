@@ -10,8 +10,8 @@ import os
 import numpy as np
 import pytest
 
-from common import paths_temp
-from common.args_temp import EmbeddingArgs
+from common import paths
+from common.args import EmbeddingArgs
 from rag.build import embedding as embedding_module
 from rag.build.embedding import Embedding
 from rag.build.embedding import load_embeddings
@@ -87,7 +87,7 @@ def test_compute_embeddings_embeds_every_chunk_and_saves_one_file_per_document(p
     assert embeddings["d1_1"].embeddings[0] == 3.0
     assert embeddings["d2_0"].embeddings[0] == 2.0
     assert embeddings["d1_0"].normalized is True
-    embedding_path = paths_temp.get_embedding_path(str(tmp_path), embedding_args)
+    embedding_path = paths.get_embedding_path(str(tmp_path), embedding_args)
     assert sorted(os.listdir(embedding_path)) == ["d1.npz", "d2.npz"]
 
 

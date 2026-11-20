@@ -3,7 +3,7 @@ import litellm
 from langchain_litellm import ChatLiteLLM
 from langchain_core.callbacks import BaseCallbackHandler
 
-from common.args_temp import OllamaArgs
+from common.args import OllamaArgs
 from llm_provider.validate import validate_llm
 from schema.llm import LLMArgs
 from schema.llm import LLMCost

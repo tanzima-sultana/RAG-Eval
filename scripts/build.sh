@@ -1,8 +1,8 @@
-# Builds the RAG indexes with the settings in the build part of config.yaml.
+# Builds the indexes: ingestion, chunking, embedding, indexing and vector DB. Saved parts are loaded, not rebuilt.
 #
 # Usage:
-#   bash scripts/build.sh                      # the build settings in config.yaml
-#   bash scripts/build.sh --dataset_size 20    # any setting can be overridden for one run
+#   bash scripts/build.sh                         # the settings in build_config.yaml
+#   bash scripts/build.sh --dataset_size 20       # any setting can be overridden for one run
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
@@ -17,4 +17,4 @@ fi
 mkdir -p log
 LOG="log/log.txt"
 
-python3 src/build.py --config config.yaml "$@" 2>&1 | tee "$LOG"
+python3 src/run_build.py --config build_config.yaml "$@" 2>&1 | tee "$LOG"

@@ -14,8 +14,8 @@ from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 
 from common import constants
-from common import paths_temp
-from common.args_temp import IndexArgs
+from common import paths
+from common.args import IndexArgs
 from schema.chunk import Chunk
 from schema.embed import Embedded
 from schema.index import FaissIndex
@@ -177,7 +177,7 @@ class Indexing:
 			retriever = load_bm25_index(index_folder, chunk_ids)
 			if retriever is None:
 				raise FileNotFoundError(
-					f"No saved BM25 index holding these chunks in {index_folder}. Run scripts/build_temp.sh first."
+					f"No saved BM25 index holding these chunks in {index_folder}. Run scripts/build.sh first."
 				)
 			print(f"BM25 index loaded from cache : {len(chunk_ids)} chunks")
 			return Bm25Index(retriever=retriever, index_path=os.path.join(index_folder, "bm25_retriever.pkl"))
@@ -185,7 +185,7 @@ class Indexing:
 		vector_store = load_faiss_index(index_folder, chunk_ids, self.embedding_model)
 		if vector_store is None:
 			raise FileNotFoundError(
-				f"No saved {index_type} index holding these chunks in {index_folder}. Run scripts/build_temp.sh first."
+				f"No saved {index_type} index holding these chunks in {index_folder}. Run scripts/build.sh first."
 			)
 		print(f"{index_type} index loaded from cache : {vector_store.index.ntotal} vectors")
 		return FaissIndex(
@@ -233,7 +233,7 @@ class Indexing:
 		dimension = vectors.shape[1]
 
 		# 2. Load the saved index if it holds exactly the same chunks
-		faiss_index_path = paths_temp.get_faiss_index_path(output_path, self.index_args)
+		faiss_index_path = paths.get_faiss_index_path(output_path, self.index_args)
 		print(f"Index folder : {faiss_index_path}")
 		vector_store = load_faiss_index(faiss_index_path, chunk_ids, self.embedding_model)
 		if vector_store is not None:
@@ -281,7 +281,7 @@ class Indexing:
 		dimension = vectors.shape[1]
 
 		# 2. Load the saved index if it holds exactly the same chunks
-		faiss_index_path = paths_temp.get_faiss_index_path(output_path, self.index_args)
+		faiss_index_path = paths.get_faiss_index_path(output_path, self.index_args)
 		print(f"Index folder : {faiss_index_path}")
 		vector_store = load_faiss_index(faiss_index_path, chunk_ids, self.embedding_model)
 		if vector_store is not None:
@@ -325,7 +325,7 @@ class Indexing:
 		dimension = vectors.shape[1]
 
 		# 2. Load the saved index if it holds exactly the same chunks
-		faiss_index_path = paths_temp.get_faiss_index_path(output_path, self.index_args)
+		faiss_index_path = paths.get_faiss_index_path(output_path, self.index_args)
 		print(f"Index folder : {faiss_index_path}")
 		vector_store = load_faiss_index(faiss_index_path, chunk_ids, self.embedding_model)
 		if vector_store is not None:
@@ -394,7 +394,7 @@ class Indexing:
 			chunk_metadatas.append({"chunk_id": chunk_id})
 
 		# 2. Load the saved retriever if it holds exactly the same chunks
-		bm25_index_path = paths_temp.get_bm25_index_path(output_path, self.index_args)
+		bm25_index_path = paths.get_bm25_index_path(output_path, self.index_args)
 		print(f"Index folder : {bm25_index_path}")
 		retriever = load_bm25_index(bm25_index_path, chunk_ids)
 		if retriever is not None:

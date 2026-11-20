@@ -9,7 +9,7 @@ import os
 
 import pytest
 
-from common import paths_temp
+from common import paths
 from rag.build import indexing as indexing_module
 from rag.build.indexing import Indexing
 from rag.build.indexing import lowercase_whitespace_tokenize
@@ -101,7 +101,7 @@ def test_faiss_index_builds_and_saves(patched_embeddings, make_index_args, make_
     assert document.page_content == chunks["doc0_2"].text
     assert document.metadata["chunk_id"] == "doc0_2"
 
-    faiss_index_path = paths_temp.get_faiss_index_path(str(tmp_path), index_args)
+    faiss_index_path = paths.get_faiss_index_path(str(tmp_path), index_args)
     assert faiss_index.index_path == faiss_index_path
     assert os.path.exists(os.path.join(faiss_index_path, "index.faiss"))
     assert os.path.exists(os.path.join(faiss_index_path, "index.pkl"))
@@ -203,7 +203,7 @@ def test_bm25_index_builds_and_saves(patched_embeddings, make_index_args, make_c
     assert len(bm25_index.retriever.docs) == 10
     assert bm25_index.retriever.vectorizer.k1 == 1.2
     assert bm25_index.retriever.vectorizer.b == 0.5
-    bm25_index_path = paths_temp.get_bm25_index_path(str(tmp_path), index_args)
+    bm25_index_path = paths.get_bm25_index_path(str(tmp_path), index_args)
     assert bm25_index.index_path == os.path.join(bm25_index_path, "bm25_retriever.pkl")
     assert os.path.exists(bm25_index.index_path)
 

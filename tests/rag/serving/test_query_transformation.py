@@ -12,10 +12,10 @@ import types
 import numpy as np
 import pytest
 
-from common import paths_temp
-from common.args_temp import OllamaArgs
-from common.args_temp import EvalDatasetArgs
-from common.args_temp import QueryArgs
+from common import paths
+from common.args import OllamaArgs
+from common.args import EvalDatasetArgs
+from common.args import QueryArgs
 from common.constants import I_DONT_KNOW
 from common.constants import HYDE_QUERY
 from common.constants import MULTI_QUERY
@@ -302,7 +302,7 @@ def test_compute_queries_returns_saved_queries_without_building_an_llm(fake_quer
     query_args = make_query_args()
     eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
-    query_path = paths_temp.get_query_path(output_path, eval_dataset_args, query_args)
+    query_path = paths.get_query_path(output_path, eval_dataset_args, query_args)
     save_queries(query_path, [make_query("eval_qna_0", 3)])
     queries_bytes = read_file_bytes(os.path.join(query_path, "queries.json"))
     embeddings_bytes = read_file_bytes(os.path.join(query_path, "embeddings.npz"))
@@ -328,7 +328,7 @@ def test_compute_queries_returns_only_the_requested_query_types(fake_query_llm, 
     query_args = make_query_args(query_types=[ORIGINAL_QUERY, MULTI_QUERY])
     eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
-    query_path = paths_temp.get_query_path(output_path, eval_dataset_args, query_args)
+    query_path = paths.get_query_path(output_path, eval_dataset_args, query_args)
     save_queries(query_path, [make_query("eval_qna_0", 3)])
 
     queries = QueryTransformation(query_args, make_ollama_args()).compute_queries(
@@ -360,7 +360,7 @@ def test_compute_queries_generates_and_saves_when_none_are_saved(fake_query_llm,
 
     assert fake_query_llm.built_models == ["ollama_chat/llama3.1:8b"]
     assert fake_query_llm.reply_types == ["rewrite", "multi", "hyde"]
-    saved_queries = load_queries(paths_temp.get_query_path(output_path, eval_dataset_args, query_args))
+    saved_queries = load_queries(paths.get_query_path(output_path, eval_dataset_args, query_args))
     assert saved_queries[0].original_qus.qus == "What is X?"
     assert saved_queries[0].rewritten_qus.qus == queries[0].rewritten_qus.qus
     assert len(saved_queries[0].multi_qus) == 3
@@ -377,7 +377,7 @@ def test_compute_queries_generates_only_the_missing_query_types(fake_query_llm, 
     query_args = make_query_args()
     eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
-    query_path = paths_temp.get_query_path(output_path, eval_dataset_args, query_args)
+    query_path = paths.get_query_path(output_path, eval_dataset_args, query_args)
     save_queries(query_path, [make_query("eval_qna_0", 0, [ORIGINAL_QUERY, REWRITTEN_QUERY])])
 
     queries = QueryTransformation(query_args, make_ollama_args()).compute_queries(
@@ -410,7 +410,7 @@ def test_compute_queries_builds_no_llm_when_only_original_is_missing(fake_query_
     assert fake_query_llm.built_models == []
     assert queries[0].original_qus.qus == "What is X?"
     assert queries[0].rewritten_qus is None
-    assert load_queries(paths_temp.get_query_path(output_path, eval_dataset_args, query_args))[0].multi_qus is None
+    assert load_queries(paths.get_query_path(output_path, eval_dataset_args, query_args))[0].multi_qus is None
 
 
 def test_compute_queries_raises_when_saved_queries_are_not_in_eval_dataset_order(fake_query_llm, tmp_path):
@@ -422,7 +422,7 @@ def test_compute_queries_raises_when_saved_queries_are_not_in_eval_dataset_order
     query_args = make_query_args()
     eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
-    save_queries(paths_temp.get_query_path(output_path, eval_dataset_args, query_args), [make_query("eval_qna_9", 3)])
+    save_queries(paths.get_query_path(output_path, eval_dataset_args, query_args), [make_query("eval_qna_9", 3)])
 
     with pytest.raises(ValueError, match="not in the eval dataset order"):
         QueryTransformation(query_args, make_ollama_args()).compute_queries(
