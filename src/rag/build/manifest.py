@@ -1,7 +1,10 @@
+import argparse
 import dataclasses
 import datetime
 import json
 import os
+
+from qdrant_client import QdrantClient
 
 from common import constants
 from common import paths
@@ -35,14 +38,18 @@ def get_index_settings(index_args: IndexArgs) -> dict:
 	return index_settings
 
 
-def start_build_manifest(ingestion_args: IngestionArgs, embedding_model: str) -> BuildManifest:
+def start_build_manifest(ingestion_args: IngestionArgs, embedding_model: str, parsed_args: argparse.Namespace, input_hash: str) -> BuildManifest:
 	"""
-	Input: ingestion_args; embedding_model, the chunking model name.
+	Input: ingestion_args; embedding_model, the chunking model name; parsed_args, the parsed build args; input_hash,
+	the hash of the input files.
 	Output: a BuildManifest with no entries yet.
-	What it does: fills in the dataset and the documents folder. The build adds an entry per output as it goes.
+	What it does: fills in the build hash, the input hash, the dataset and the documents folder. The build adds an
+	entry per output as it goes.
 	"""
 	output_path = paths.get_output_path(ingestion_args.output_path, ingestion_args.dataset_name)
 	return BuildManifest(
+		build_hash=paths.get_build_hash(parsed_args, input_hash),
+		input_hash=input_hash,
 		dataset_name=ingestion_args.dataset_name,
 		dataset_size=ingestion_args.dataset_size,
 		documents_path=paths.get_documents_path(output_path),
@@ -107,15 +114,17 @@ def make_vectordb_entry(vectordb_args: VectorDbArgs, collection_name: str, count
 	)
 
 
-def save_build_manifest(manifest: BuildManifest, output_path: str) -> None:
+def save_build_manifest(manifest: BuildManifest, output_path: str, parsed_args: argparse.Namespace, input_hash: str) -> None:
 	"""
-	Input: manifest; output_path, the dataset's output folder.
+	Input: manifest; output_path, the dataset's output folder; parsed_args, the parsed build args; input_hash, the
+	hash of the input files.
 	Output: nothing.
-	What it does: stamps the build time and saves the manifest as JSON through a temporary file.
+	What it does: stamps the build time and saves the manifest as JSON through a temporary file, to
+	build/manifest_{build hash}.json.
 	"""
 	manifest.built_at = datetime.datetime.now().isoformat(timespec="seconds")
 
-	manifest_file = paths.get_build_manifest_path(output_path)
+	manifest_file = paths.get_build_manifest_path(output_path, parsed_args, input_hash)
 	os.makedirs(os.path.dirname(manifest_file), exist_ok=True)
 	with open(manifest_file + ".tmp", "w", encoding="utf-8") as f:
 		json.dump(dataclasses.asdict(manifest), f, indent=2)
@@ -123,13 +132,14 @@ def save_build_manifest(manifest: BuildManifest, output_path: str) -> None:
 	print(f"Build manifest saved : {manifest_file}")
 
 
-def load_build_manifest(output_path: str) -> BuildManifest:
+def load_build_manifest(output_path: str, parsed_args: argparse.Namespace, input_hash: str) -> BuildManifest:
 	"""
-	Input: output_path, the dataset's output folder.
+	Input: output_path, the dataset's output folder; parsed_args, the parsed build args; input_hash, the hash of the
+	input files.
 	Output: the saved BuildManifest.
-	What it does: reads the manifest JSON, and raises FileNotFoundError if the build has not saved one.
+	What it does: reads build/manifest_{build hash}.json, and raises FileNotFoundError if the build has not saved one.
 	"""
-	manifest_file = paths.get_build_manifest_path(output_path)
+	manifest_file = paths.get_build_manifest_path(output_path, parsed_args, input_hash)
 	if not os.path.exists(manifest_file):
 		raise FileNotFoundError(f"No build manifest at {manifest_file}. Run scripts/build.sh first.")
 
@@ -146,6 +156,65 @@ def load_build_manifest(output_path: str) -> BuildManifest:
 	manifest_dict["chunk_entries"] = chunk_entries
 	manifest_dict["index_entries"] = index_entries
 	return BuildManifest(**manifest_dict)
+
+
+def is_build_complete(output_path: str, parsed_args: argparse.Namespace, input_hash: str) -> bool:
+	"""
+	Input: output_path, the dataset's output folder; parsed_args, the parsed build args; input_hash, the hash of the
+	input files.
+	Output: True if a build with exactly these args and input files finished and every output it lists is still
+	there, else False.
+	What it does: looks for build/manifest_{build hash}.json and checks the documents, every chunk and embedding
+	folder, every FAISS and BM25 folder and, only if the manifest has Qdrant entries, every Qdrant collection. Prints
+	the first missing item. Raises ConnectionError if the Qdrant server is needed and not reachable.
+	"""
+	# 1. The manifest of a build with these args and input files
+	manifest_file = paths.get_build_manifest_path(output_path, parsed_args, input_hash)
+	if not os.path.exists(manifest_file):
+		print(f"No build manifest at {manifest_file}, building")
+		return False
+	manifest = load_build_manifest(output_path, parsed_args, input_hash)
+
+	# 2. The documents
+	doc_ids_file = os.path.join(manifest.documents_path, f"doc_ids_{manifest.input_hash}.json")
+	if not os.path.exists(doc_ids_file):
+		print(f"Missing documents : {doc_ids_file}, building")
+		return False
+
+	# 3. The chunk and embedding folders
+	for chunk_entry in manifest.chunk_entries:
+		if not os.path.isdir(chunk_entry.chunk_path):
+			print(f"Missing chunks : {chunk_entry.chunk_path}, building")
+			return False
+		if not os.path.isdir(chunk_entry.embedding_path):
+			print(f"Missing embeddings : {chunk_entry.embedding_path}, building")
+			return False
+
+	# 4. The FAISS and BM25 folders, and the Qdrant collection names to check next
+	qdrant_collection_names = []
+	for index_entry in manifest.index_entries:
+		if index_entry.index_type == constants.QDRANT_INDEX:
+			qdrant_collection_names.append(index_entry.location)
+			continue
+		if not os.path.isdir(index_entry.location):
+			print(f"Missing {index_entry.index_type} index : {index_entry.location}, building")
+			return False
+
+	# 5. The Qdrant collections, only if the build made any
+	if len(qdrant_collection_names) > 0:
+		qdrant_client = QdrantClient(url=parsed_args.qdrant_url)
+		try:
+			qdrant_client.get_collections()
+		except Exception as error:
+			raise ConnectionError(
+				f"Qdrant server is not reachable at {parsed_args.qdrant_url}. Start it with the qdrant-docker skill."
+			) from error
+		for collection_name in qdrant_collection_names:
+			if not qdrant_client.collection_exists(collection_name):
+				print(f"Missing Qdrant collection : {collection_name}, building")
+				return False
+
+	return True
 
 
 def find_chunk_entry(manifest: BuildManifest, chunking_args: ChunkingArgs) -> ChunkEntry:

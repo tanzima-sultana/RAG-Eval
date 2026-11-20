@@ -58,11 +58,11 @@ def convert_langchain_document(langchain_document: LangchainDocument, document_t
 	return document
 
 
-def save_documents(processed_data_path: str, documents: dict[str, Document], dataset_size: int) -> None:
+def save_documents(processed_data_path: str, documents: dict[str, Document], input_hash: str) -> None:
 	"""
-	Input: processed_data_path; documents; dataset_size.
+	Input: processed_data_path; documents; input_hash, the hash of the input files the documents were read from.
 	Output: nothing.
-	What it does: saves each document to {doc_id}.json, then doc_ids_{dataset_size}.json.
+	What it does: saves each document to {doc_id}.json, then doc_ids_{input_hash}.json.
 	"""
 	os.makedirs(processed_data_path, exist_ok=True)
 
@@ -74,18 +74,18 @@ def save_documents(processed_data_path: str, documents: dict[str, Document], dat
 		doc_ids.append(doc_id)
 
 	# Written last, so it only lists documents whose files are saved
-	doc_ids_file = os.path.join(processed_data_path, f"doc_ids_{dataset_size}.json")
+	doc_ids_file = os.path.join(processed_data_path, f"doc_ids_{input_hash}.json")
 	with open(doc_ids_file, "w", encoding="utf-8") as f:
 		json.dump(doc_ids, f)
 
 
-def load_documents(processed_data_path: str, dataset_size: int) -> dict[str, Document] | None:
+def load_documents(processed_data_path: str, input_hash: str) -> dict[str, Document] | None:
 	"""
-	Input: processed_data_path; dataset_size.
-	Output: a dict of doc_id to Document, or None if this dataset_size is not saved.
-	What it does: loads every document listed in doc_ids_{dataset_size}.json.
+	Input: processed_data_path; input_hash, the hash of the input files.
+	Output: a dict of doc_id to Document, or None if the documents of these input files are not saved.
+	What it does: loads every document listed in doc_ids_{input_hash}.json.
 	"""
-	doc_ids_file = os.path.join(processed_data_path, f"doc_ids_{dataset_size}.json")
+	doc_ids_file = os.path.join(processed_data_path, f"doc_ids_{input_hash}.json")
 	if not os.path.exists(doc_ids_file):
 		return None
 
@@ -143,31 +143,59 @@ def load_saved_documents(documents_path: str, dataset_size: int) -> dict[str, Do
 	return documents
 
 
-def ingestion(ingestion_args: IngestionArgs) -> dict[str, Document]:
+def list_input_files(ingestion_args: IngestionArgs) -> list[str]:
 	"""
 	Input: ingestion_args, the ingestion settings.
+	Output: the file names ingestion reads.
+	What it does: lists the files of document_type in input_path in file name order and keeps the first dataset_size.
+	Fewer is fine.
+	"""
+	document_file_names = []
+	for file_name in sorted(os.listdir(ingestion_args.input_path)):
+		if file_name.endswith("." + ingestion_args.document_type):
+			document_file_names.append(file_name)
+	return document_file_names[:ingestion_args.dataset_size]
+
+
+def compute_input_hash(ingestion_args: IngestionArgs) -> str:
+	"""
+	Input: ingestion_args, the ingestion settings.
+	Output: the first 12 hex characters of the SHA-256 of the input files ingestion reads.
+	What it does: takes the SHA-256 of each file's content, and hashes the file names with their hashes as JSON with
+	sorted keys, so editing, adding or removing any of these files gives a new input hash.
+	"""
+	validate(ingestion_args)
+
+	file_hashes = {}
+	for file_name in list_input_files(ingestion_args):
+		with open(os.path.join(ingestion_args.input_path, file_name), "rb") as f:
+			file_hashes[file_name] = hashlib.sha256(f.read()).hexdigest()
+
+	file_hashes_json = json.dumps(file_hashes, sort_keys=True)
+	return hashlib.sha256(file_hashes_json.encode("utf-8")).hexdigest()[:12]
+
+
+def ingestion(ingestion_args: IngestionArgs, input_hash: str) -> dict[str, Document]:
+	"""
+	Input: ingestion_args, the ingestion settings; input_hash, the hash of the input files from compute_input_hash.
 	Output: a dict of doc_id to Document.
 	What it does: loads the documents from the cache, or loads the files with LangChain and saves them.
 	"""
 	# 1. Validate the settings
 	validate(ingestion_args)
 
-	# 2. Load from the cache if this dataset_size was saved before
+	# 2. Load from the cache if the documents of these input files were saved before
 	output_path = paths.get_output_path(ingestion_args.output_path, ingestion_args.dataset_name)
 	processed_data_path = paths.get_documents_path(output_path)
 	print(f"Processed data folder : {processed_data_path}")
-	cached_documents = load_documents(processed_data_path, ingestion_args.dataset_size)
+	cached_documents = load_documents(processed_data_path, input_hash)
 	if cached_documents is not None:
 		print(f"Documents : {len(cached_documents)} (all from cache)")
 		return cached_documents
 
-	# 3. Up to dataset_size files of document_type in input_path, in file name order. Fewer is fine
+	# 3. The files to read: up to dataset_size files of document_type in input_path, in file name order
 	print(f"Input folder : {ingestion_args.input_path}")
-	document_file_names = []
-	for file_name in sorted(os.listdir(ingestion_args.input_path)):
-		if file_name.endswith("." + ingestion_args.document_type):
-			document_file_names.append(file_name)
-	document_file_names_to_read = document_file_names[:ingestion_args.dataset_size]
+	document_file_names_to_read = list_input_files(ingestion_args)
 
 	# 4. Load each file with LangChain as one Document, in "single" mode, and convert it
 	documents = {}
@@ -199,6 +227,6 @@ def ingestion(ingestion_args: IngestionArgs) -> dict[str, Document]:
 	)
 
 	# 5. Save, so the next run loads them from the cache
-	save_documents(processed_data_path, documents, ingestion_args.dataset_size)
+	save_documents(processed_data_path, documents, input_hash)
 
 	return documents

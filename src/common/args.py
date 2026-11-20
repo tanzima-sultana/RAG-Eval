@@ -85,14 +85,16 @@ class IndexArgs:
 	bm25_k1: float
 	bm25_b: float
 	bm25_tokenizer: str
+	# The hash of the input files the index is built from, so each input set gets its own index
+	input_hash: str
 
 
-def make_index_args(parsed_args: argparse.Namespace, chunking_args: ChunkingArgs, index_type: str) -> IndexArgs:
+def make_index_args(parsed_args: argparse.Namespace, chunking_args: ChunkingArgs, index_type: str, input_hash: str) -> IndexArgs:
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args(); chunking_args, the chunking settings of one
-	chunk type; index_type, one of index_types.
+	chunk type; index_type, one of index_types; input_hash, the hash of the input files.
 	Output: an IndexArgs holding the indexing settings for that index type.
-	What it does: copies chunking_args, index_type and each indexing setting into the matching IndexArgs field.
+	What it does: copies chunking_args, index_type, each indexing setting and input_hash into the matching IndexArgs field.
 	"""
 	index_args = IndexArgs(
 		chunking_args=chunking_args,
@@ -102,7 +104,8 @@ def make_index_args(parsed_args: argparse.Namespace, chunking_args: ChunkingArgs
 		hnsw_ef_construction=parsed_args.hnsw_ef_construction,
 		bm25_k1=parsed_args.bm25_k1,
 		bm25_b=parsed_args.bm25_b,
-		bm25_tokenizer=parsed_args.bm25_tokenizer
+		bm25_tokenizer=parsed_args.bm25_tokenizer,
+		input_hash=input_hash
 	)
 	return index_args
 
@@ -113,20 +116,23 @@ class VectorDbArgs:
 	vectordb_type: str
 	qdrant_url: str
 	qdrant_batch_size: int
+	# The hash of the input files the collection is built from, so each input set gets its own collection
+	input_hash: str
 
 
-def make_vectordb_args(parsed_args: argparse.Namespace, chunking_args: ChunkingArgs, vectordb_type: str) -> VectorDbArgs:
+def make_vectordb_args(parsed_args: argparse.Namespace, chunking_args: ChunkingArgs, vectordb_type: str, input_hash: str) -> VectorDbArgs:
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args(); chunking_args, the chunking settings of one
-	chunk type; vectordb_type, one of vectordb_types.
+	chunk type; vectordb_type, one of vectordb_types; input_hash, the hash of the input files.
 	Output: a VectorDbArgs holding the vector DB settings for that vector DB type.
-	What it does: copies chunking_args, vectordb_type and each vector DB setting into the matching VectorDbArgs field.
+	What it does: copies chunking_args, vectordb_type, each vector DB setting and input_hash into the matching VectorDbArgs field.
 	"""
 	vectordb_args = VectorDbArgs(
 		chunking_args=chunking_args,
 		vectordb_type=vectordb_type,
 		qdrant_url=parsed_args.qdrant_url,
-		qdrant_batch_size=parsed_args.qdrant_batch_size
+		qdrant_batch_size=parsed_args.qdrant_batch_size,
+		input_hash=input_hash
 	)
 	return vectordb_args
 
@@ -643,9 +649,9 @@ def parse_ingestion_args(parser: argparse.ArgumentParser) -> None:
 def parse_args() -> argparse.Namespace:
 	"""
 	Input: none. Reads --config and any override flags from the command line.
-	Output: an argparse.Namespace with one attribute per setting.
-	What it does: reads the config file, turns each setting into its flag and parses them. A top-level key is one
-	setting; a section such as ingestion holds settings. Flags given after --config override the file.
+	Output: an argparse.Namespace with one attribute per build setting.
+	What it does: reads the build config file, turns each setting into its flag and parses the build sections:
+	ingestion, chunking, indexing and vectordb. Flags given after --config override the file.
 	"""
 	# 1. Get the config file path. The other command line flags are overrides
 	config_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
@@ -674,15 +680,11 @@ def parse_args() -> argparse.Namespace:
 			config_arguments.append(str(value))
 
 	# 3. Parse the file's flags and then the overrides, so an override replaces the file's value
-	parser = argparse.ArgumentParser(description="RAG parameters", allow_abbrev=False)
+	parser = argparse.ArgumentParser(description="Build parameters", allow_abbrev=False)
 	parse_ingestion_args(parser)
 	parse_chunking_args(parser)
 	parse_indexing_args(parser)
 	parse_vectordb_args(parser)
-	parse_llm_provider_args(parser)
-	parse_eval_dataset_args(parser)
-	parse_query_args(parser)
-	parse_retrieval_args(parser)
 
 	parsed_args = parser.parse_args(config_arguments + override_arguments)
 	return parsed_args

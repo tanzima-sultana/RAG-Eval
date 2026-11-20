@@ -14,8 +14,10 @@ from langchain_core.documents import Document as LangchainDocument
 
 from common.args import IngestionArgs
 from rag.build import ingestion as ingestion_module
+from rag.build.ingestion import compute_input_hash
 from rag.build.ingestion import convert_langchain_document
 from rag.build.ingestion import ingestion
+from rag.build.ingestion import list_input_files
 from rag.build.ingestion import validate
 
 
@@ -167,7 +169,7 @@ def test_ingestion_reads_only_document_type_files_up_to_dataset_size(tmp_path, f
     input_path = make_input_folder(tmp_path, {"c.pdf": "text c", "a.pdf": "text a", "b.pdf": "text b", "d.txt": "text d"})
     ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=2)
 
-    documents = ingestion(ingestion_args)
+    documents = ingestion(ingestion_args, compute_input_hash(ingestion_args))
 
     loaded_file_names = []
     for loaded_file in FakePyPDFium2Loader.loaded_files:
@@ -189,7 +191,7 @@ def test_ingestion_skips_empty_and_failed_files(tmp_path, fake_loader, capsys):
     input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "  \n ", "c.pdf": "FAIL"})
     ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"))
 
-    documents = ingestion(ingestion_args)
+    documents = ingestion(ingestion_args, compute_input_hash(ingestion_args))
 
     assert len(documents) == 1
     assert "Files read : 3, loaded : 1, failed : 1, empty : 1" in capsys.readouterr().out
@@ -199,20 +201,22 @@ def test_ingestion_saves_documents_and_doc_ids(tmp_path, fake_loader):
     """
     Input: two pdf files with dataset_size 2.
     Output: the files in the documents folder.
-    What it does: checks one {doc_id}.json per document and doc_ids_2.json listing them.
+    What it does: checks one {doc_id}.json per document and doc_ids_{input_hash}.json listing them.
     """
     input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "text b"})
     output_path = str(tmp_path / "out")
+    ingestion_args = make_ingestion_args(input_path, output_path, dataset_size=2)
+    input_hash = compute_input_hash(ingestion_args)
 
-    documents = ingestion(make_ingestion_args(input_path, output_path, dataset_size=2))
+    documents = ingestion(ingestion_args, input_hash)
 
     documents_path = get_documents_path(output_path)
-    expected_file_names = ["doc_ids_2.json"]
+    expected_file_names = [f"doc_ids_{input_hash}.json"]
     for doc_id in documents:
         expected_file_names.append(f"{doc_id}.json")
     assert sorted(os.listdir(documents_path)) == sorted(expected_file_names)
 
-    with open(os.path.join(documents_path, "doc_ids_2.json"), encoding="utf-8") as f:
+    with open(os.path.join(documents_path, f"doc_ids_{input_hash}.json"), encoding="utf-8") as f:
         saved_doc_ids = json.load(f)
     assert saved_doc_ids == list(documents.keys())
 
@@ -226,29 +230,125 @@ def test_ingestion_loads_from_cache_on_second_run(tmp_path, fake_loader, capsys)
     input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "text b"})
     ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=2)
 
-    first_documents = ingestion(ingestion_args)
+    input_hash = compute_input_hash(ingestion_args)
+
+    first_documents = ingestion(ingestion_args, input_hash)
     FakePyPDFium2Loader.loaded_files = []
     capsys.readouterr()
-    second_documents = ingestion(ingestion_args)
+    second_documents = ingestion(ingestion_args, input_hash)
 
     assert second_documents == first_documents
     assert FakePyPDFium2Loader.loaded_files == []
     assert "Documents : 2 (all from cache)" in capsys.readouterr().out
 
 
-def test_ingestion_dataset_sizes_share_document_files(tmp_path, fake_loader):
+def test_ingestion_input_sets_share_document_files(tmp_path, fake_loader):
     """
     Input: ingestion with dataset_size 1, then dataset_size 2.
     Output: the files in the documents folder.
-    What it does: checks each size gets its own doc_ids list, and the shared document is saved once.
+    What it does: checks each input set gets its own doc_ids list, and the shared document is saved once.
     """
     input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "text b"})
     output_path = str(tmp_path / "out")
+    one_file_args = make_ingestion_args(input_path, output_path, dataset_size=1)
+    two_file_args = make_ingestion_args(input_path, output_path, dataset_size=2)
 
-    ingestion(make_ingestion_args(input_path, output_path, dataset_size=1))
-    documents = ingestion(make_ingestion_args(input_path, output_path, dataset_size=2))
+    ingestion(one_file_args, compute_input_hash(one_file_args))
+    documents = ingestion(two_file_args, compute_input_hash(two_file_args))
 
-    expected_file_names = ["doc_ids_1.json", "doc_ids_2.json"]
+    expected_file_names = [f"doc_ids_{compute_input_hash(one_file_args)}.json", f"doc_ids_{compute_input_hash(two_file_args)}.json"]
     for doc_id in documents:
         expected_file_names.append(f"{doc_id}.json")
     assert sorted(os.listdir(get_documents_path(output_path))) == sorted(expected_file_names)
+
+
+def test_ingestion_reads_the_files_again_when_an_input_file_changes(tmp_path, fake_loader):
+    """
+    Input: two pdf files ingested, then one file edited.
+    Output: the documents and the loaded files.
+    What it does: checks the new input hash misses the cache, so the files are read again and the edited file gets
+    a new document.
+    """
+    input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "text b"})
+    ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=2)
+    first_documents = ingestion(ingestion_args, compute_input_hash(ingestion_args))
+
+    with open(os.path.join(input_path, "b.pdf"), "w", encoding="utf-8") as f:
+        f.write("text b edited")
+    FakePyPDFium2Loader.loaded_files = []
+    second_documents = ingestion(ingestion_args, compute_input_hash(ingestion_args))
+
+    assert len(FakePyPDFium2Loader.loaded_files) == 2
+    assert second_documents != first_documents
+
+
+# ---------- list_input_files / compute_input_hash ----------
+
+
+def test_list_input_files_keeps_the_first_dataset_size_files_of_document_type(tmp_path):
+    """
+    Input: three pdf files and one txt file, with dataset_size 2.
+    Output: the listed file names.
+    What it does: checks the files are the first two pdf files in name order.
+    """
+    input_path = make_input_folder(tmp_path, {"c.pdf": "c", "a.pdf": "a", "b.pdf": "b", "a.txt": "t"})
+
+    assert list_input_files(make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=2)) == ["a.pdf", "b.pdf"]
+
+
+def test_compute_input_hash_is_12_hex_characters_and_the_same_for_the_same_files(tmp_path):
+    """
+    Input: the same input folder hashed twice.
+    Output: the two input hashes.
+    What it does: checks the hash is 12 hex characters and stable.
+    """
+    input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "text b"})
+    ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=2)
+
+    input_hash = compute_input_hash(ingestion_args)
+
+    assert len(input_hash) == 12
+    int(input_hash, 16)
+    assert compute_input_hash(ingestion_args) == input_hash
+
+
+@pytest.mark.parametrize("change", ["edit", "add_inside", "remove"])
+def test_compute_input_hash_changes_when_a_read_file_changes(tmp_path, change):
+    """
+    Input: three pdf files with dataset_size 3, then one file edited, a file added that sorts inside the first 3, or
+    a file removed.
+    Output: the input hash before and after.
+    What it does: checks any change to the files ingestion reads gives a new input hash.
+    """
+    input_path = make_input_folder(tmp_path, {"b.pdf": "text b", "c.pdf": "text c", "d.pdf": "text d"})
+    ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=3)
+    input_hash_before = compute_input_hash(ingestion_args)
+
+    if change == "edit":
+        with open(os.path.join(input_path, "c.pdf"), "w", encoding="utf-8") as f:
+            f.write("text c edited")
+    elif change == "add_inside":
+        with open(os.path.join(input_path, "a.pdf"), "w", encoding="utf-8") as f:
+            f.write("text a")
+    else:
+        os.remove(os.path.join(input_path, "d.pdf"))
+
+    assert compute_input_hash(ingestion_args) != input_hash_before
+
+
+def test_compute_input_hash_ignores_files_ingestion_does_not_read(tmp_path):
+    """
+    Input: two pdf files with dataset_size 2, then a pdf file added that sorts after them and a txt file added.
+    Output: the input hash before and after.
+    What it does: checks files outside the first dataset_size files of document_type do not change the input hash.
+    """
+    input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "text b"})
+    ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=2)
+    input_hash_before = compute_input_hash(ingestion_args)
+
+    with open(os.path.join(input_path, "c.pdf"), "w", encoding="utf-8") as f:
+        f.write("text c")
+    with open(os.path.join(input_path, "a.txt"), "w", encoding="utf-8") as f:
+        f.write("text")
+
+    assert compute_input_hash(ingestion_args) == input_hash_before

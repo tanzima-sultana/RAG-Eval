@@ -196,6 +196,7 @@ def make_index_args(make_chunking_args):
         field_values["bm25_k1"] = 1.5
         field_values["bm25_b"] = 0.75
         field_values["bm25_tokenizer"] = "whitespace"
+        field_values["input_hash"] = "testinputhash"
         for field_name in overrides:
             field_values[field_name] = overrides[field_name]
         return IndexArgs(**field_values)
@@ -221,6 +222,7 @@ def make_vectordb_args(make_chunking_args):
         field_values["vectordb_type"] = "qdrant"
         field_values["qdrant_url"] = "http://localhost:6333"
         field_values["qdrant_batch_size"] = 3
+        field_values["input_hash"] = "testinputhash"
         for field_name in overrides:
             field_values[field_name] = overrides[field_name]
         return VectorDbArgs(**field_values)

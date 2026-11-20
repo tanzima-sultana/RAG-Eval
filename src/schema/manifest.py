@@ -36,6 +36,10 @@ class IndexEntry:
 @dataclasses.dataclass
 class BuildManifest:
 	# What one build saved and where, so the later steps only load it
+	# The first 12 hex characters of the SHA-256 of all the build args, as in the manifest file name
+	build_hash: str
+	# The hash of the input files the build read
+	input_hash: str
 	dataset_name: str
 	dataset_size: int
 	# The folder of the saved documents

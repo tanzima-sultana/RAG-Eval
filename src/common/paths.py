@@ -1,3 +1,4 @@
+import argparse
 import hashlib
 import json
 import os
@@ -41,108 +42,162 @@ def get_documents_path(output_path: str) -> str:
 def get_chunk_path(output_path: str, chunking_args: ChunkingArgs) -> str:
 	"""
 	Input: output_path, the dataset's output folder; chunking_args.
-	Output: {output_path}/chunks/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}
-	What it does: builds the folder that holds one chunking run's chunks.
+	Output: {output_path}/chunks/chunks_{hash}
+	What it does: builds the folder that holds one chunking run's chunks. The hash is the first 12 hex characters of
+	the SHA-256 of the chunk args, as JSON with sorted keys.
 	"""
-	settings_folder = (
-		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
-		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
-	)
-	return os.path.join(output_path, "chunks", chunking_args.chunk_type, chunking_args.model_name, settings_folder)
+	hashed_args = {}
+	hashed_args["chunk_type"] = chunking_args.chunk_type
+	hashed_args["model_name"] = chunking_args.model_name
+	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
+	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
+	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
+	hashed_args["semantic_threshold"] = chunking_args.semantic_threshold
+
+	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
+	chunk_hash = hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
+	return os.path.join(output_path, "chunks", f"chunks_{chunk_hash}")
 
 
 # ------ Embedding
 def get_embedding_path(output_path: str, embedding_args: EmbeddingArgs) -> str:
 	"""
 	Input: output_path, the dataset's output folder; embedding_args.
-	Output: {output_path}/embeddings/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}
-	What it does: builds the folder that holds one chunking run's embeddings.
+	Output: {output_path}/embeddings/embeddings_{hash}
+	What it does: builds the folder that holds one chunking run's embeddings. The hash is the first 12 hex characters
+	of the SHA-256 of the chunk args, as JSON with sorted keys.
 	"""
 	chunking_args = embedding_args.chunking_args
-	settings_folder = (
-		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
-		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
-	)
-	return os.path.join(output_path, "embeddings", chunking_args.chunk_type, chunking_args.model_name, settings_folder)
+	hashed_args = {}
+	hashed_args["chunk_type"] = chunking_args.chunk_type
+	hashed_args["model_name"] = chunking_args.model_name
+	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
+	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
+	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
+	hashed_args["semantic_threshold"] = chunking_args.semantic_threshold
+
+	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
+	embedding_hash = hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
+	return os.path.join(output_path, "embeddings", f"embeddings_{embedding_hash}")
 
 
 # ------ Indexing
 def get_faiss_index_path(output_path: str, index_args: IndexArgs) -> str:
 	"""
 	Input: output_path, the dataset's output folder; index_args.
-	Output: {output_path}/indexes/{index_type}/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/{faiss_folder}
-	where faiss_folder is flatip, ivf_{nlist} or hnsw_{m}_{ef_construction}.
-	What it does: builds the folder that holds one FAISS index.
+	Output: {output_path}/indexes/{index_type}_{hash}
+	What it does: builds the folder that holds one FAISS index. The hash is the first 12 hex characters of the SHA-256
+	of the index type, the chunk args, the index type's settings (ivf_nlist, or hnsw_m and hnsw_ef_construction) and
+	the input hash, as JSON with sorted keys.
 	"""
 	chunking_args = index_args.chunking_args
-	settings_folder = (
-		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
-		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
-	)
+	hashed_args = {}
+	hashed_args["index_type"] = index_args.index_type
+	hashed_args["input_hash"] = index_args.input_hash
+	hashed_args["chunk_type"] = chunking_args.chunk_type
+	hashed_args["model_name"] = chunking_args.model_name
+	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
+	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
+	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
+	hashed_args["semantic_threshold"] = chunking_args.semantic_threshold
 
 	if index_args.index_type == FAISS_FLATIP_INDEX:
-		faiss_folder = "flatip"
+		pass
 	elif index_args.index_type == FAISS_IVF_INDEX:
-		faiss_folder = f"ivf_{index_args.ivf_nlist}"
+		hashed_args["ivf_nlist"] = index_args.ivf_nlist
 	elif index_args.index_type == FAISS_HNSW_INDEX:
-		faiss_folder = f"hnsw_{index_args.hnsw_m}_{index_args.hnsw_ef_construction}"
+		hashed_args["hnsw_m"] = index_args.hnsw_m
+		hashed_args["hnsw_ef_construction"] = index_args.hnsw_ef_construction
 	else:
 		raise ValueError(f"index_type ({index_args.index_type}) is not a FAISS index type.")
 
-	return os.path.join(
-		output_path, "indexes", index_args.index_type, chunking_args.chunk_type, chunking_args.model_name,
-		settings_folder, faiss_folder
-	)
+	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
+	index_hash = hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
+	return os.path.join(output_path, "indexes", f"{index_args.index_type}_{index_hash}")
 
 
 def get_bm25_index_path(output_path: str, index_args: IndexArgs) -> str:
 	"""
 	Input: output_path, the dataset's output folder; index_args.
-	Output: {output_path}/indexes/bm25/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/{k1}_{b}_{tokenizer}
-	What it does: builds the folder that holds one BM25 index.
+	Output: {output_path}/indexes/bm25_{hash}
+	What it does: builds the folder that holds one BM25 index. The hash is the first 12 hex characters of the SHA-256
+	of the chunk args, bm25_k1, bm25_b, bm25_tokenizer and the input hash, as JSON with sorted keys.
 	"""
 	chunking_args = index_args.chunking_args
-	settings_folder = (
-		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
-		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
-	)
-	bm25_folder = f"{index_args.bm25_k1}_{index_args.bm25_b}_{index_args.bm25_tokenizer}"
+	hashed_args = {}
+	hashed_args["input_hash"] = index_args.input_hash
+	hashed_args["chunk_type"] = chunking_args.chunk_type
+	hashed_args["model_name"] = chunking_args.model_name
+	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
+	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
+	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
+	hashed_args["semantic_threshold"] = chunking_args.semantic_threshold
+	hashed_args["bm25_k1"] = index_args.bm25_k1
+	hashed_args["bm25_b"] = index_args.bm25_b
+	hashed_args["bm25_tokenizer"] = index_args.bm25_tokenizer
 
-	return os.path.join(
-		output_path, "indexes", "bm25", chunking_args.chunk_type, chunking_args.model_name,
-		settings_folder, bm25_folder
-	)
+	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
+	index_hash = hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
+	return os.path.join(output_path, "indexes", f"bm25_{index_hash}")
 
 
 # ------ Vector DB
 def get_qdrant_collection_name(output_path: str, vectordb_args: VectorDbArgs) -> str:
 	"""
 	Input: output_path, the dataset's output folder ({root}/{dataset_name}); vectordb_args.
-	Output: {root folder name}_{dataset_name}_{chunk_type}_{model_name}_{min}_{max}_{overlap}_{threshold}
-	What it does: builds the Qdrant collection name. The root folder name keeps a temp/ run and an outputs/ run of the
-	same dataset in separate collections. Any "/" is replaced with "-", as Qdrant does not allow it.
+	Output: qdrant_{hash}
+	What it does: builds the Qdrant collection name. The hash is the first 12 hex characters of the SHA-256 of the
+	root folder name, the dataset name, the chunk args and the input hash, as JSON with sorted keys. The root folder
+	name keeps a temp/ run and an outputs/ run of the same dataset in separate collections.
 	"""
 	chunking_args = vectordb_args.chunking_args
 	normalized_output_path = os.path.normpath(output_path)
 	dataset_name = os.path.basename(normalized_output_path)
 	root_folder_name = os.path.basename(os.path.dirname(normalized_output_path))
 
-	collection_name = (
-		f"{root_folder_name}_{dataset_name}_{chunking_args.chunk_type}_{chunking_args.model_name}_"
-		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
-		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
-	)
-	return collection_name.replace("/", "-")
+	hashed_args = {}
+	hashed_args["root_folder_name"] = root_folder_name
+	hashed_args["dataset_name"] = dataset_name
+	hashed_args["input_hash"] = vectordb_args.input_hash
+	hashed_args["chunk_type"] = chunking_args.chunk_type
+	hashed_args["model_name"] = chunking_args.model_name
+	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
+	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
+	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
+	hashed_args["semantic_threshold"] = chunking_args.semantic_threshold
+
+	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
+	collection_hash = hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
+	return f"qdrant_{collection_hash}"
 
 
 # ------ Build manifest
-def get_build_manifest_path(output_path: str) -> str:
+def get_build_hash(parsed_args: argparse.Namespace, input_hash: str) -> str:
 	"""
-	Input: output_path, the dataset's output folder.
-	Output: {output_path}/build/manifest.json
-	What it does: builds the file the build saves its manifest to.
+	Input: parsed_args, the parsed build args: every setting of the ingestion, chunking, indexing and vectordb
+	sections, with any command line overrides; input_hash, the hash of the input files.
+	Output: the first 12 hex characters of the SHA-256 of all the build args and the input hash, as JSON with sorted keys.
+	What it does: hashes every build arg and the input hash, so a change to any of them gives a new build hash.
 	"""
-	return os.path.join(output_path, "build", "manifest.json")
+	hashed_args = {}
+	for arg_name in vars(parsed_args):
+		hashed_args[arg_name] = getattr(parsed_args, arg_name)
+	hashed_args["input_hash"] = input_hash
+
+	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
+	return hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
+
+
+def get_build_manifest_path(output_path: str, parsed_args: argparse.Namespace, input_hash: str) -> str:
+	"""
+	Input: output_path, the dataset's output folder; parsed_args, the parsed build args; input_hash, the hash of the
+	input files.
+	Output: {output_path}/build/manifest_{hash}.json
+	What it does: builds the file the build saves its manifest to, named by the hash of all the build args and the
+	input hash.
+	"""
+	build_hash = get_build_hash(parsed_args, input_hash)
+	return os.path.join(output_path, "build", f"manifest_{build_hash}.json")
 
 
 # ------ Setup ranking
