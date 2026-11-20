@@ -175,58 +175,58 @@ def make_ollama_args(parsed_args: argparse.Namespace) -> OllamaArgs:
 
 
 @dataclasses.dataclass
-class QnaArgs:
-	qna_llm_args: LLMArgs
-	qna_kg_llm_args: LLMArgs
-	qna_embedding_model: str
+class EvalDatasetArgs:
+	eval_dataset_llm_args: LLMArgs
+	eval_dataset_kg_llm_args: LLMArgs
+	eval_dataset_embedding_model: str
 	n_sample_documents: int
 	n_sample_evals: int
 
 
-def make_qna_args(parsed_args: argparse.Namespace) -> QnaArgs:
+def make_eval_dataset_args(parsed_args: argparse.Namespace) -> EvalDatasetArgs:
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args().
-	Output: a QnaArgs holding the QnA settings.
-	What it does: builds the LLMArgs of the two QnA models with the shared LLM settings, and copies the other settings.
+	Output: an EvalDatasetArgs holding the eval dataset settings.
+	What it does: builds the LLMArgs of the two eval dataset models with the shared LLM settings, and copies the other settings.
 	"""
-	qna_llm_args = LLMArgs(
-		llm_model=parsed_args.qna_llm_model,
+	eval_dataset_llm_args = LLMArgs(
+		llm_model=parsed_args.eval_dataset_llm_model,
 		max_tokens=parsed_args.llm_max_tokens,
 		timeout_seconds=parsed_args.llm_timeout_seconds
 	)
-	qna_kg_llm_args = LLMArgs(
-		llm_model=parsed_args.qna_kg_llm_model,
+	eval_dataset_kg_llm_args = LLMArgs(
+		llm_model=parsed_args.eval_dataset_kg_llm_model,
 		max_tokens=parsed_args.llm_max_tokens,
 		timeout_seconds=parsed_args.llm_timeout_seconds
 	)
-	qna_args = QnaArgs(
-		qna_llm_args=qna_llm_args,
-		qna_kg_llm_args=qna_kg_llm_args,
-		qna_embedding_model=parsed_args.qna_embedding_model,
+	eval_dataset_args = EvalDatasetArgs(
+		eval_dataset_llm_args=eval_dataset_llm_args,
+		eval_dataset_kg_llm_args=eval_dataset_kg_llm_args,
+		eval_dataset_embedding_model=parsed_args.eval_dataset_embedding_model,
 		n_sample_documents=parsed_args.n_sample_documents,
 		n_sample_evals=parsed_args.n_sample_evals
 	)
-	return qna_args
+	return eval_dataset_args
 
 
-def parse_qna_args(parser: argparse.ArgumentParser) -> None:
+def parse_eval_dataset_args(parser: argparse.ArgumentParser) -> None:
 	"""
 	Input: parser, the argument parser of main.py.
 	Output: nothing.
-	What it does: adds the QnA arguments to parser.
+	What it does: adds the eval dataset arguments to parser.
 	"""
 	parser.add_argument(
-		"--qna_llm_model",
+		"--eval_dataset_llm_model",
 		type=str,
 		required=True,
 		help="LiteLLM model that writes the eval questions and answers, e.g. anthropic/claude-sonnet-5-5")
 	parser.add_argument(
-		"--qna_kg_llm_model",
+		"--eval_dataset_kg_llm_model",
 		type=str,
 		required=True,
 		help="LiteLLM model that builds the RAGAS knowledge graph, e.g. anthropic/claude-haiku-5-5")
 	parser.add_argument(
-		"--qna_embedding_model",
+		"--eval_dataset_embedding_model",
 		type=str,
 		required=True,
 		help="Local embedding model RAGAS uses to build its knowledge graph")
@@ -234,12 +234,12 @@ def parse_qna_args(parser: argparse.ArgumentParser) -> None:
 		"--n_sample_documents",
 		type=int,
 		required=True,
-		help="Documents randomly picked for RAGAS to generate the QnA from")
+		help="Documents randomly picked for RAGAS to generate the eval dataset from")
 	parser.add_argument(
 		"--n_sample_evals",
 		type=int,
 		required=True,
-		help="QnA items to generate")
+		help="eval samples to generate")
 
 
 @dataclasses.dataclass
@@ -570,7 +570,7 @@ def parse_args() -> argparse.Namespace:
 	parse_indexing_args(parser)
 	parse_vectordb_args(parser)
 	parse_llm_provider_args(parser)
-	parse_qna_args(parser)
+	parse_eval_dataset_args(parser)
 	parse_query_args(parser)
 	parse_retrieval_args(parser)
 

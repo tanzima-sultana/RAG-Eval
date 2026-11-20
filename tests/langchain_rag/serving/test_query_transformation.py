@@ -14,7 +14,7 @@ import pytest
 
 from common import paths_temp
 from common.args_temp import OllamaArgs
-from common.args_temp import QnaArgs
+from common.args_temp import EvalDatasetArgs
 from common.args_temp import QueryArgs
 from common.constants import I_DONT_KNOW
 from common.constants import HYDE_QUERY
@@ -26,7 +26,7 @@ from langchain_rag.serving.query_transformation import QueryTransformation
 from langchain_rag.serving.query_transformation import load_queries
 from langchain_rag.serving.query_transformation import save_queries
 from schema.llm import LLMArgs
-from schema.qna import Qna
+from schema.eval_sample import EvalSample
 from schema.query import Ans
 from schema.query import Query
 from schema.query import Qus
@@ -118,13 +118,13 @@ def make_query_args(**overrides):
     return QueryArgs(**field_values)
 
 
-def make_qna_args():
+def make_eval_dataset_args():
     """
     Input: none.
-    Output: a QnaArgs with test values.
-    What it does: builds the QnA settings the query path is named by.
+    Output: an EvalDatasetArgs with test values.
+    What it does: builds the eval dataset settings the query path is named by.
     """
-    return QnaArgs(
+    return EvalDatasetArgs(
         LLMArgs("anthropic/claude-sonnet-5-5", 100, 30),
         LLMArgs("anthropic/claude-haiku-5-5", 100, 30),
         "fake-model",
@@ -142,13 +142,13 @@ def make_ollama_args():
     return OllamaArgs(ollama_api_base="http://ollama-test:11434", ollama_context_length=32768)
 
 
-def make_qna_item(item_number, question):
+def make_eval_sample(item_number, question):
     """
     Input: item_number; question, the question text.
-    Output: a Qna with id "eval_qna_{item_number}" and that question.
-    What it does: builds one QnA item with placeholder values.
+    Output: an EvalSample with id "eval_qna_{item_number}" and that question.
+    What it does: builds one eval sample with placeholder values.
     """
-    return Qna(
+    return EvalSample(
         id=f"eval_qna_{item_number}",
         qus=question,
         ans="An answer.",
@@ -299,15 +299,15 @@ def test_compute_queries_returns_saved_queries_without_building_an_llm(fake_quer
     What it does: checks the saved queries are returned, no LLM is built and the saved files are not rewritten.
     """
     query_args = make_query_args()
-    qna_args = make_qna_args()
+    eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
-    query_path = paths_temp.get_query_path(output_path, qna_args, query_args)
+    query_path = paths_temp.get_query_path(output_path, eval_dataset_args, query_args)
     save_queries(query_path, [make_query("eval_qna_0", 3)])
     queries_bytes = read_file_bytes(os.path.join(query_path, "queries.json"))
     embeddings_bytes = read_file_bytes(os.path.join(query_path, "embeddings.npz"))
 
     queries = QueryTransformation(query_args, make_ollama_args()).compute_queries(
-        [make_qna_item(0, "What is X?")], qna_args, output_path
+        [make_eval_sample(0, "What is X?")], eval_dataset_args, output_path
     )
 
     assert len(queries) == 1
@@ -325,13 +325,13 @@ def test_compute_queries_returns_only_the_requested_query_types(fake_query_llm, 
     What it does: checks the other query types are None in the result, but stay whole in the saved queries.
     """
     query_args = make_query_args(query_types=[ORIGINAL_QUERY, MULTI_QUERY])
-    qna_args = make_qna_args()
+    eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
-    query_path = paths_temp.get_query_path(output_path, qna_args, query_args)
+    query_path = paths_temp.get_query_path(output_path, eval_dataset_args, query_args)
     save_queries(query_path, [make_query("eval_qna_0", 3)])
 
     queries = QueryTransformation(query_args, make_ollama_args()).compute_queries(
-        [make_qna_item(0, "What is X?")], qna_args, output_path
+        [make_eval_sample(0, "What is X?")], eval_dataset_args, output_path
     )
 
     assert queries[0].original_qus.qus == "original"
@@ -352,14 +352,14 @@ def test_compute_queries_generates_and_saves_when_none_are_saved(fake_query_llm,
     """
     fake_query_llm.replies["What is X?"] = {"rewrite": "What does X mean?", "multi": "a\nb\nc", "hyde": "X is a thing."}
     query_args = make_query_args()
-    qna_args = make_qna_args()
+    eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
 
-    queries = QueryTransformation(query_args, make_ollama_args()).compute_queries([make_qna_item(0, "What is X?")], qna_args, output_path)
+    queries = QueryTransformation(query_args, make_ollama_args()).compute_queries([make_eval_sample(0, "What is X?")], eval_dataset_args, output_path)
 
     assert fake_query_llm.built_models == ["ollama_chat/llama3.1:8b"]
     assert fake_query_llm.reply_types == ["rewrite", "multi", "hyde"]
-    saved_queries = load_queries(paths_temp.get_query_path(output_path, qna_args, query_args))
+    saved_queries = load_queries(paths_temp.get_query_path(output_path, eval_dataset_args, query_args))
     assert saved_queries[0].original_qus.qus == "What is X?"
     assert saved_queries[0].rewritten_qus.qus == queries[0].rewritten_qus.qus
     assert len(saved_queries[0].multi_qus) == 3
@@ -374,13 +374,13 @@ def test_compute_queries_generates_only_the_missing_query_types(fake_query_llm, 
     """
     fake_query_llm.replies["What is X?"] = {"rewrite": "A new rewrite?", "multi": "a\nb\nc", "hyde": "X is a thing."}
     query_args = make_query_args()
-    qna_args = make_qna_args()
+    eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
-    query_path = paths_temp.get_query_path(output_path, qna_args, query_args)
+    query_path = paths_temp.get_query_path(output_path, eval_dataset_args, query_args)
     save_queries(query_path, [make_query("eval_qna_0", 0, [ORIGINAL_QUERY, REWRITTEN_QUERY])])
 
     queries = QueryTransformation(query_args, make_ollama_args()).compute_queries(
-        [make_qna_item(0, "What is X?")], qna_args, output_path
+        [make_eval_sample(0, "What is X?")], eval_dataset_args, output_path
     )
 
     assert fake_query_llm.reply_types == ["multi", "hyde"]
@@ -399,33 +399,33 @@ def test_compute_queries_builds_no_llm_when_only_original_is_missing(fake_query_
     What it does: checks the original question is embedded without building the query LLM.
     """
     query_args = make_query_args(query_types=[ORIGINAL_QUERY])
-    qna_args = make_qna_args()
+    eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
 
     queries = QueryTransformation(query_args, make_ollama_args()).compute_queries(
-        [make_qna_item(0, "What is X?")], qna_args, output_path
+        [make_eval_sample(0, "What is X?")], eval_dataset_args, output_path
     )
 
     assert fake_query_llm.built_models == []
     assert queries[0].original_qus.qus == "What is X?"
     assert queries[0].rewritten_qus is None
-    assert load_queries(paths_temp.get_query_path(output_path, qna_args, query_args))[0].multi_qus is None
+    assert load_queries(paths_temp.get_query_path(output_path, eval_dataset_args, query_args))[0].multi_qus is None
 
 
-def test_compute_queries_raises_when_saved_queries_are_not_in_qna_order(fake_query_llm, tmp_path):
+def test_compute_queries_raises_when_saved_queries_are_not_in_eval_dataset_order(fake_query_llm, tmp_path):
     """
-    Input: saved queries whose ids are not the QnA ids.
+    Input: saved queries whose ids are not the eval dataset ids.
     Output: ValueError.
     What it does: checks saved queries are never joined with another question.
     """
     query_args = make_query_args()
-    qna_args = make_qna_args()
+    eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
-    save_queries(paths_temp.get_query_path(output_path, qna_args, query_args), [make_query("eval_qna_9", 3)])
+    save_queries(paths_temp.get_query_path(output_path, eval_dataset_args, query_args), [make_query("eval_qna_9", 3)])
 
-    with pytest.raises(ValueError, match="not in the QnA order"):
+    with pytest.raises(ValueError, match="not in the eval dataset order"):
         QueryTransformation(query_args, make_ollama_args()).compute_queries(
-            [make_qna_item(0, "What is X?")], qna_args, output_path
+            [make_eval_sample(0, "What is X?")], eval_dataset_args, output_path
         )
 
 
@@ -439,7 +439,7 @@ def test_original_queries_embeds_each_question(fake_query_llm, fake_huggingface_
     What it does: checks the text, BM25 tokens and vector of the question as it is.
     """
     original_qus_list = QueryTransformation(make_query_args(), make_ollama_args()).original_queries(
-        [make_qna_item(0, "What is X?")], fake_huggingface_embeddings()
+        [make_eval_sample(0, "What is X?")], fake_huggingface_embeddings()
     )
 
     assert original_qus_list[0].qus == "What is X?"
@@ -457,7 +457,7 @@ def test_rewritten_queries_rewrites_each_question(fake_query_llm, fake_huggingfa
     fake_query_llm.replies["What is X?"] = {"rewrite": " What does X mean? "}
 
     rewritten_qus_list = QueryTransformation(make_query_args(), make_ollama_args()).rewritten_queries(
-        [make_qna_item(0, "What is X?")], FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
+        [make_eval_sample(0, "What is X?")], FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
     )
 
     assert rewritten_qus_list[0].qus == "What does X mean?"
@@ -474,7 +474,7 @@ def test_multi_queries_keeps_each_phrasing(fake_query_llm, fake_huggingface_embe
     fake_query_llm.replies["What is X?"] = {"multi": "Define X.\n\nExplain X.\nWhat is meant by X?"}
 
     multi_qus_list = QueryTransformation(make_query_args(), make_ollama_args()).multi_queries(
-        [make_qna_item(0, "What is X?")], FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
+        [make_eval_sample(0, "What is X?")], FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
     )
 
     multi_texts = []
@@ -493,7 +493,7 @@ def test_multi_queries_drops_phrasings_when_line_count_is_wrong(fake_query_llm, 
     fake_query_llm.replies["What is X?"] = {"multi": "only one\nonly two"}
 
     multi_qus_list = QueryTransformation(make_query_args(), make_ollama_args()).multi_queries(
-        [make_qna_item(0, "What is X?")], FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
+        [make_eval_sample(0, "What is X?")], FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
     )
 
     assert multi_qus_list[0] == []
@@ -510,7 +510,7 @@ def test_multi_queries_keeps_vectors_with_their_question(fake_query_llm, fake_hu
     fake_query_llm.replies["Q two?"] = {"multi": "aa\nbbbb\ncccccc"}
 
     multi_qus_list = QueryTransformation(make_query_args(), make_ollama_args()).multi_queries(
-        [make_qna_item(0, "Q one?"), make_qna_item(1, "Q two?")],
+        [make_eval_sample(0, "Q one?"), make_eval_sample(1, "Q two?")],
         FakeQueryLLMProvider(make_query_args().query_llm_args, None),
         fake_huggingface_embeddings()
     )
@@ -532,7 +532,7 @@ def test_hyde_queries_stores_refusal_as_i_dont_know(fake_query_llm, fake_hugging
     fake_query_llm.replies["What is X?"] = {"hyde": hyde_reply}
 
     hyde_ans_list = QueryTransformation(make_query_args(), make_ollama_args()).hyde_queries(
-        [make_qna_item(0, "What is X?")], FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
+        [make_eval_sample(0, "What is X?")], FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
     )
 
     assert hyde_ans_list[0].ans == I_DONT_KNOW
@@ -547,7 +547,7 @@ def test_hyde_queries_embeds_each_passage(fake_query_llm, fake_huggingface_embed
     fake_query_llm.replies["What is X?"] = {"hyde": "X is a thing used for Y."}
 
     hyde_ans_list = QueryTransformation(make_query_args(), make_ollama_args()).hyde_queries(
-        [make_qna_item(0, "What is X?")], FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
+        [make_eval_sample(0, "What is X?")], FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
     )
 
     assert hyde_ans_list[0].ans == "X is a thing used for Y."

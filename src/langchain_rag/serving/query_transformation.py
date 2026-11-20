@@ -11,10 +11,10 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from common import constants
 from common import paths_temp
 from common.args_temp import OllamaArgs
-from common.args_temp import QnaArgs
+from common.args_temp import EvalDatasetArgs
 from common.args_temp import QueryArgs
 from llm_provider.llm_provider import LLMProvider
-from schema.qna import Qna
+from schema.eval_sample import EvalSample
 from schema.query import Ans
 from schema.query import Query
 from schema.query import Qus
@@ -238,9 +238,9 @@ class QueryTransformation:
 					f"\"{constants.REWRITTEN_QUERY}\", \"{constants.MULTI_QUERY}\" or \"{constants.HYDE_QUERY}\"."
 				)
 
-	def compute_queries(self, qna_items: list[Qna], qna_args: QnaArgs, output_path: str) -> list[Query]:
+	def compute_queries(self, eval_samples: list[EvalSample], eval_dataset_args: EvalDatasetArgs, output_path: str) -> list[Query]:
 		"""
-		Input: qna_items, the eval questions; qna_args, the settings of their QnA set; output_path, the dataset's
+		Input: eval_samples, the eval questions; eval_dataset_args, the settings of their eval dataset; output_path, the dataset's
 		output folder.
 		Output: one Query per eval question, holding only the query types in query_types.
 		What it does: loads the saved queries, generates only the requested query types that are not saved, adds them
@@ -252,16 +252,16 @@ class QueryTransformation:
 		self.validate()
 
 		# 2. Load the saved queries, or start one empty Query per eval question
-		query_path = paths_temp.get_query_path(output_path, qna_args, query_args)
+		query_path = paths_temp.get_query_path(output_path, eval_dataset_args, query_args)
 		print(f"Query folder : {query_path}")
 		saved_queries = load_queries(query_path)
 		if saved_queries is None:
-			print(f"No saved queries for {len(qna_items)} questions")
+			print(f"No saved queries for {len(eval_samples)} questions")
 			query_llm, query_llm_model = query_args.query_llm_args.llm_model.split("/", 1)
 			saved_queries = []
-			for qna_item in qna_items:
+			for eval_sample in eval_samples:
 				saved_queries.append(Query(
-					id=qna_item.id,
+					id=eval_sample.id,
 					original_qus=None,
 					rewritten_qus=None,
 					multi_qus=None,
@@ -272,16 +272,16 @@ class QueryTransformation:
 					llm_model=query_llm_model
 				))
 
-		# The saved queries are made from this QnA set, so they must be in the same question order
-		if len(saved_queries) != len(qna_items):
+		# The saved queries are made from this eval dataset, so they must be in the same question order
+		if len(saved_queries) != len(eval_samples):
 			raise ValueError(
-				f"The saved queries in {query_path} hold {len(saved_queries)} questions, but the QnA set holds "
-				f"{len(qna_items)}. Delete the folder and run again."
+				f"The saved queries in {query_path} hold {len(saved_queries)} questions, but the eval dataset holds "
+				f"{len(eval_samples)}. Delete the folder and run again."
 			)
-		for qna_index in range(len(qna_items)):
-			if saved_queries[qna_index].id != qna_items[qna_index].id:
+		for sample_index in range(len(eval_samples)):
+			if saved_queries[sample_index].id != eval_samples[sample_index].id:
 				raise ValueError(
-					f"The saved queries in {query_path} are not in the QnA order at position {qna_index}. "
+					f"The saved queries in {query_path} are not in the eval dataset order at position {sample_index}. "
 					"Delete the folder and run again."
 				)
 
@@ -300,7 +300,7 @@ class QueryTransformation:
 		if len(missing_query_types) == 0:
 			print(f"Queries : {len(saved_queries)} (all requested query types from cache)")
 		else:
-			print(f"Generating query types {missing_query_types} for {len(qna_items)} questions")
+			print(f"Generating query types {missing_query_types} for {len(eval_samples)} questions")
 
 			# Normalized like the chunk embeddings, so a query vector matches the chunk vectors
 			device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -317,21 +317,21 @@ class QueryTransformation:
 				query_llm_provider = LLMProvider(query_args.query_llm_args, self.ollama_args)
 
 			if constants.ORIGINAL_QUERY in missing_query_types:
-				original_qus_list = self.original_queries(qna_items, embedding_model)
-				for qna_index in range(len(qna_items)):
-					saved_queries[qna_index].original_qus = original_qus_list[qna_index]
+				original_qus_list = self.original_queries(eval_samples, embedding_model)
+				for sample_index in range(len(eval_samples)):
+					saved_queries[sample_index].original_qus = original_qus_list[sample_index]
 			if constants.REWRITTEN_QUERY in missing_query_types:
-				rewritten_qus_list = self.rewritten_queries(qna_items, query_llm_provider, embedding_model)
-				for qna_index in range(len(qna_items)):
-					saved_queries[qna_index].rewritten_qus = rewritten_qus_list[qna_index]
+				rewritten_qus_list = self.rewritten_queries(eval_samples, query_llm_provider, embedding_model)
+				for sample_index in range(len(eval_samples)):
+					saved_queries[sample_index].rewritten_qus = rewritten_qus_list[sample_index]
 			if constants.MULTI_QUERY in missing_query_types:
-				multi_qus_list = self.multi_queries(qna_items, query_llm_provider, embedding_model)
-				for qna_index in range(len(qna_items)):
-					saved_queries[qna_index].multi_qus = multi_qus_list[qna_index]
+				multi_qus_list = self.multi_queries(eval_samples, query_llm_provider, embedding_model)
+				for sample_index in range(len(eval_samples)):
+					saved_queries[sample_index].multi_qus = multi_qus_list[sample_index]
 			if constants.HYDE_QUERY in missing_query_types:
-				hyde_ans_list = self.hyde_queries(qna_items, query_llm_provider, embedding_model)
-				for qna_index in range(len(qna_items)):
-					saved_queries[qna_index].hyde_ans = hyde_ans_list[qna_index]
+				hyde_ans_list = self.hyde_queries(eval_samples, query_llm_provider, embedding_model)
+				for sample_index in range(len(eval_samples)):
+					saved_queries[sample_index].hyde_ans = hyde_ans_list[sample_index]
 
 			if query_llm_provider is not None:
 				query_llm_provider.compute_cost()
@@ -353,58 +353,58 @@ class QueryTransformation:
 
 		return queries
 
-	def original_queries(self, qna_items: list[Qna], embedding_model: HuggingFaceEmbeddings) -> list[Qus]:
+	def original_queries(self, eval_samples: list[EvalSample], embedding_model: HuggingFaceEmbeddings) -> list[Qus]:
 		"""
-		Input: qna_items, the eval questions; embedding_model.
+		Input: eval_samples, the eval questions; embedding_model.
 		Output: one Qus per eval question, in the same order.
 		What it does: embeds each eval question as it is and splits it into BM25 tokens. No LLM is used.
 		"""
 		original_qus_str_list = []
-		for qna_item in qna_items:
-			original_qus_str_list.append(qna_item.qus)
+		for eval_sample in eval_samples:
+			original_qus_str_list.append(eval_sample.qus)
 
 		original_qus_vectors = embedding_model.embed_documents(original_qus_str_list)
 
 		# Tokens are split the same way as the BM25 chunks
 		original_qus_list = []
-		for qna_index in range(len(qna_items)):
+		for sample_index in range(len(eval_samples)):
 			original_qus_list.append(Qus(
-				qus=original_qus_str_list[qna_index],
-				tokens=original_qus_str_list[qna_index].lower().split(),
-				embeddings=np.array(original_qus_vectors[qna_index], dtype=np.float32)
+				qus=original_qus_str_list[sample_index],
+				tokens=original_qus_str_list[sample_index].lower().split(),
+				embeddings=np.array(original_qus_vectors[sample_index], dtype=np.float32)
 			))
 		return original_qus_list
 
-	def rewritten_queries(self, qna_items: list[Qna], query_llm_provider: LLMProvider, embedding_model: HuggingFaceEmbeddings) -> list[Qus]:
+	def rewritten_queries(self, eval_samples: list[EvalSample], query_llm_provider: LLMProvider, embedding_model: HuggingFaceEmbeddings) -> list[Qus]:
 		"""
-		Input: qna_items, the eval questions; query_llm_provider, the query LLM; embedding_model.
+		Input: eval_samples, the eval questions; query_llm_provider, the query LLM; embedding_model.
 		Output: one rewritten Qus per eval question, in the same order.
 		What it does: asks the query LLM to rewrite each question, then embeds it and splits it into BM25 tokens.
 		"""
 		rewritten_qus_str_list = []
-		for qna_index in range(len(qna_items)):
-			qna_item = qna_items[qna_index]
-			rewritten_qus_str = query_llm_provider.generate("", REWRITE_PROMPT.format(qus=qna_item.qus)).text.strip()
+		for sample_index in range(len(eval_samples)):
+			eval_sample = eval_samples[sample_index]
+			rewritten_qus_str = query_llm_provider.generate("", REWRITE_PROMPT.format(qus=eval_sample.qus)).text.strip()
 			rewritten_qus_str_list.append(rewritten_qus_str)
 
-			if (qna_index + 1) % 20 == 0 or qna_index + 1 == len(qna_items):
-				print(f"Questions rewritten : {qna_index + 1} of {len(qna_items)}")
+			if (sample_index + 1) % 20 == 0 or sample_index + 1 == len(eval_samples):
+				print(f"Questions rewritten : {sample_index + 1} of {len(eval_samples)}")
 
 		rewritten_qus_vectors = embedding_model.embed_documents(rewritten_qus_str_list)
 
 		# Tokens are split the same way as the BM25 chunks
 		rewritten_qus_list = []
-		for qna_index in range(len(qna_items)):
+		for sample_index in range(len(eval_samples)):
 			rewritten_qus_list.append(Qus(
-				qus=rewritten_qus_str_list[qna_index],
-				tokens=rewritten_qus_str_list[qna_index].lower().split(),
-				embeddings=np.array(rewritten_qus_vectors[qna_index], dtype=np.float32)
+				qus=rewritten_qus_str_list[sample_index],
+				tokens=rewritten_qus_str_list[sample_index].lower().split(),
+				embeddings=np.array(rewritten_qus_vectors[sample_index], dtype=np.float32)
 			))
 		return rewritten_qus_list
 
-	def multi_queries(self, qna_items: list[Qna], query_llm_provider: LLMProvider, embedding_model: HuggingFaceEmbeddings) -> list[list[Qus]]:
+	def multi_queries(self, eval_samples: list[EvalSample], query_llm_provider: LLMProvider, embedding_model: HuggingFaceEmbeddings) -> list[list[Qus]]:
 		"""
-		Input: qna_items, the eval questions; query_llm_provider, the query LLM; embedding_model.
+		Input: eval_samples, the eval questions; query_llm_provider, the query LLM; embedding_model.
 		Output: one list of n_multi_qus Qus per eval question, in the same order. Empty if the LLM did not return
 		exactly n_multi_qus phrasings; these are counted and the run goes on.
 		What it does: asks the query LLM for n_multi_qus phrasings of each question, then embeds them and splits them
@@ -414,12 +414,12 @@ class QueryTransformation:
 
 		multi_qus_str_list = []
 		multi_dont_know_count = 0
-		for qna_index in range(len(qna_items)):
-			qna_item = qna_items[qna_index]
+		for sample_index in range(len(eval_samples)):
+			eval_sample = eval_samples[sample_index]
 
 			# The phrasings come one per line, sometimes with blank lines between them
 			multi_reply = query_llm_provider.generate(
-				"", MULTI_QUERY_PROMPT.format(qus=qna_item.qus, n_multi_qus=n_multi_qus)
+				"", MULTI_QUERY_PROMPT.format(qus=eval_sample.qus, n_multi_qus=n_multi_qus)
 			).text
 			phrasings = []
 			for reply_line in multi_reply.split("\n"):
@@ -430,16 +430,16 @@ class QueryTransformation:
 			# Any other number of lines means the reply is not just the phrasings, so no phrasings are kept
 			if len(phrasings) != n_multi_qus:
 				print(
-					f"Multi-query I don't know for {qna_item.id}: {len(phrasings)} lines instead of "
+					f"Multi-query I don't know for {eval_sample.id}: {len(phrasings)} lines instead of "
 					f"{n_multi_qus}. Reply: {multi_reply!r}"
 				)
 				phrasings = []
 				multi_dont_know_count = multi_dont_know_count + 1
 			multi_qus_str_list.append(phrasings)
 
-			if (qna_index + 1) % 20 == 0 or qna_index + 1 == len(qna_items):
-				print(f"Questions rephrased : {qna_index + 1} of {len(qna_items)}")
-		print(f"Multi-query I don't know : {multi_dont_know_count} of {len(qna_items)}")
+			if (sample_index + 1) % 20 == 0 or sample_index + 1 == len(eval_samples):
+				print(f"Questions rephrased : {sample_index + 1} of {len(eval_samples)}")
+		print(f"Multi-query I don't know : {multi_dont_know_count} of {len(eval_samples)}")
 
 		# The phrasings are embedded as one flat list: n_multi_qus rows per question, none for an I don't know
 		flat_multi_qus_str_list = []
@@ -464,37 +464,37 @@ class QueryTransformation:
 			multi_qus_list.append(multi_qus)
 		return multi_qus_list
 
-	def hyde_queries(self, qna_items: list[Qna], query_llm_provider: LLMProvider, embedding_model: HuggingFaceEmbeddings) -> list[Ans]:
+	def hyde_queries(self, eval_samples: list[EvalSample], query_llm_provider: LLMProvider, embedding_model: HuggingFaceEmbeddings) -> list[Ans]:
 		"""
-		Input: qna_items, the eval questions; query_llm_provider, the query LLM; embedding_model.
+		Input: eval_samples, the eval questions; query_llm_provider, the query LLM; embedding_model.
 		Output: one HyDE Ans per eval question, in the same order. A refusal is stored as I_DONT_KNOW; these are
 		counted and the run goes on.
 		What it does: asks the query LLM for a hypothetical answer passage of each question, then embeds it.
 		"""
 		hyde_ans_str_list = []
 		hyde_dont_know_count = 0
-		for qna_index in range(len(qna_items)):
-			qna_item = qna_items[qna_index]
+		for sample_index in range(len(eval_samples)):
+			eval_sample = eval_samples[sample_index]
 
 			# A refusal is stored as exactly I_DONT_KNOW, so retrieval can skip it
-			hyde_ans_str = query_llm_provider.generate("", HYDE_PROMPT.format(qus=qna_item.qus)).text.strip()
+			hyde_ans_str = query_llm_provider.generate("", HYDE_PROMPT.format(qus=eval_sample.qus)).text.strip()
 			hyde_ans_lower = hyde_ans_str.lower().replace("’", "'")
 			if hyde_ans_lower.startswith("i don't know") or hyde_ans_lower.startswith("i do not know"):
 				hyde_ans_str = constants.I_DONT_KNOW
 				hyde_dont_know_count = hyde_dont_know_count + 1
 			hyde_ans_str_list.append(hyde_ans_str)
 
-			if (qna_index + 1) % 20 == 0 or qna_index + 1 == len(qna_items):
-				print(f"HyDE answers written : {qna_index + 1} of {len(qna_items)}")
-		print(f"HyDE I don't know : {hyde_dont_know_count} of {len(qna_items)}")
+			if (sample_index + 1) % 20 == 0 or sample_index + 1 == len(eval_samples):
+				print(f"HyDE answers written : {sample_index + 1} of {len(eval_samples)}")
+		print(f"HyDE I don't know : {hyde_dont_know_count} of {len(eval_samples)}")
 
 		hyde_ans_vectors = embedding_model.embed_documents(hyde_ans_str_list)
 
 		hyde_ans_list = []
-		for qna_index in range(len(qna_items)):
+		for sample_index in range(len(eval_samples)):
 			hyde_ans_list.append(Ans(
-				ans=hyde_ans_str_list[qna_index],
-				embeddings=np.array(hyde_ans_vectors[qna_index], dtype=np.float32)
+				ans=hyde_ans_str_list[sample_index],
+				embeddings=np.array(hyde_ans_vectors[sample_index], dtype=np.float32)
 			))
 		return hyde_ans_list
 

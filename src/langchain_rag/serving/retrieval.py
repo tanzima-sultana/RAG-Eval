@@ -13,7 +13,7 @@ from common import paths_temp
 from common.args_temp import QueryArgs
 from common.args_temp import RetrievalArgs
 from schema.chunk import Chunk
-from schema.qna import Qna
+from schema.eval_sample import EvalSample
 from schema.index import Bm25Index
 from schema.index import FaissIndex
 from schema.query import Query
@@ -388,9 +388,9 @@ class Retrieval:
 
 		return hybrid_items
 
-	def rerank_retrieval(self, retrieved_items: list[Retrieved], chunks: dict[str, Chunk], qna_items: list[Qna], output_path: str) -> list[Retrieved]:
+	def rerank_retrieval(self, retrieved_items: list[Retrieved], chunks: dict[str, Chunk], eval_samples: list[EvalSample], output_path: str) -> list[Retrieved]:
 		"""
-		Input: retrieved_items, the plain results of this chunk type; chunks, a dict of chunk_id to Chunk; qna_items,
+		Input: retrieved_items, the plain results of this chunk type; chunks, a dict of chunk_id to Chunk; eval_samples,
 		the eval questions; output_path, the dataset's output folder.
 		Output: one reranked Retrieved per plain result, holding its best rerank_top_k chunks.
 		What it does: for each retrieval setup (retrieval type and index type), loads the saved reranked results, or
@@ -402,10 +402,10 @@ class Retrieval:
 		rerank_top_k = retrieval_args.rerank_top_k
 		cross_encoder_name = constants.CROSS_ENCODER_MODEL.replace("/", "-")
 
-		# 1. Find each eval question by its id. A Query has the same id as its Qna
+		# 1. Find each eval question by its id. A Query has the same id as its EvalSample
 		original_qus_by_id = {}
-		for qna_item in qna_items:
-			original_qus_by_id[qna_item.id] = qna_item.qus
+		for eval_sample in eval_samples:
+			original_qus_by_id[eval_sample.id] = eval_sample.qus
 
 		# 2. List the retrieval setups in order
 		setups = []

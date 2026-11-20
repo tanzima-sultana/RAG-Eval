@@ -22,7 +22,7 @@ class Ans:
 
 @dataclasses.dataclass
 class Query:
-	# Same as the Qna id, linking the query to its eval question
+	# Same as the EvalSample id, linking the query to its eval question
 	id: str
 	# Each query type is None when it is not in query_types of this run
 	original_qus: Qus | None

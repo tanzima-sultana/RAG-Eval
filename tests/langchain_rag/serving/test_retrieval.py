@@ -23,7 +23,7 @@ from schema.chunk import Chunk
 from schema.index import Bm25Index
 from schema.index import FaissIndex
 from schema.llm import LLMArgs
-from schema.qna import Qna
+from schema.eval_sample import EvalSample
 from schema.query import Ans
 from schema.query import Query
 from schema.query import Qus
@@ -505,7 +505,7 @@ def test_rerank_retrieval_sorts_by_cross_encoder_score_against_the_eval_question
     Input: a dense and a BM25 result whose chunk texts end with their cross-encoder score.
     Output: the reranked results and the questions the cross-encoder scored.
     What it does: checks each result is reranked on its own, keeps rerank_top_k chunks, is marked reranked, and every
-    query type is scored against the eval question from the QnA set.
+    query type is scored against the eval question from the eval dataset.
     """
     chunks = {
         "doc1_0": Chunk(id="doc1_0", text="chunk 0.1", size=2, type="fixed"),
@@ -516,13 +516,13 @@ def test_rerank_retrieval_sorts_by_cross_encoder_score_against_the_eval_question
         make_retrieved("rewritten", "dense", "faiss_flatip", ["doc1_0", "doc1_1", "doc2_0"]),
         make_retrieved("original", "bm25", "bm25", ["doc2_0", "doc1_0"]),
     ]
-    qna_items = [Qna(
+    eval_samples = [EvalSample(
         id="q1", qus="What is X?", ans="X.", context=["c"], qus_type="single_hop_specific_query_synthesizer",
         doc_ids=["doc1"], doc_paths=["doc1.pdf"], llm="anthropic", llm_model="claude-sonnet-5-5",
     )]
 
     reranked_items = Retrieval(make_retrieval_args(reranking=True), make_query_args(), 1).rerank_retrieval(
-        retrieved_items, chunks, qna_items, str(tmp_path)
+        retrieved_items, chunks, eval_samples, str(tmp_path)
     )
 
     assert len(reranked_items) == 2

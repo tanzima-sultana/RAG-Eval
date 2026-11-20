@@ -23,49 +23,49 @@ from ragas.utils import num_tokens_from_string
 
 from common import paths_temp
 from common.args_temp import OllamaArgs
-from common.args_temp import QnaArgs
+from common.args_temp import EvalDatasetArgs
 from common.constants import EVAL_MIN_DOCUMENT_TOKENS
 from common.constants import EVAL_PASSAGE_MATCH_CHARS
 from common.constants import SAMPLE_DOCUMENTS_SEED
 from llm_provider.llm_provider import LLMProvider
 from schema.document import Document
-from schema.qna import Qna
+from schema.eval_sample import EvalSample
 
 
-def save_qna(qna_path: str, qna_items: list[Qna]) -> None:
+def save_eval_dataset(eval_dataset_path: str, eval_samples: list[EvalSample]) -> None:
 	"""
-	Input: qna_path, the QnA file; qna_items, the QnA list.
+	Input: eval_dataset_path, the eval dataset file; eval_samples, the eval samples.
 	Output: nothing.
-	What it does: saves qna_items as JSON to a temporary file, then renames it to qna_path.
+	What it does: saves eval_samples as JSON to a temporary file, then renames it to eval_dataset_path.
 	"""
-	os.makedirs(os.path.dirname(qna_path), exist_ok=True)
+	os.makedirs(os.path.dirname(eval_dataset_path), exist_ok=True)
 
-	qna_dicts = []
-	for qna_item in qna_items:
-		qna_dicts.append(dataclasses.asdict(qna_item))
+	eval_sample_dicts = []
+	for eval_sample in eval_samples:
+		eval_sample_dicts.append(dataclasses.asdict(eval_sample))
 
-	temporary_file = qna_path + ".tmp"
+	temporary_file = eval_dataset_path + ".tmp"
 	with open(temporary_file, "w", encoding="utf-8") as f:
-		json.dump(qna_dicts, f, indent=2)
-	os.replace(temporary_file, qna_path)
+		json.dump(eval_sample_dicts, f, indent=2)
+	os.replace(temporary_file, eval_dataset_path)
 
 
-def load_qna(qna_path: str) -> list[Qna] | None:
+def load_eval_dataset(eval_dataset_path: str) -> list[EvalSample] | None:
 	"""
-	Input: qna_path, the QnA file.
-	Output: the saved list of Qna, or None if there is no file.
-	What it does: loads the QnA from qna_path.
+	Input: eval_dataset_path, the eval dataset file.
+	Output: the saved list of EvalSample, or None if there is no file.
+	What it does: loads the eval dataset from eval_dataset_path.
 	"""
-	if not os.path.exists(qna_path):
+	if not os.path.exists(eval_dataset_path):
 		return None
 
-	with open(qna_path, encoding="utf-8") as f:
-		qna_dicts = json.load(f)
+	with open(eval_dataset_path, encoding="utf-8") as f:
+		eval_sample_dicts = json.load(f)
 
-	qna_items = []
-	for qna_dict in qna_dicts:
-		qna_items.append(Qna(**qna_dict))
-	return qna_items
+	eval_samples = []
+	for eval_sample_dict in eval_sample_dicts:
+		eval_samples.append(EvalSample(**eval_sample_dict))
+	return eval_samples
 
 
 class ReplyDidNotFinishError(Exception):
@@ -208,64 +208,64 @@ def apply_transforms_dropping_failed_nodes(knowledge_graph: KnowledgeGraph, tran
 	return knowledge_graph
 
 
-class QnaSet:
-	def __init__(self, qna_args: QnaArgs, ollama_args: OllamaArgs):
+class EvalDataset:
+	def __init__(self, eval_dataset_args: EvalDatasetArgs, ollama_args: OllamaArgs):
 		"""
-		Input: qna_args, the QnA settings; ollama_args, the Ollama settings, used only if a QnA model is an Ollama model.
+		Input: eval_dataset_args, the eval dataset settings; ollama_args, the Ollama settings, used only if an eval dataset model is an Ollama model.
 		Output: nothing.
 		What it does: stores both settings.
 		"""
-		self.qna_args = qna_args
+		self.eval_dataset_args = eval_dataset_args
 		self.ollama_args = ollama_args
 
 	def validate(self) -> None:
 		"""
 		Input: none.
 		Output: nothing.
-		What it does: raises ValueError if a QnA setting is not valid. The two LLMs are validated by LLMProvider.
+		What it does: raises ValueError if an eval dataset setting is not valid. The two LLMs are validated by LLMProvider.
 		"""
-		qna_args = self.qna_args
+		eval_dataset_args = self.eval_dataset_args
 
-		if qna_args.qna_embedding_model.strip() == "":
-			raise ValueError("qna_embedding_model is empty. Use a SentenceTransformer model name, e.g. all-MiniLM-L6-v2.")
+		if eval_dataset_args.eval_dataset_embedding_model.strip() == "":
+			raise ValueError("eval_dataset_embedding_model is empty. Use a SentenceTransformer model name, e.g. all-MiniLM-L6-v2.")
 
-		if qna_args.n_sample_documents <= 0:
-			raise ValueError(f"n_sample_documents ({qna_args.n_sample_documents}) must be greater than 0.")
+		if eval_dataset_args.n_sample_documents <= 0:
+			raise ValueError(f"n_sample_documents ({eval_dataset_args.n_sample_documents}) must be greater than 0.")
 
-		if qna_args.n_sample_evals <= 0:
-			raise ValueError(f"n_sample_evals ({qna_args.n_sample_evals}) must be greater than 0.")
+		if eval_dataset_args.n_sample_evals <= 0:
+			raise ValueError(f"n_sample_evals ({eval_dataset_args.n_sample_evals}) must be greater than 0.")
 
-	def compute_qna(self, documents: dict[str, Document], output_path: str) -> list[Qna]:
+	def compute_eval_dataset(self, documents: dict[str, Document], output_path: str) -> list[EvalSample]:
 		"""
 		Input: documents, a dict of doc_id to Document; output_path, the dataset's output folder.
-		Output: a list of Qna.
-		What it does: loads the saved QnA. Only if there is none, it generates the QnA with RAGAS and saves it.
+		Output: a list of EvalSample.
+		What it does: loads the saved eval dataset. Only if there is none, it generates the eval dataset with RAGAS and saves it.
 		"""
 		# 1. Validate the settings
 		self.validate()
 
-		# 2. Load the saved QnA. No LLM is built, so a cached run needs no API key or ALLOW_PAID_API
-		qna_path = paths_temp.get_qna_path(output_path, self.qna_args)
-		print(f"QnA file : {qna_path}")
-		qna_items = load_qna(qna_path)
-		if qna_items is not None:
-			print(f"QnA : {len(qna_items)} (all from cache)")
-			return qna_items
+		# 2. Load the saved eval dataset. No LLM is built, so a cached run needs no API key or ALLOW_PAID_API
+		eval_dataset_path = paths_temp.get_eval_dataset_path(output_path, self.eval_dataset_args)
+		print(f"Eval dataset file : {eval_dataset_path}")
+		eval_samples = load_eval_dataset(eval_dataset_path)
+		if eval_samples is not None:
+			print(f"Eval dataset : {len(eval_samples)} (all from cache)")
+			return eval_samples
 
-		# 3. Generate and save the QnA
-		print(f"No saved QnA, generating {self.qna_args.n_sample_evals} items with RAGAS")
-		qna_items = self.generate_qna(documents, output_path)
-		save_qna(qna_path, qna_items)
-		return qna_items
+		# 3. Generate and save the eval dataset
+		print(f"No saved eval dataset, generating {self.eval_dataset_args.n_sample_evals} items with RAGAS")
+		eval_samples = self.generate_eval_dataset(documents, output_path)
+		save_eval_dataset(eval_dataset_path, eval_samples)
+		return eval_samples
 
-	def generate_qna(self, documents: dict[str, Document], output_path: str) -> list[Qna]:
+	def generate_eval_dataset(self, documents: dict[str, Document], output_path: str) -> list[EvalSample]:
 		"""
 		Input: documents, a dict of doc_id to Document; output_path, the dataset's output folder.
-		Output: a list of Qna. Raises ValueError if RAGAS generates none.
+		Output: a list of EvalSample. Raises ValueError if RAGAS generates none.
 		What it does: samples documents long enough for RAGAS, builds or loads the RAGAS knowledge graph, generates
-		QnA from it, prints the LLM cost, and links each QnA to its source documents.
+		eval dataset from it, prints the LLM cost, and links each eval sample to its source documents.
 		"""
-		qna_args = self.qna_args
+		eval_dataset_args = self.eval_dataset_args
 
 		# 1. Keep documents long enough for RAGAS
 		eligible_doc_ids = []
@@ -276,15 +276,15 @@ class QnaSet:
 		eligible_doc_ids.sort()
 		print(f"Documents with more than {EVAL_MIN_DOCUMENT_TOKENS} tokens : {len(eligible_doc_ids)} of {len(documents)}")
 
-		if len(eligible_doc_ids) < qna_args.n_sample_documents:
+		if len(eligible_doc_ids) < eval_dataset_args.n_sample_documents:
 			raise ValueError(
 				f"only {len(eligible_doc_ids)} of {len(documents)} documents have more than "
-				f"{EVAL_MIN_DOCUMENT_TOKENS} tokens; n_sample_documents ({qna_args.n_sample_documents}) is too large"
+				f"{EVAL_MIN_DOCUMENT_TOKENS} tokens; n_sample_documents ({eval_dataset_args.n_sample_documents}) is too large"
 			)
 
 		# 2. Sample documents
 		random_generator = random.Random(SAMPLE_DOCUMENTS_SEED)
-		sampled_doc_ids = random_generator.sample(eligible_doc_ids, qna_args.n_sample_documents)
+		sampled_doc_ids = random_generator.sample(eligible_doc_ids, eval_dataset_args.n_sample_documents)
 
 		sampled_documents = {}
 		for doc_id in sampled_doc_ids:
@@ -305,21 +305,21 @@ class QnaSet:
 		# LLMProvider validates each, so a paid model needs ALLOW_PAID_API=1.
 		# RAGAS sets temperature 0.01 by default, which the Claude 5.5 models reject, so the model's own temperature is
 		# kept. check_reply_finished raises with the stop reason when a reply does not finish normally
-		kg_llm_provider = LLMProvider(qna_args.qna_kg_llm_args, self.ollama_args)
-		question_llm_provider = LLMProvider(qna_args.qna_llm_args, self.ollama_args)
+		kg_llm_provider = LLMProvider(eval_dataset_args.eval_dataset_kg_llm_args, self.ollama_args)
+		question_llm_provider = LLMProvider(eval_dataset_args.eval_dataset_llm_args, self.ollama_args)
 		ragas_kg_llm = LangchainLLMWrapper(kg_llm_provider.chat_model, bypass_temperature=True, is_finished_parser=check_reply_finished)
 		ragas_question_llm = LangchainLLMWrapper(question_llm_provider.chat_model, bypass_temperature=True, is_finished_parser=check_reply_finished)
 
 		device = "cuda" if torch.cuda.is_available() else "cpu"
 		huggingface_embeddings = HuggingFaceEmbeddings(
-			model_name=qna_args.qna_embedding_model,
+			model_name=eval_dataset_args.eval_dataset_embedding_model,
 			model_kwargs={"device": device},
 			encode_kwargs={"normalize_embeddings": True}
 		)
 		ragas_embeddings = LangchainEmbeddingsWrapper(huggingface_embeddings)
 
 		# 5. Build or load the knowledge graph. Saved after building, so a failed or repeated run does not pay again
-		kg_path = paths_temp.get_qna_kg_path(output_path, qna_args)
+		kg_path = paths_temp.get_eval_dataset_kg_path(output_path, eval_dataset_args)
 		if os.path.exists(kg_path):
 			knowledge_graph = KnowledgeGraph.load(kg_path)
 			print(f"Knowledge graph loaded from cache : {kg_path}")
@@ -353,27 +353,27 @@ class QnaSet:
 			embedding_model=ragas_embeddings,
 			knowledge_graph=knowledge_graph
 		)
-		testset = testset_generator.generate(testset_size=qna_args.n_sample_evals)
+		testset = testset_generator.generate(testset_size=eval_dataset_args.n_sample_evals)
 		kg_cost = kg_llm_provider.compute_cost()
 		question_cost = question_llm_provider.compute_cost()
-		print(f"QnA total cost : ${kg_cost.total_cost + question_cost.total_cost:.4f}")
+		print(f"Eval dataset total cost : ${kg_cost.total_cost + question_cost.total_cost:.4f}")
 
 		if len(testset.samples) == 0:
 			raise ValueError(
-				f"RAGAS generated 0 QnA from {len(sampled_documents)} sampled documents, so nothing is saved. "
+				f"RAGAS generated 0 eval samples from {len(sampled_documents)} sampled documents, so nothing is saved. "
 				"The sampled documents may be too short for RAGAS; try a larger n_sample_documents."
 			)
 
-		# 7. Convert the test set to Qna, linking each item to its source documents.
+		# 7. Convert the test set to EvalSample, linking each item to its source documents.
 		# RAGAS may rejoin a long chunk's words with single spaces, so whitespace is collapsed on both sides before matching
 		collapsed_document_texts = {}
 		for doc_id in sampled_documents:
 			collapsed_document_texts[doc_id] = " ".join(sampled_documents[doc_id].text.split())
 
 		# The model string is "{provider}/{model}", e.g. anthropic/claude-sonnet-5-5
-		qna_llm, qna_llm_model = qna_args.qna_llm_args.llm_model.split("/", 1)
+		eval_dataset_llm, eval_dataset_llm_model = eval_dataset_args.eval_dataset_llm_args.llm_model.split("/", 1)
 
-		qna_items = []
+		eval_samples = []
 		sample_number = 0
 		for testset_sample in testset.samples:
 			ragas_sample = testset_sample.eval_sample
@@ -401,7 +401,7 @@ class QnaSet:
 							doc_ids.append(doc_id)
 							doc_paths.append(sampled_documents[doc_id].metadata.source)
 
-			qna_item = Qna(
+			eval_sample = EvalSample(
 				id=f"eval_qna_{sample_number}",
 				qus=ragas_sample.user_input,
 				ans=ragas_sample.reference,
@@ -409,13 +409,13 @@ class QnaSet:
 				qus_type=testset_sample.synthesizer_name,
 				doc_ids=doc_ids,
 				doc_paths=doc_paths,
-				llm=qna_llm,
-				llm_model=qna_llm_model
+				llm=eval_dataset_llm,
+				llm_model=eval_dataset_llm_model
 			)
-			qna_items.append(qna_item)
+			eval_samples.append(eval_sample)
 			sample_number = sample_number + 1
 
-		if len(qna_items) < qna_args.n_sample_evals:
-			print(f"Warning : Generated {len(qna_items)} of {qna_args.n_sample_evals} QnA. Saving the ones generated.")
+		if len(eval_samples) < eval_dataset_args.n_sample_evals:
+			print(f"Warning : Generated {len(eval_samples)} of {eval_dataset_args.n_sample_evals} eval samples. Saving the ones generated.")
 
-		return qna_items
+		return eval_samples

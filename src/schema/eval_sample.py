@@ -2,8 +2,8 @@ import dataclasses
 
 
 @dataclasses.dataclass
-class Qna:
-	# One generated question-answer item used for evaluation. The fields match the saved QnA JSON
+class EvalSample:
+	# One generated question-answer item used for evaluation. The fields match the saved eval dataset JSON
 	id: str
 	# RAGAS user_input
 	qus: str

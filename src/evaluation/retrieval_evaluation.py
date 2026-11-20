@@ -2,7 +2,7 @@ import math
 
 from common import constants
 from schema.chunk import Chunk
-from schema.qna import Qna
+from schema.eval_sample import EvalSample
 from schema.retrieved import Retrieved
 from schema.retrieved_eval import Eval
 from schema.retrieved_eval import RetrievedEval
@@ -38,15 +38,15 @@ def compute_eval(relevant_count: int, first_relevant_rank: int, dcg: float, reca
 
 
 class RetrievalEvaluation:
-	def __init__(self, qna_items: list[Qna]):
+	def __init__(self, eval_samples: list[EvalSample]):
 		"""
-		Input: qna_items, the eval questions.
+		Input: eval_samples, the eval questions.
 		Output: nothing.
 		What it does: stores each eval question by its id, so each Retrieved finds its question by retrieved.id.
 		"""
-		self.qna_items_by_id = {}
-		for qna_item in qna_items:
-			self.qna_items_by_id[qna_item.id] = qna_item
+		self.eval_samples_by_id = {}
+		for eval_sample in eval_samples:
+			self.eval_samples_by_id[eval_sample.id] = eval_sample
 
 	def compute_retrieved_evals(self, retrieved_items: list[Retrieved], chunks: dict[str, Chunk]) -> list[RetrievedEval]:
 		"""
@@ -56,7 +56,7 @@ class RetrievalEvaluation:
 		"""
 		retrieved_evals = []
 		for retrieved in retrieved_items:
-			qna_item = self.qna_items_by_id[retrieved.id]
+			eval_sample = self.eval_samples_by_id[retrieved.id]
 
 			# The number of chunks the retriever was asked for. Missing chunks count as not relevant
 			if retrieved.reranking:
@@ -66,23 +66,23 @@ class RetrievalEvaluation:
 
 			retrieved_evals.append(RetrievedEval(
 				retrieved=retrieved,
-				chunk_eval=self.chunk_eval(retrieved, chunks, qna_item, k),
-				doc_eval=self.doc_eval(retrieved, qna_item, k)
+				chunk_eval=self.chunk_eval(retrieved, chunks, eval_sample, k),
+				doc_eval=self.doc_eval(retrieved, eval_sample, k)
 			))
 
 		print(f"Retrieved scored : {len(retrieved_evals)}")
 		return retrieved_evals
 
-	def chunk_eval(self, retrieved: Retrieved, chunks: dict[str, Chunk], qna_item: Qna, k: int) -> Eval:
+	def chunk_eval(self, retrieved: Retrieved, chunks: dict[str, Chunk], eval_sample: EvalSample, k: int) -> Eval:
 		"""
-		Input: retrieved; chunks; qna_item, its eval question; k.
+		Input: retrieved; chunks; eval_sample, its eval question; k.
 		Output: the Eval at chunk level.
-		What it does: a chunk is relevant if it comes from a Qna doc and at least CHUNK_CONTEXT_OVERLAP_THRESHOLD of
+		What it does: a chunk is relevant if it comes from an EvalSample doc and at least CHUNK_CONTEXT_OVERLAP_THRESHOLD of
 		its words are in one of the context passages. Recall is the share of context passages found.
 		"""
 		# 1. Split each context passage into its lowercase words
 		passage_word_sets = []
-		for passage in qna_item.context:
+		for passage in eval_sample.context:
 			passage_word_sets.append(set(passage.lower().split()))
 
 		# 2. Go over the chunks best first, counting the relevant ones and the passages they come from
@@ -91,7 +91,7 @@ class RetrievalEvaluation:
 		dcg = 0.0
 		found_passage_positions = set()
 		for position in range(len(retrieved.chunk_ids)):
-			if retrieved.doc_ids[position] not in qna_item.doc_ids:
+			if retrieved.doc_ids[position] not in eval_sample.doc_ids:
 				continue
 
 			chunk_word_set = set(chunks[retrieved.chunk_ids[position]].text.lower().split())
@@ -120,20 +120,20 @@ class RetrievalEvaluation:
 			recall = len(found_passage_positions) / len(passage_word_sets)
 		return compute_eval(relevant_count, first_relevant_rank, dcg, recall, k)
 
-	def doc_eval(self, retrieved: Retrieved, qna_item: Qna, k: int) -> Eval:
+	def doc_eval(self, retrieved: Retrieved, eval_sample: EvalSample, k: int) -> Eval:
 		"""
-		Input: retrieved; qna_item, its eval question; k.
+		Input: retrieved; eval_sample, its eval question; k.
 		Output: the Eval at doc level.
-		What it does: a chunk is relevant if it comes from a Qna doc. Recall is the share of Qna docs found.
+		What it does: a chunk is relevant if it comes from an EvalSample doc. Recall is the share of EvalSample docs found.
 		"""
-		# 1. Go over the chunks best first, counting the relevant ones and the Qna docs they come from
+		# 1. Go over the chunks best first, counting the relevant ones and the EvalSample docs they come from
 		relevant_count = 0
 		first_relevant_rank = 0
 		dcg = 0.0
 		found_doc_ids = set()
 		for position in range(len(retrieved.doc_ids)):
 			doc_id = retrieved.doc_ids[position]
-			if doc_id not in qna_item.doc_ids:
+			if doc_id not in eval_sample.doc_ids:
 				continue
 
 			rank = position + 1
@@ -145,6 +145,6 @@ class RetrievalEvaluation:
 
 		# 2. Work out the metrics
 		recall = 0.0
-		if len(qna_item.doc_ids) > 0:
-			recall = len(found_doc_ids) / len(set(qna_item.doc_ids))
+		if len(eval_sample.doc_ids) > 0:
+			recall = len(found_doc_ids) / len(set(eval_sample.doc_ids))
 		return compute_eval(relevant_count, first_relevant_rank, dcg, recall, k)

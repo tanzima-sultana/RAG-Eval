@@ -8,7 +8,7 @@ from common.args_temp import make_chunking_args
 from common.args_temp import make_embedding_args
 from common.args_temp import make_index_args
 from common.args_temp import make_vectordb_args
-from common.args_temp import make_qna_args
+from common.args_temp import make_eval_dataset_args
 from common.args_temp import make_ollama_args
 from common.args_temp import make_query_args
 from common.args_temp import make_retrieval_args
@@ -17,7 +17,7 @@ from langchain_rag.build.chunking import Chunking
 from langchain_rag.build.embedding import Embedding
 from langchain_rag.build.indexing import Indexing
 from langchain_rag.build.indexing_vectordb import IndexingVectorDb
-from evaluation.qna_set import QnaSet
+from evaluation.eval_dataset import EvalDataset
 from langchain_rag.serving.query_transformation import QueryTransformation
 from langchain_rag.serving.retrieval import Retrieval
 from evaluation.retrieval_evaluation import RetrievalEvaluation
@@ -27,7 +27,7 @@ def run_langchain_rag(args) -> None:
 	"""
 	Input: args, the parsed args.
 	Output: nothing.
-	What it does: runs the LangChain RAG. For now ingestion, QnA, query transformation, then per chunk type the build
+	What it does: runs the LangChain RAG. For now ingestion, eval dataset, query transformation, then per chunk type the build
 	layers and retrieval.
 	"""
 	# 1. Ingestion
@@ -42,23 +42,23 @@ def run_langchain_rag(args) -> None:
 
 	output_path = paths_temp.get_output_path(args.output_path, LANGCHAIN_FRAMEWORK, args.dataset_name)
 
-	# 2. QnA, once for the dataset
-	print("\n\nQnA")
-	qna_args = make_qna_args(args)
+	# 2. Eval dataset, once for the dataset
+	print("\n\nEval dataset")
+	eval_dataset_args = make_eval_dataset_args(args)
 	ollama_args = make_ollama_args(args)
 
 	s2 = time.time()
-	qna_items = QnaSet(qna_args, ollama_args).compute_qna(documents, output_path)
+	eval_samples = EvalDataset(eval_dataset_args, ollama_args).compute_eval_dataset(documents, output_path)
 	e2 = time.time() - s2
-	print("\nQnA time : ", e2)
+	print("\nEval dataset time : ", e2)
 
-	# 3. Query transformation, once for the QnA set
+	# 3. Query transformation, once for the eval dataset
 	print("\n\nQuery transformation")
 	query_args = make_query_args(args)
 
 	s3 = time.time()
 	query_transformation = QueryTransformation(query_args, ollama_args)
-	queries = query_transformation.compute_queries(qna_items, qna_args, output_path)
+	queries = query_transformation.compute_queries(eval_samples, eval_dataset_args, output_path)
 	e3 = time.time() - s3
 	print("\nQuery transformation time : ", e3)
 
@@ -67,7 +67,7 @@ def run_langchain_rag(args) -> None:
 	val_queries, test_queries = query_transformation.split_queries(queries)
 
 	# Scores of every plain and reranked result, of every chunk type
-	retrieval_evaluation = RetrievalEvaluation(qna_items)
+	retrieval_evaluation = RetrievalEvaluation(eval_samples)
 	retrieved_evals = []
 
 	# 5. Chunking, once per chunk type
@@ -142,7 +142,7 @@ def run_langchain_rag(args) -> None:
 		if retrieval_args.reranking:
 			print("\n\nReranking")
 			s12 = time.time()
-			reranked_retrieved_items = retrieval.rerank_retrieval(retrieved_items, chunks, qna_items, output_path)
+			reranked_retrieved_items = retrieval.rerank_retrieval(retrieved_items, chunks, eval_samples, output_path)
 			retrieved_items.extend(reranked_retrieved_items)
 			e12 = time.time() - s12
 			print(f"Reranked results : {len(reranked_retrieved_items)}")

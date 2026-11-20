@@ -24,8 +24,8 @@ class Eval:
 class RetrievedEval:
 	# The Retrieved that was scored: its setup and its chunks
 	retrieved: Retrieved
-	# A chunk is relevant if it is from a Qna doc and overlaps a Qna context passage.
+	# A chunk is relevant if it is from an EvalSample doc and overlaps an EvalSample context passage.
 	# Recall is the share of context passages found
 	chunk_eval: Eval
-	# A chunk is relevant if it is from a Qna doc. Recall is the share of Qna docs found
+	# A chunk is relevant if it is from an EvalSample doc. Recall is the share of EvalSample docs found
 	doc_eval: Eval

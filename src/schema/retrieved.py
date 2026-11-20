@@ -4,7 +4,7 @@ import dataclasses
 @dataclasses.dataclass
 class Retrieved:
 	# The chunks found for one eval question with one query type and one retrieval setup
-	# Same as the Qna and Query id, linking the result to its eval question
+	# Same as the EvalSample and Query id, linking the result to its eval question
 	id: str
 	# original, rewritten, multi or hyde
 	query_type: str

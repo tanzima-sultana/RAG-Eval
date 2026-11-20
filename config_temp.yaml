@@ -39,11 +39,11 @@ llm_provider:
   ollama_api_base: http://localhost:11434   # Used only for Ollama models
   ollama_context_length: 32768    # Used only for Ollama models. Ollama's default of 4096 cuts long RAGAS prompts
 
-# 6. QnA
-qna:
-  qna_llm_model: anthropic/claude-sonnet-5-5     # Writes the eval questions and answers
-  qna_kg_llm_model: anthropic/claude-haiku-5-5   # Builds the RAGAS knowledge graph
-  qna_embedding_model: all-MiniLM-L6-v2          # Local embedding model RAGAS uses to build its knowledge graph
+# 6. Eval dataset
+eval_dataset:
+  eval_dataset_llm_model: anthropic/claude-sonnet-5-5     # Writes the eval questions and answers
+  eval_dataset_kg_llm_model: anthropic/claude-haiku-5-5   # Builds the RAGAS knowledge graph
+  eval_dataset_embedding_model: all-MiniLM-L6-v2          # Local embedding model RAGAS uses to build its knowledge graph
   n_sample_documents: 100         # Documents randomly picked for RAGAS to generate the QnA from
   n_sample_evals: 200             # QnA items to generate
 
