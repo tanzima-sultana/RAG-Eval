@@ -4,7 +4,7 @@ from common import paths
 from common.args import parse_eval_dataset_config
 from common.args import make_eval_dataset_config_args
 from common.args import make_ollama_args
-from evaluation.eval_dataset import EvalDataset
+from evaluation.eval_dataset.eval_dataset import EvalDataset
 
 
 def run_eval_dataset(args) -> None:
