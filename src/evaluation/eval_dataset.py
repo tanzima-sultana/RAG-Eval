@@ -258,6 +258,25 @@ class EvalDataset:
 		save_eval_dataset(eval_dataset_path, eval_samples)
 		return eval_samples
 
+	def load_saved_eval_dataset(self, output_path: str) -> list[EvalSample]:
+		"""
+		Input: output_path, the dataset's output folder.
+		Output: a list of EvalSample.
+		What it does: loads the saved eval dataset, and raises ValueError if there is none. It never generates one.
+		"""
+		self.validate()
+
+		eval_dataset_path = paths_temp.get_eval_dataset_path(output_path, self.eval_dataset_args)
+		print(f"Eval dataset file : {eval_dataset_path}")
+		eval_samples = load_eval_dataset(eval_dataset_path)
+		if eval_samples is None:
+			raise ValueError(
+				f"No saved eval dataset at {eval_dataset_path}. Run scripts/eval_dataset.sh first to generate it."
+			)
+
+		print(f"Eval dataset : {len(eval_samples)} (all from cache)")
+		return eval_samples
+
 	def generate_eval_dataset(self, documents: dict[str, Document], output_path: str) -> list[EvalSample]:
 		"""
 		Input: documents, a dict of doc_id to Document; output_path, the dataset's output folder.

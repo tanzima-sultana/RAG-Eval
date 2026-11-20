@@ -165,6 +165,40 @@ def test_compute_eval_dataset_without_saved_eval_dataset_stops_before_paid_call(
     assert not os.path.exists(os.path.join(output_path, "eval_dataset"))
 
 
+# ---------- load_saved_eval_dataset ----------
+
+
+def test_load_saved_eval_dataset_returns_saved_eval_dataset(tmp_path):
+    """
+    Input: a saved eval dataset file at the eval dataset path.
+    Output: the eval samples.
+    What it does: checks the saved eval dataset is returned.
+    """
+    eval_dataset_args = make_eval_dataset_args()
+    output_path = str(tmp_path)
+    eval_samples = [make_eval_sample(0), make_eval_sample(1)]
+    save_eval_dataset(paths_temp.get_eval_dataset_path(output_path, eval_dataset_args), eval_samples)
+
+    loaded_eval_samples = EvalDataset(eval_dataset_args, make_ollama_args()).load_saved_eval_dataset(output_path)
+
+    assert loaded_eval_samples == eval_samples
+
+
+def test_load_saved_eval_dataset_raises_without_saved_eval_dataset(tmp_path, monkeypatch):
+    """
+    Input: no saved eval dataset, and ALLOW_PAID_API set.
+    Output: ValueError, and the eval dataset folder.
+    What it does: checks it never generates, even when paid calls are allowed, and saves nothing.
+    """
+    monkeypatch.setenv("ALLOW_PAID_API", "1")
+    output_path = str(tmp_path)
+
+    with pytest.raises(ValueError, match="scripts/eval_dataset.sh"):
+        EvalDataset(make_eval_dataset_args(), make_ollama_args()).load_saved_eval_dataset(output_path)
+
+    assert not os.path.exists(os.path.join(output_path, "eval_dataset"))
+
+
 def test_generate_eval_dataset_raises_when_too_few_documents_are_long_enough(tmp_path, make_document):
     """
     Input: one short document with n_sample_documents 1.
