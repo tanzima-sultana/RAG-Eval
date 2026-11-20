@@ -84,6 +84,51 @@ class IndexingVectorDb:
 		if vectordb_args.qdrant_batch_size <= 0:
 			raise ValueError(f"qdrant_batch_size ({vectordb_args.qdrant_batch_size}) must be greater than 0.")
 
+	def load_saved_vectordb(self, chunks: dict[str, Chunk], collection_name: str) -> VectorDb:
+		"""
+		Input: chunks, a dict of chunk_id to Chunk, the chunks the collection must hold; collection_name, from the build
+		manifest.
+		Output: a VectorDb holding a LangChain QdrantVectorStore.
+		What it does: connects to the collection the build filled, and raises FileNotFoundError if it does not exist or
+		holds different chunks. It never creates or uploads.
+		"""
+		chunk_ids = []
+		for chunk_id in chunks:
+			chunk_ids.append(chunk_id)
+
+		# 1. Connect to the server. QdrantClient does not connect until the first request, so one is made here
+		qdrant_url = self.vectordb_args.qdrant_url
+		qdrant_client = QdrantClient(url=qdrant_url)
+		try:
+			qdrant_client.get_collections()
+		except Exception as error:
+			raise ConnectionError(
+				f"Qdrant server is not reachable at {qdrant_url}. Start it with the qdrant-docker skill."
+			) from error
+
+		# 2. The collection must hold exactly these chunks
+		if not qdrant_collection_holds_chunks(qdrant_client, collection_name, chunk_ids):
+			raise FileNotFoundError(
+				f"No Qdrant collection {collection_name} holding these chunks. Run scripts/build_temp.sh first."
+			)
+		print(f"Qdrant collection loaded from cache : {len(chunk_ids)} points")
+
+		# 3. Wrap the collection in a LangChain QdrantVectorStore
+		vector_store = QdrantVectorStore(
+			client=qdrant_client,
+			collection_name=collection_name,
+			embedding=self.embedding_model,
+			distance=Distance.COSINE
+		)
+		dimension = qdrant_client.get_collection(collection_name).config.params.vectors.size
+
+		return VectorDb(
+			vectordb_type=self.vectordb_args.vectordb_type,
+			vector_store=vector_store,
+			collection_name=collection_name,
+			dimension=dimension
+		)
+
 	def compute_vectordb(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> VectorDb:
 		"""
 		Input: chunks, a dict of chunk_id to Chunk; embeddings, a dict of chunk_id to Embedded; output_path, the

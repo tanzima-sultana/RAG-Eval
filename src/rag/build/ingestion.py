@@ -126,6 +126,23 @@ def validate(ingestion_args: IngestionArgs) -> None:
 		)
 
 
+def load_saved_documents(documents_path: str, dataset_size: int) -> dict[str, Document]:
+	"""
+	Input: documents_path, the documents folder from the build manifest; dataset_size.
+	Output: a dict of doc_id to Document.
+	What it does: loads the documents the build saved, and raises FileNotFoundError if they are not saved. It never
+	reads the input files.
+	"""
+	documents = load_documents(documents_path, dataset_size)
+	if documents is None:
+		raise FileNotFoundError(
+			f"No saved documents for dataset_size {dataset_size} in {documents_path}. Run scripts/build_temp.sh first."
+		)
+
+	print(f"Documents : {len(documents)} (all from cache)")
+	return documents
+
+
 def ingestion(ingestion_args: IngestionArgs) -> dict[str, Document]:
 	"""
 	Input: ingestion_args, the ingestion settings.

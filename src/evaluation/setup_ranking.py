@@ -1,6 +1,13 @@
+import dataclasses
+import json
+import os
+
+from common import paths_temp
+from schema.manifest import BuildManifest
 from schema.retrieved_eval import RetrievedEval
 from schema.retrieved_eval import SetupScore
 from schema.setup import Setup
+from schema.setup import SetupRecord
 
 
 def rank_setups(retrieved_evals: list[RetrievedEval], n_top_setups: int) -> list[Setup]:
@@ -70,3 +77,74 @@ def rank_setups(retrieved_evals: list[RetrievedEval], n_top_setups: int) -> list
 	for setup_score in ranked_setup_scores[:n_top_setups]:
 		best_setups.append(setup_score.setup)
 	return best_setups
+
+
+def save_best_setups(best_setups: list[Setup], manifest: BuildManifest, output_path: str) -> list[SetupRecord]:
+	"""
+	Input: best_setups, best first; manifest, the build manifest, which says where each index and chunk folder is;
+	output_path, the dataset's output folder.
+	Output: one SetupRecord per setup, in the same order.
+	What it does: takes each setup's index location(s) and chunk folder from the manifest, and saves the records as
+	JSON through a temporary file.
+	"""
+	setup_records = []
+	for setup in best_setups:
+		# The chunk folder of the setup's chunk type
+		chunk_path = None
+		for chunk_entry in manifest.chunk_entries:
+			if chunk_entry.chunk_type == setup.chunk_type:
+				chunk_path = chunk_entry.chunk_path
+		if chunk_path is None:
+			raise ValueError(f"The build manifest has no {setup.chunk_type} chunks.")
+
+		# Hybrid's index_type is the dense and BM25 index types joined with "+", so it gets two locations in that order
+		index_paths = []
+		for index_type in setup.index_type.split("+"):
+			index_location = None
+			for index_entry in manifest.index_entries:
+				if index_entry.chunk_type == setup.chunk_type and index_entry.index_type == index_type:
+					index_location = index_entry.location
+			if index_location is None:
+				raise ValueError(f"The build manifest has no {setup.chunk_type} {index_type} index.")
+			index_paths.append(index_location)
+
+		setup_records.append(SetupRecord(
+			setup=setup,
+			index_paths=tuple(index_paths),
+			chunk_path=chunk_path
+		))
+
+	best_setups_file = paths_temp.get_best_setups_path(output_path)
+	os.makedirs(os.path.dirname(best_setups_file), exist_ok=True)
+	setup_record_dicts = []
+	for setup_record in setup_records:
+		setup_record_dicts.append(dataclasses.asdict(setup_record))
+	with open(best_setups_file + ".tmp", "w", encoding="utf-8") as f:
+		json.dump(setup_record_dicts, f, indent=2)
+	os.replace(best_setups_file + ".tmp", best_setups_file)
+
+	print(f"Best setups saved : {best_setups_file}")
+	return setup_records
+
+
+def load_best_setups(output_path: str) -> list[SetupRecord]:
+	"""
+	Input: output_path, the dataset's output folder.
+	Output: the saved SetupRecord list, best first.
+	What it does: reads the best setups JSON, and raises FileNotFoundError if the benchmark has not saved it.
+	"""
+	best_setups_file = paths_temp.get_best_setups_path(output_path)
+	if not os.path.exists(best_setups_file):
+		raise FileNotFoundError(f"No saved best setups at {best_setups_file}. Run scripts/benchmark_temp.sh first.")
+
+	with open(best_setups_file, encoding="utf-8") as f:
+		setup_record_dicts = json.load(f)
+
+	setup_records = []
+	for setup_record_dict in setup_record_dicts:
+		setup_records.append(SetupRecord(
+			setup=Setup(**setup_record_dict["setup"]),
+			index_paths=tuple(setup_record_dict["index_paths"]),
+			chunk_path=setup_record_dict["chunk_path"]
+		))
+	return setup_records

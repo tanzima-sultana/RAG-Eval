@@ -67,6 +67,8 @@ class Embedding:
 		Output: nothing.
 		What it does: stores embedding_args and loads LangChain's HuggingFaceEmbeddings.
 		"""
+		# The folder compute_embeddings saved to, for the build manifest
+		self.embedding_path = None
 		self.embedding_args = embedding_args
 
 		# Batches of 256, each vector normalized to length 1
@@ -88,6 +90,7 @@ class Embedding:
 		# Saved per document. A chunk id is "{doc_id}_{n}", so its doc_id is the part before the last "_"
 		embedding_path = paths_temp.get_embedding_path(output_path, self.embedding_args)
 		print(f"Embedding folder : {embedding_path}")
+		self.embedding_path = embedding_path
 		cached_embeddings = {}
 		uncached_chunk_ids = []
 		uncached_chunk_texts = []

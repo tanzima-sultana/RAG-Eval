@@ -160,6 +160,41 @@ class Indexing:
 		if index_args.bm25_tokenizer != "whitespace":
 			raise ValueError(f"bm25_tokenizer ({index_args.bm25_tokenizer}) is not supported. Use \"whitespace\".")
 
+	def load_saved_index(self, chunks: dict[str, Chunk], index_folder: str) -> FaissIndex | Bm25Index:
+		"""
+		Input: chunks, a dict of chunk_id to Chunk, the chunks the index must hold; index_folder, the index folder from
+		the build manifest.
+		Output: a FaissIndex or a Bm25Index.
+		What it does: loads the index the build saved, and raises FileNotFoundError if it is not saved or holds
+		different chunks. It never builds.
+		"""
+		index_type = self.index_args.index_type
+		chunk_ids = []
+		for chunk_id in chunks:
+			chunk_ids.append(chunk_id)
+
+		if index_type == constants.BM25_INDEX:
+			retriever = load_bm25_index(index_folder, chunk_ids)
+			if retriever is None:
+				raise FileNotFoundError(
+					f"No saved BM25 index holding these chunks in {index_folder}. Run scripts/build_temp.sh first."
+				)
+			print(f"BM25 index loaded from cache : {len(chunk_ids)} chunks")
+			return Bm25Index(retriever=retriever, index_path=os.path.join(index_folder, "bm25_retriever.pkl"))
+
+		vector_store = load_faiss_index(index_folder, chunk_ids, self.embedding_model)
+		if vector_store is None:
+			raise FileNotFoundError(
+				f"No saved {index_type} index holding these chunks in {index_folder}. Run scripts/build_temp.sh first."
+			)
+		print(f"{index_type} index loaded from cache : {vector_store.index.ntotal} vectors")
+		return FaissIndex(
+			index_type=index_type,
+			vector_store=vector_store,
+			index_path=index_folder,
+			dimension=vector_store.index.d
+		)
+
 	def compute_index(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex | Bm25Index:
 		"""
 		Input: chunks, a dict of chunk_id to Chunk; embeddings, a dict of chunk_id to Embedded; output_path, the

@@ -4,13 +4,19 @@ test_setup_ranking.py
 Tests for evaluation.setup_ranking on small hand-built evals: grouping by setup, the means, the order and the top n.
 """
 
+import os
+import types
+
 import pytest
 
+from evaluation.setup_ranking import load_best_setups
 from evaluation.setup_ranking import rank_setups
+from evaluation.setup_ranking import save_best_setups
 from schema.retrieved import Retrieved
 from schema.retrieved_eval import Eval
 from schema.retrieved_eval import RetrievedEval
 from schema.setup import Setup
+from schema.setup import SetupRecord
 
 
 def make_setup(index_type, reranking=False):
@@ -117,3 +123,84 @@ def test_rank_setups_raises_when_n_is_below_one():
     """
     with pytest.raises(ValueError, match="n_top_setups"):
         rank_setups([], 0)
+
+
+# ---------- save_best_setups and load_best_setups ----------
+
+
+def make_args():
+    """
+    Input: none.
+    Output: the parsed args the chunking, index and vector DB settings are read from.
+    What it does: builds small build settings, so the expected folders can be written out in the tests.
+    """
+    return types.SimpleNamespace(
+        model_name="fake-model", min_chunk_size=2, max_chunk_size=6, fixed_chunk_overlap=2, semantic_threshold=0.5,
+        ivf_nlist=2, hnsw_m=4, hnsw_ef_construction=8, bm25_k1=1.5, bm25_b=0.75, bm25_tokenizer="whitespace",
+        qdrant_url="http://localhost:6333", qdrant_batch_size=3,
+    )
+
+
+def make_any_setup(retrieval_type, index_type):
+    """
+    Input: retrieval_type; index_type.
+    Output: a Setup of the sentence chunk type.
+    What it does: builds one setup for the save tests.
+    """
+    return Setup(chunk_type="sentence", index_type=index_type, query_type="original", retrieval_type=retrieval_type, reranking=False)
+
+
+def test_save_best_setups_finds_each_index_location(tmp_path):
+    """
+    Input: a FAISS, a BM25, a Qdrant and a hybrid setup.
+    Output: their SetupRecords.
+    What it does: checks each index location and the chunk folder, and that hybrid has the dense and then the BM25 path.
+    """
+    output_path = os.path.join(str(tmp_path), "temp", "dataset")
+    chunk_folder = os.path.join(output_path, "chunks", "sentence", "fake-model", "2_6_2_0.5")
+    index_folder = os.path.join("sentence", "fake-model", "2_6_2_0.5")
+    hnsw_path = os.path.join(output_path, "indexes", "faiss_hnsw", index_folder, "hnsw_4_8")
+    bm25_path = os.path.join(output_path, "indexes", "bm25", index_folder, "1.5_0.75_whitespace")
+    best_setups = [
+        make_any_setup("dense", "faiss_hnsw"),
+        make_any_setup("bm25", "bm25"),
+        make_any_setup("dense", "qdrant"),
+        make_any_setup("hybrid", "faiss_hnsw+bm25"),
+    ]
+
+    setup_records = save_best_setups(best_setups, make_args(), output_path)
+
+    assert setup_records[0].index_paths == (hnsw_path,)
+    assert setup_records[1].index_paths == (bm25_path,)
+    assert setup_records[2].index_paths == ("temp_dataset_sentence_fake-model_2_6_2_0.5",)
+    assert setup_records[3].index_paths == (hnsw_path, bm25_path)
+    for setup_record in setup_records:
+        assert setup_record.chunk_path == chunk_folder
+    assert setup_records[3].setup == best_setups[3]
+
+
+def test_save_then_load_best_setups_gives_the_same_records_in_order(tmp_path):
+    """
+    Input: two best setups saved.
+    Output: the loaded records.
+    What it does: checks the saved file loads back to the same SetupRecords, best first.
+    """
+    output_path = os.path.join(str(tmp_path), "temp", "dataset")
+    best_setups = [make_any_setup("hybrid", "faiss_flatip+bm25"), make_any_setup("dense", "qdrant")]
+
+    saved_records = save_best_setups(best_setups, make_args(), output_path)
+    loaded_records = load_best_setups(output_path)
+
+    assert loaded_records == saved_records
+    assert isinstance(loaded_records[0], SetupRecord)
+    assert isinstance(loaded_records[0].index_paths, tuple)
+
+
+def test_load_best_setups_raises_when_nothing_is_saved(tmp_path):
+    """
+    Input: an output folder with no best setups file.
+    Output: FileNotFoundError.
+    What it does: checks serving is told to run the benchmark first instead of getting no setups.
+    """
+    with pytest.raises(FileNotFoundError, match="benchmark"):
+        load_best_setups(str(tmp_path))

@@ -15,3 +15,14 @@ class Setup:
 	retrieval_type: str
 	# True to rerank the top_k chunks with the cross-encoder and keep rerank_top_k
 	reranking: bool
+
+
+@dataclasses.dataclass(frozen=True)
+class SetupRecord:
+	# One best setup as the benchmark saves it, with where its build outputs are, so serving only loads them
+	setup: Setup
+	# Where the setup's index is: a folder for FAISS and BM25, the collection name for Qdrant. Hybrid has two, the
+	# dense one first and then BM25
+	index_paths: tuple[str, ...]
+	# The setup's chunk folder, which serving needs only for reranking
+	chunk_path: str

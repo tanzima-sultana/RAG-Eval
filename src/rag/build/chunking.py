@@ -103,6 +103,8 @@ class Chunking:
 		"""
 		self.chunking_args = chunking_args
 		self.tokenizer = None
+		# The folder compute_chunks saved to, for the build manifest
+		self.chunk_path = None
 
 	def validate(self) -> None:
 		"""
@@ -136,6 +138,25 @@ class Chunking:
 				f"max_chunk_size ({chunking_args.max_chunk_size})."
 			)
 
+	def load_saved_chunks(self, documents: dict[str, Document], chunk_path: str) -> dict[str, Chunk]:
+		"""
+		Input: documents, a dict of doc_id to Document; chunk_path, the chunk folder from the build manifest.
+		Output: a dict of chunk_id to Chunk for every document.
+		What it does: loads the chunks the build saved, and raises FileNotFoundError if any document has none. It never
+		chunks.
+		"""
+		self.validate()
+
+		chunks = {}
+		for doc_id in documents:
+			saved_chunks = load_chunks(chunk_path, doc_id)
+			if saved_chunks is None:
+				raise FileNotFoundError(f"No saved chunks for document {doc_id} in {chunk_path}. Run scripts/build_temp.sh first.")
+			chunks.update(saved_chunks)
+
+		print(f"Chunks : {len(chunks)} (all from cache)")
+		return chunks
+
 	def compute_chunks(self, documents: dict[str, Document], output_path: str) -> dict[str, Chunk]:
 		"""
 		Input: documents, a dict of doc_id to Document; output_path, the dataset's output folder.
@@ -148,6 +169,7 @@ class Chunking:
 		# 2. Load saved chunks, and collect the documents that still need chunking
 		chunk_path = paths_temp.get_chunk_path(output_path, self.chunking_args)
 		print(f"Chunk folder : {chunk_path}")
+		self.chunk_path = chunk_path
 		chunks = {}
 		cached_chunk_count = 0
 		uncached_documents = {}

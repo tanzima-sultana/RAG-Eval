@@ -132,6 +132,26 @@ def get_qdrant_collection_name(output_path: str, vectordb_args: VectorDbArgs) ->
 	return collection_name.replace("/", "-")
 
 
+# ------ Build manifest
+def get_build_manifest_path(output_path: str) -> str:
+	"""
+	Input: output_path, the dataset's output folder.
+	Output: {output_path}/build/manifest.json
+	What it does: builds the file the build saves its manifest to.
+	"""
+	return os.path.join(output_path, "build", "manifest.json")
+
+
+# ------ Setup ranking
+def get_best_setups_path(output_path: str) -> str:
+	"""
+	Input: output_path, the dataset's output folder.
+	Output: {output_path}/best_setups/best_setups.json
+	What it does: builds the file the benchmark saves its best setups to.
+	"""
+	return os.path.join(output_path, "best_setups", "best_setups.json")
+
+
 # ------ Eval dataset
 def get_eval_dataset_path(output_path: str, eval_dataset_args: EvalDatasetArgs) -> str:
 	"""

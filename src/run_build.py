@@ -12,6 +12,11 @@ from rag.build.chunking import Chunking
 from rag.build.embedding import Embedding
 from rag.build.indexing import Indexing
 from rag.build.indexing_vectordb import IndexingVectorDb
+from rag.build.manifest import make_chunk_entry
+from rag.build.manifest import make_index_entry
+from rag.build.manifest import make_vectordb_entry
+from rag.build.manifest import save_build_manifest
+from rag.build.manifest import start_build_manifest
 
 
 def run_build(args) -> None:
@@ -19,7 +24,8 @@ def run_build(args) -> None:
 	Input: args, the parsed args.
 	Output: nothing.
 	What it does: builds the indexes: ingestion, then per chunk type chunking, embedding, every index type
-	and every vector DB type. Each layer loads what is already saved and builds only what is missing.
+	and every vector DB type. Each layer loads what is already saved and builds only what is missing. At the end it
+	saves the build manifest: what was built and where, so the later steps only load it.
 	"""
 	# 1. Ingestion
 	print("\n\nIngestion")
@@ -32,6 +38,7 @@ def run_build(args) -> None:
 	print("\nIngestion time : ", e1)
 
 	output_path = paths_temp.get_output_path(args.output_path, args.dataset_name)
+	manifest = start_build_manifest(ingestion_args, args.model_name)
 
 	# 2. Chunking, once per chunk type
 	for chunk_type in args.chunk_types:
@@ -40,7 +47,8 @@ def run_build(args) -> None:
 		chunking_args = make_chunking_args(args, chunk_type)
 
 		s2 = time.time()
-		chunks = Chunking(chunking_args).compute_chunks(documents, output_path)
+		chunking = Chunking(chunking_args)
+		chunks = chunking.compute_chunks(documents, output_path)
 		e2 = time.time() - s2
 		print("\nChunking time : ", e2)
 
@@ -49,9 +57,11 @@ def run_build(args) -> None:
 		embedding_args = make_embedding_args(chunking_args)
 
 		s3 = time.time()
-		embeddings = Embedding(embedding_args).compute_embeddings(chunks, output_path)
+		embedding = Embedding(embedding_args)
+		embeddings = embedding.compute_embeddings(chunks, output_path)
 		e3 = time.time() - s3
 		print("\nEmbedding time : ", e3)
+		manifest.chunk_entries.append(make_chunk_entry(chunking_args, chunking.chunk_path, embedding.embedding_path, len(chunks)))
 
 		# 4. Indexing, once per index type
 		for index_type in args.index_types:
@@ -59,9 +69,10 @@ def run_build(args) -> None:
 			index_args = make_index_args(args, chunking_args, index_type)
 
 			s4 = time.time()
-			Indexing(index_args).compute_index(chunks, embeddings, output_path)
+			index = Indexing(index_args).compute_index(chunks, embeddings, output_path)
 			e4 = time.time() - s4
 			print("\nIndexing time : ", e4)
+			manifest.index_entries.append(make_index_entry(index_args, index, len(chunks)))
 
 		# 5. Vector DB indexing, once per vector DB type
 		for vectordb_type in args.vectordb_types:
@@ -69,9 +80,13 @@ def run_build(args) -> None:
 			vectordb_args = make_vectordb_args(args, chunking_args, vectordb_type)
 
 			s5 = time.time()
-			IndexingVectorDb(vectordb_args).compute_vectordb(chunks, embeddings, output_path)
+			vectordb = IndexingVectorDb(vectordb_args).compute_vectordb(chunks, embeddings, output_path)
 			e5 = time.time() - s5
 			print("\nVector DB indexing time : ", e5)
+			manifest.index_entries.append(make_vectordb_entry(vectordb_args, vectordb.collection_name, len(chunks)))
+
+	# 6. The build manifest, saved once every output is built
+	save_build_manifest(manifest, output_path)
 
 
 if __name__ == "__main__":
