@@ -1,8 +1,8 @@
 import time
 
 from common import paths_temp
-from common.constants import LANGCHAIN_FRAMEWORK
 from common.constants import HYBRID_RETRIEVAL
+from common.args_temp import parse_args
 from common.args_temp import make_ingestion_args
 from common.args_temp import make_chunking_args
 from common.args_temp import make_embedding_args
@@ -12,23 +12,25 @@ from common.args_temp import make_eval_dataset_args
 from common.args_temp import make_ollama_args
 from common.args_temp import make_query_args
 from common.args_temp import make_retrieval_args
-from langchain_rag.build.ingestion import ingestion
-from langchain_rag.build.chunking import Chunking
-from langchain_rag.build.embedding import Embedding
-from langchain_rag.build.indexing import Indexing
-from langchain_rag.build.indexing_vectordb import IndexingVectorDb
+from rag.build.ingestion import ingestion
+from rag.build.chunking import Chunking
+from rag.build.embedding import Embedding
+from rag.build.indexing import Indexing
+from rag.build.indexing_vectordb import IndexingVectorDb
 from evaluation.eval_dataset import EvalDataset
-from langchain_rag.serving.query_transformation import QueryTransformation
-from langchain_rag.serving.retrieval import Retrieval
+from rag.serving.query_transformation.query_transformation import QueryTransformation
+from rag.serving.retrieval.retrieval import Retrieval
 from evaluation.retrieval_evaluation import RetrievalEvaluation
+from evaluation.setup_ranking import rank_setups
 
 
-def run_langchain_rag(args) -> None:
+def run_benchmark(args) -> None:
 	"""
 	Input: args, the parsed args.
 	Output: nothing.
-	What it does: runs the LangChain RAG. For now ingestion, eval dataset, query transformation, then per chunk type the build
-	layers and retrieval.
+	What it does: runs the benchmark: loads the documents and the saved eval dataset, transforms the queries,
+	then per chunk type loads the build layers, retrieves the val queries and scores them. It never generates the eval
+	dataset.
 	"""
 	# 1. Ingestion
 	print("\n\nIngestion")
@@ -40,15 +42,15 @@ def run_langchain_rag(args) -> None:
 	print(f"Documents : {len(documents)}")
 	print("\nIngestion time : ", e1)
 
-	output_path = paths_temp.get_output_path(args.output_path, LANGCHAIN_FRAMEWORK, args.dataset_name)
+	output_path = paths_temp.get_output_path(args.output_path, args.dataset_name)
 
-	# 2. Eval dataset, once for the dataset
+	# 2. Eval dataset, only loaded. scripts/eval_dataset.sh generates it
 	print("\n\nEval dataset")
 	eval_dataset_args = make_eval_dataset_args(args)
 	ollama_args = make_ollama_args(args)
 
 	s2 = time.time()
-	eval_samples = EvalDataset(eval_dataset_args, ollama_args).compute_eval_dataset(documents, output_path)
+	eval_samples = EvalDataset(eval_dataset_args, ollama_args).load_saved_eval_dataset(output_path)
 	e2 = time.time() - s2
 	print("\nEval dataset time : ", e2)
 
@@ -157,3 +159,24 @@ def run_langchain_rag(args) -> None:
 		print("\nRetrieval evaluation time : ", e13)
 
 	print(f"\n\nRetrieved evals : {len(retrieved_evals)}")
+
+	# 12. Rank every setup, plain and reranked together, and keep the best n_top_setups
+	print("\n\nSetup ranking")
+	best_setups = rank_setups(retrieved_evals, args.n_top_setups)
+	print(f"Best setups : {len(best_setups)}")
+
+
+if __name__ == "__main__":
+	print("\n ------------- Benchmark -------- \n")
+	start = time.time()
+
+	"""
+	Input: --config and any override flags from the command line.
+	Output: nothing.
+	What it does: parses the args and runs the benchmark.
+	"""
+	args = parse_args()
+	run_benchmark(args)
+
+	elapsed_time = time.time() - start
+	print("\n\nElapsed time : ", elapsed_time)

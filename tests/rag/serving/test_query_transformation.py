@@ -1,7 +1,7 @@
 """
 test_query_transformation.py
 
-Tests for langchain_rag.serving.query_transformation. No LLM is called: the query LLM is replaced with a fake that answers
+Tests for rag.serving.query_transformation (query_transformation, single_query and cache). No LLM is called: the query LLM is replaced with a fake that answers
 by prompt, and HuggingFaceEmbeddings with the fake from conftest. The saved 200 queries are only read, never written.
 """
 
@@ -21,10 +21,11 @@ from common.constants import HYDE_QUERY
 from common.constants import MULTI_QUERY
 from common.constants import ORIGINAL_QUERY
 from common.constants import REWRITTEN_QUERY
-from langchain_rag.serving import query_transformation as query_transformation_module
-from langchain_rag.serving.query_transformation import QueryTransformation
-from langchain_rag.serving.query_transformation import load_queries
-from langchain_rag.serving.query_transformation import save_queries
+from rag.serving.query_transformation import query_transformation as query_transformation_module
+from rag.serving.query_transformation.query_transformation import QueryTransformation
+from rag.serving.query_transformation.cache import load_queries
+from rag.serving.query_transformation.cache import save_queries
+from rag.serving.query_transformation.single_query import transform_question
 from schema.llm import LLMArgs
 from schema.eval_sample import EvalSample
 from schema.query import Ans
@@ -32,7 +33,7 @@ from schema.query import Query
 from schema.query import Qus
 
 SAVED_QUERY_PATH = (
-    "temp/langchain/pdfa-eng-wds/queries/"
+    "temp/pdfa-eng-wds/queries/"
     "100_200_anthropic-claude-sonnet-5-5_all-MiniLM-L6-v2_all-MiniLM-L6-v2_ollama_chat-llama3.1-8b_3"
 )
 
@@ -432,126 +433,160 @@ def test_compute_queries_raises_when_saved_queries_are_not_in_eval_dataset_order
 # ---------- one method per query type ----------
 
 
-def test_original_queries_embeds_each_question(fake_query_llm, fake_huggingface_embeddings):
+def test_transform_question_original_embeds_the_question_as_it_is(fake_huggingface_embeddings):
     """
-    Input: one question.
-    Output: its original Qus.
-    What it does: checks the text, BM25 tokens and vector of the question as it is.
+    Input: one question and query_types only original, with no LLM.
+    Output: its Query.
+    What it does: checks the text, BM25 tokens and vector of the question as it is, and that the other types are None.
     """
-    original_qus_list = QueryTransformation(make_query_args(), make_ollama_args()).original_queries(
-        [make_eval_sample(0, "What is X?")], fake_huggingface_embeddings()
-    )
+    query = transform_question(make_query_args(), "q1", "What is X?", [ORIGINAL_QUERY], None, fake_huggingface_embeddings())
 
-    assert original_qus_list[0].qus == "What is X?"
-    assert original_qus_list[0].tokens == ["what", "is", "x?"]
+    assert query.id == "q1"
+    assert query.original_qus.qus == "What is X?"
+    assert query.original_qus.tokens == ["what", "is", "x?"]
     # The fake embeds a text as [len(text), 1, 0, 0]
-    assert original_qus_list[0].embeddings[0] == len("What is X?")
+    assert query.original_qus.embeddings[0] == len("What is X?")
+    assert query.rewritten_qus is None
+    assert query.multi_qus is None
+    assert query.hyde_ans is None
 
 
-def test_rewritten_queries_rewrites_each_question(fake_query_llm, fake_huggingface_embeddings):
+def test_transform_question_rewritten_strips_and_embeds_the_rewrite(fake_query_llm, fake_huggingface_embeddings):
     """
     Input: one question with a rewrite padded by spaces.
-    Output: its rewritten Qus.
+    Output: its Query.
     What it does: checks the rewrite is stripped, split into tokens and embedded.
     """
     fake_query_llm.replies["What is X?"] = {"rewrite": " What does X mean? "}
 
-    rewritten_qus_list = QueryTransformation(make_query_args(), make_ollama_args()).rewritten_queries(
-        [make_eval_sample(0, "What is X?")], FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
+    query = transform_question(
+        make_query_args(), "q1", "What is X?", [REWRITTEN_QUERY],
+        FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
     )
 
-    assert rewritten_qus_list[0].qus == "What does X mean?"
-    assert rewritten_qus_list[0].tokens == ["what", "does", "x", "mean?"]
-    assert rewritten_qus_list[0].embeddings[0] == len("What does X mean?")
+    assert query.rewritten_qus.qus == "What does X mean?"
+    assert query.rewritten_qus.tokens == ["what", "does", "x", "mean?"]
+    assert query.rewritten_qus.embeddings[0] == len("What does X mean?")
 
 
-def test_multi_queries_keeps_each_phrasing(fake_query_llm, fake_huggingface_embeddings):
+def test_transform_question_multi_keeps_each_phrasing(fake_query_llm, fake_huggingface_embeddings):
     """
     Input: one question with 3 phrasings and a blank line between them.
-    Output: its list of multi-query Qus.
+    Output: its Query.
     What it does: checks blank lines are skipped and each phrasing gets its own vector.
     """
     fake_query_llm.replies["What is X?"] = {"multi": "Define X.\n\nExplain X.\nWhat is meant by X?"}
 
-    multi_qus_list = QueryTransformation(make_query_args(), make_ollama_args()).multi_queries(
-        [make_eval_sample(0, "What is X?")], FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
+    query = transform_question(
+        make_query_args(), "q1", "What is X?", [MULTI_QUERY],
+        FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
     )
 
     multi_texts = []
-    for multi_qus in multi_qus_list[0]:
+    for multi_qus in query.multi_qus:
         multi_texts.append(multi_qus.qus)
     assert multi_texts == ["Define X.", "Explain X.", "What is meant by X?"]
-    assert multi_qus_list[0][1].embeddings[0] == len("Explain X.")
+    assert query.multi_qus[1].embeddings[0] == len("Explain X.")
 
 
-def test_multi_queries_drops_phrasings_when_line_count_is_wrong(fake_query_llm, fake_huggingface_embeddings, capsys):
+def test_transform_question_multi_keeps_no_phrasings_when_line_count_is_wrong(fake_query_llm, fake_huggingface_embeddings):
     """
-    Input: a multi-query reply with 2 lines instead of 3.
-    Output: the phrasings and what was printed.
-    What it does: checks no phrasings are kept and the I don't know is counted.
+    Input: one question whose multi-query reply has 2 lines instead of 3.
+    Output: its Query.
+    What it does: checks multi holds no phrasings, so retrieval counts it as a miss.
     """
     fake_query_llm.replies["What is X?"] = {"multi": "only one\nonly two"}
 
-    multi_qus_list = QueryTransformation(make_query_args(), make_ollama_args()).multi_queries(
-        [make_eval_sample(0, "What is X?")], FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
+    query = transform_question(
+        make_query_args(), "q1", "What is X?", [MULTI_QUERY],
+        FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
     )
 
-    assert multi_qus_list[0] == []
-    assert "Multi-query I don't know : 1 of 1" in capsys.readouterr().out
-
-
-def test_multi_queries_keeps_vectors_with_their_question(fake_query_llm, fake_huggingface_embeddings):
-    """
-    Input: two questions, the first with no phrasings kept and the second with 3.
-    Output: the phrasings of both.
-    What it does: checks the flat list of phrasing vectors is split back to the right question.
-    """
-    fake_query_llm.replies["Q one?"] = {"multi": "bad"}
-    fake_query_llm.replies["Q two?"] = {"multi": "aa\nbbbb\ncccccc"}
-
-    multi_qus_list = QueryTransformation(make_query_args(), make_ollama_args()).multi_queries(
-        [make_eval_sample(0, "Q one?"), make_eval_sample(1, "Q two?")],
-        FakeQueryLLMProvider(make_query_args().query_llm_args, None),
-        fake_huggingface_embeddings()
-    )
-
-    assert multi_qus_list[0] == []
-    lengths = []
-    for multi_qus in multi_qus_list[1]:
-        lengths.append(multi_qus.embeddings[0])
-    assert lengths == [2.0, 4.0, 6.0]
+    assert query.multi_qus == []
 
 
 @pytest.mark.parametrize("hyde_reply", ["I don't know.", "I do not know the answer", "I don’t know"])
-def test_hyde_queries_stores_refusal_as_i_dont_know(fake_query_llm, fake_huggingface_embeddings, hyde_reply):
+def test_transform_question_hyde_stores_refusal_as_i_dont_know(fake_query_llm, fake_huggingface_embeddings, hyde_reply):
     """
     Input: a HyDE reply that refuses.
-    Output: the HyDE Ans.
+    Output: its Query.
     What it does: checks the refusal is stored as exactly I_DONT_KNOW, so retrieval can skip it.
     """
     fake_query_llm.replies["What is X?"] = {"hyde": hyde_reply}
 
-    hyde_ans_list = QueryTransformation(make_query_args(), make_ollama_args()).hyde_queries(
-        [make_eval_sample(0, "What is X?")], FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
+    query = transform_question(
+        make_query_args(), "q1", "What is X?", [HYDE_QUERY],
+        FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
     )
 
-    assert hyde_ans_list[0].ans == I_DONT_KNOW
+    assert query.hyde_ans.ans == I_DONT_KNOW
 
 
-def test_hyde_queries_embeds_each_passage(fake_query_llm, fake_huggingface_embeddings):
+def test_transform_question_hyde_embeds_the_passage(fake_query_llm, fake_huggingface_embeddings):
     """
     Input: one question with a HyDE passage.
-    Output: the HyDE Ans.
+    Output: its Query.
     What it does: checks the passage and its vector.
     """
     fake_query_llm.replies["What is X?"] = {"hyde": "X is a thing used for Y."}
 
-    hyde_ans_list = QueryTransformation(make_query_args(), make_ollama_args()).hyde_queries(
-        [make_eval_sample(0, "What is X?")], FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
+    query = transform_question(
+        make_query_args(), "q1", "What is X?", [HYDE_QUERY],
+        FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
     )
 
-    assert hyde_ans_list[0].ans == "X is a thing used for Y."
-    assert hyde_ans_list[0].embeddings[0] == len("X is a thing used for Y.")
+    assert query.hyde_ans.ans == "X is a thing used for Y."
+    assert query.hyde_ans.embeddings[0] == len("X is a thing used for Y.")
+
+
+def test_transform_question_builds_every_requested_query_type(fake_query_llm, fake_huggingface_embeddings):
+    """
+    Input: one live question with replies for rewrite, multi and HyDE.
+    Output: its Query.
+    What it does: checks every query type is filled and the LLM fields come from the query model.
+    """
+    fake_query_llm.replies["What is X?"] = {
+        "rewrite": "What does X mean?",
+        "multi": "Define X.\nExplain X.\nWhat is meant by X?",
+        "hyde": "X is a thing used for Y.",
+    }
+
+    query = transform_question(
+        make_query_args(), "live_1", "What is X?", list(ALL_QUERY_TYPES),
+        FakeQueryLLMProvider(make_query_args().query_llm_args, None), fake_huggingface_embeddings()
+    )
+
+    assert query.id == "live_1"
+    assert query.original_qus.qus == "What is X?"
+    assert query.rewritten_qus.qus == "What does X mean?"
+    assert len(query.multi_qus) == 3
+    assert query.hyde_ans.ans == "X is a thing used for Y."
+    assert query.llm == "ollama_chat"
+    assert query.llm_model == "llama3.1:8b"
+
+
+def test_compute_queries_counts_multi_and_hyde_i_dont_know(fake_query_llm, tmp_path, capsys):
+    """
+    Input: two questions, the first with a bad multi reply and a HyDE refusal, and no saved queries.
+    Output: the queries and what was printed.
+    What it does: checks each question keeps its own phrasings and the I don't know counts are printed.
+    """
+    fake_query_llm.replies["Q one?"] = {"multi": "bad", "hyde": "I don't know."}
+    fake_query_llm.replies["Q two?"] = {"multi": "aa\nbbbb\ncccccc", "hyde": "A passage."}
+    query_args = make_query_args(query_types=[MULTI_QUERY, HYDE_QUERY])
+
+    queries = QueryTransformation(query_args, make_ollama_args()).compute_queries(
+        [make_eval_sample(0, "Q one?"), make_eval_sample(1, "Q two?")], make_eval_dataset_args(), str(tmp_path)
+    )
+
+    assert queries[0].multi_qus == []
+    lengths = []
+    for multi_qus in queries[1].multi_qus:
+        lengths.append(multi_qus.embeddings[0])
+    assert lengths == [2.0, 4.0, 6.0]
+    printed = capsys.readouterr().out
+    assert "Multi-query I don't know : 1 of 2" in printed
+    assert "HyDE I don't know : 1 of 2" in printed
 
 
 # ---------- split_queries ----------

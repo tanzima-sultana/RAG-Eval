@@ -59,7 +59,7 @@ class RetrievalEvaluation:
 			eval_sample = self.eval_samples_by_id[retrieved.id]
 
 			# The number of chunks the retriever was asked for. Missing chunks count as not relevant
-			if retrieved.reranking:
+			if retrieved.setup.reranking:
 				k = retrieved.rerank_top_k
 			else:
 				k = retrieved.top_k

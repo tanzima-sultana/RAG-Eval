@@ -1,9 +1,6 @@
 import dataclasses
-import json
-import os
 import random
 
-import numpy as np
 import torch
 
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -14,188 +11,11 @@ from common.args_temp import OllamaArgs
 from common.args_temp import EvalDatasetArgs
 from common.args_temp import QueryArgs
 from llm_provider.llm_provider import LLMProvider
+from rag.serving.query_transformation.cache import load_queries
+from rag.serving.query_transformation.cache import save_queries
+from rag.serving.query_transformation.single_query import transform_question
 from schema.eval_sample import EvalSample
-from schema.query import Ans
 from schema.query import Query
-from schema.query import Qus
-
-# The prompts the query LLM gets for each eval question, filled with str.format(). The query folder does not record
-# them, so delete the saved queries after changing one
-
-# Input: {qus}. Output: one rewritten question
-REWRITE_PROMPT = """Rewrite the question below so it is clear and specific. Do not mention documents or searching.
-Keep its meaning. Use the words a document answering it would likely use.
-Return only the rewritten question, with no introduction, quotes or explanation.
-
-Question: {qus}"""
-
-# Input: {qus}, {n_multi_qus}. Output: n_multi_qus questions, one per line
-MULTI_QUERY_PROMPT = """Write exactly {n_multi_qus} different phrasings of the question below.
-You are only rephrasing the question, not answering it or searching for it, so never say you cannot find information.
-Each phrasing must keep the meaning of the question but use different words.
-Return only the {n_multi_qus} phrasings, one per line, with no numbering, bullets, introduction or explanation.
-
-Question: {qus}"""
-
-# Input: {qus}. Output: one hypothetical answer passage. It is only used to search, so it may hold invented facts
-HYDE_PROMPT = """Write a short passage of 3 to 5 sentences that answers the question below, as it might appear in a document.
-If you are not sure of the answer, still write a plausible passage, using the terms a real document on this topic would use.
-Never say you do not know or lack information.
-Return only the passage, with no introduction, title or explanation.
-
-Question: {qus}"""
-
-
-def save_queries(query_path: str, queries: list[Query]) -> None:
-	"""
-	Input: query_path, the query folder; queries, the Query list. Every query holds the same query types.
-	Output: nothing.
-	What it does: saves the texts and tokens to queries.json and the vectors to embeddings.npz, each through a
-	temporary file. A query type that is None is left out of both files. The multi vectors of all queries are stored
-	one after another.
-	"""
-	os.makedirs(query_path, exist_ok=True)
-
-	query_dicts = []
-	query_ids = []
-	original_vectors = []
-	rewritten_vectors = []
-	multi_vectors = []
-	hyde_vectors = []
-	for query in queries:
-		query_dict = {"id": query.id}
-		if query.original_qus is not None:
-			query_dict["original_qus"] = {"qus": query.original_qus.qus, "tokens": query.original_qus.tokens}
-			original_vectors.append(query.original_qus.embeddings)
-		if query.rewritten_qus is not None:
-			query_dict["rewritten_qus"] = {"qus": query.rewritten_qus.qus, "tokens": query.rewritten_qus.tokens}
-			rewritten_vectors.append(query.rewritten_qus.embeddings)
-		if query.multi_qus is not None:
-			multi_qus_dicts = []
-			for multi_qus in query.multi_qus:
-				multi_qus_dicts.append({"qus": multi_qus.qus, "tokens": multi_qus.tokens})
-				multi_vectors.append(multi_qus.embeddings)
-			query_dict["multi_qus"] = multi_qus_dicts
-		if query.hyde_ans is not None:
-			query_dict["hyde_ans"] = {"ans": query.hyde_ans.ans}
-			hyde_vectors.append(query.hyde_ans.embeddings)
-		query_dict["normalized"] = query.normalized
-		query_dict["embedding_model"] = query.embedding_model
-		query_dict["llm"] = query.llm
-		query_dict["llm_model"] = query.llm_model
-
-		query_dicts.append(query_dict)
-		query_ids.append(query.id)
-
-	queries_file = os.path.join(query_path, "queries.json")
-	with open(queries_file + ".tmp", "w", encoding="utf-8") as f:
-		json.dump(query_dicts, f, indent=2)
-	os.replace(queries_file + ".tmp", queries_file)
-
-	# Only the query types the queries hold are saved
-	saved_arrays = {"query_ids": np.array(query_ids)}
-	if queries[0].original_qus is not None:
-		saved_arrays["original"] = np.array(original_vectors, dtype=np.float32)
-	if queries[0].rewritten_qus is not None:
-		saved_arrays["rewritten"] = np.array(rewritten_vectors, dtype=np.float32)
-	if queries[0].multi_qus is not None:
-		saved_arrays["multi"] = np.array(multi_vectors, dtype=np.float32)
-	if queries[0].hyde_ans is not None:
-		saved_arrays["hyde"] = np.array(hyde_vectors, dtype=np.float32)
-
-	# Written through an open file, because np.savez adds ".npz" to a path that does not already end with it
-	embeddings_file = os.path.join(query_path, "embeddings.npz")
-	with open(embeddings_file + ".tmp", "wb") as f:
-		np.savez(f, **saved_arrays)
-	os.replace(embeddings_file + ".tmp", embeddings_file)
-
-
-def load_queries(query_path: str) -> list[Query] | None:
-	"""
-	Input: query_path, the query folder.
-	Output: the saved list of Query, or None if queries.json or embeddings.npz is missing. A query type that was not
-	saved is None.
-	What it does: joins the texts and tokens of queries.json with the vectors of embeddings.npz. Raises ValueError if
-	the two files are not in the same query order.
-	"""
-	queries_file = os.path.join(query_path, "queries.json")
-	embeddings_file = os.path.join(query_path, "embeddings.npz")
-	if not os.path.exists(queries_file) or not os.path.exists(embeddings_file):
-		return None
-
-	with open(queries_file, encoding="utf-8") as f:
-		query_dicts = json.load(f)
-
-	original_vectors = None
-	rewritten_vectors = None
-	multi_vectors = None
-	hyde_vectors = None
-	with np.load(embeddings_file) as saved_arrays:
-		query_ids = saved_arrays["query_ids"]
-		if "original" in saved_arrays.files:
-			original_vectors = saved_arrays["original"]
-		if "rewritten" in saved_arrays.files:
-			rewritten_vectors = saved_arrays["rewritten"]
-		if "multi" in saved_arrays.files:
-			multi_vectors = saved_arrays["multi"]
-		if "hyde" in saved_arrays.files:
-			hyde_vectors = saved_arrays["hyde"]
-
-	queries = []
-	# Position of the query's first phrasing in multi_vectors
-	multi_position = 0
-	for index in range(len(query_dicts)):
-		query_dict = query_dicts[index]
-		if str(query_ids[index]) != query_dict["id"]:
-			raise ValueError(
-				f"queries.json and embeddings.npz in {query_path} are out of order at position {index}. "
-				"Delete the folder and run again."
-			)
-
-		original_qus = None
-		if "original_qus" in query_dict:
-			original_qus = Qus(
-				qus=query_dict["original_qus"]["qus"],
-				tokens=query_dict["original_qus"]["tokens"],
-				embeddings=original_vectors[index]
-			)
-		rewritten_qus = None
-		if "rewritten_qus" in query_dict:
-			rewritten_qus = Qus(
-				qus=query_dict["rewritten_qus"]["qus"],
-				tokens=query_dict["rewritten_qus"]["tokens"],
-				embeddings=rewritten_vectors[index]
-			)
-		multi_qus = None
-		if "multi_qus" in query_dict:
-			multi_qus = []
-			for multi_qus_dict in query_dict["multi_qus"]:
-				multi_qus.append(Qus(
-					qus=multi_qus_dict["qus"],
-					tokens=multi_qus_dict["tokens"],
-					embeddings=multi_vectors[multi_position]
-				))
-				multi_position = multi_position + 1
-		hyde_ans = None
-		if "hyde_ans" in query_dict:
-			hyde_ans = Ans(
-				ans=query_dict["hyde_ans"]["ans"],
-				embeddings=hyde_vectors[index]
-			)
-
-		queries.append(Query(
-			id=query_dict["id"],
-			original_qus=original_qus,
-			rewritten_qus=rewritten_qus,
-			multi_qus=multi_qus,
-			hyde_ans=hyde_ans,
-			normalized=query_dict["normalized"],
-			embedding_model=query_dict["embedding_model"],
-			llm=query_dict["llm"],
-			llm_model=query_dict["llm_model"]
-		))
-
-	return queries
 
 
 class QueryTransformation:
@@ -316,22 +136,37 @@ class QueryTransformation:
 			if missing_query_types != [constants.ORIGINAL_QUERY]:
 				query_llm_provider = LLMProvider(query_args.query_llm_args, self.ollama_args)
 
-			if constants.ORIGINAL_QUERY in missing_query_types:
-				original_qus_list = self.original_queries(eval_samples, embedding_model)
-				for sample_index in range(len(eval_samples)):
-					saved_queries[sample_index].original_qus = original_qus_list[sample_index]
-			if constants.REWRITTEN_QUERY in missing_query_types:
-				rewritten_qus_list = self.rewritten_queries(eval_samples, query_llm_provider, embedding_model)
-				for sample_index in range(len(eval_samples)):
-					saved_queries[sample_index].rewritten_qus = rewritten_qus_list[sample_index]
+			# Each question is transformed on its own, the same way as one live question, and only its missing query
+			# types are copied into its saved query
+			multi_dont_know_count = 0
+			hyde_dont_know_count = 0
+			for sample_index in range(len(eval_samples)):
+				eval_sample = eval_samples[sample_index]
+				new_query = transform_question(
+					query_args, eval_sample.id, eval_sample.qus, missing_query_types, query_llm_provider, embedding_model
+				)
+
+				saved_query = saved_queries[sample_index]
+				if constants.ORIGINAL_QUERY in missing_query_types:
+					saved_query.original_qus = new_query.original_qus
+				if constants.REWRITTEN_QUERY in missing_query_types:
+					saved_query.rewritten_qus = new_query.rewritten_qus
+				if constants.MULTI_QUERY in missing_query_types:
+					saved_query.multi_qus = new_query.multi_qus
+					if len(new_query.multi_qus) == 0:
+						multi_dont_know_count = multi_dont_know_count + 1
+				if constants.HYDE_QUERY in missing_query_types:
+					saved_query.hyde_ans = new_query.hyde_ans
+					if new_query.hyde_ans.ans == constants.I_DONT_KNOW:
+						hyde_dont_know_count = hyde_dont_know_count + 1
+
+				if (sample_index + 1) % 20 == 0 or sample_index + 1 == len(eval_samples):
+					print(f"Questions transformed : {sample_index + 1} of {len(eval_samples)}")
+
 			if constants.MULTI_QUERY in missing_query_types:
-				multi_qus_list = self.multi_queries(eval_samples, query_llm_provider, embedding_model)
-				for sample_index in range(len(eval_samples)):
-					saved_queries[sample_index].multi_qus = multi_qus_list[sample_index]
+				print(f"Multi-query I don't know : {multi_dont_know_count} of {len(eval_samples)}")
 			if constants.HYDE_QUERY in missing_query_types:
-				hyde_ans_list = self.hyde_queries(eval_samples, query_llm_provider, embedding_model)
-				for sample_index in range(len(eval_samples)):
-					saved_queries[sample_index].hyde_ans = hyde_ans_list[sample_index]
+				print(f"HyDE I don't know : {hyde_dont_know_count} of {len(eval_samples)}")
 
 			if query_llm_provider is not None:
 				query_llm_provider.compute_cost()
@@ -352,151 +187,6 @@ class QueryTransformation:
 			queries.append(query)
 
 		return queries
-
-	def original_queries(self, eval_samples: list[EvalSample], embedding_model: HuggingFaceEmbeddings) -> list[Qus]:
-		"""
-		Input: eval_samples, the eval questions; embedding_model.
-		Output: one Qus per eval question, in the same order.
-		What it does: embeds each eval question as it is and splits it into BM25 tokens. No LLM is used.
-		"""
-		original_qus_str_list = []
-		for eval_sample in eval_samples:
-			original_qus_str_list.append(eval_sample.qus)
-
-		original_qus_vectors = embedding_model.embed_documents(original_qus_str_list)
-
-		# Tokens are split the same way as the BM25 chunks
-		original_qus_list = []
-		for sample_index in range(len(eval_samples)):
-			original_qus_list.append(Qus(
-				qus=original_qus_str_list[sample_index],
-				tokens=original_qus_str_list[sample_index].lower().split(),
-				embeddings=np.array(original_qus_vectors[sample_index], dtype=np.float32)
-			))
-		return original_qus_list
-
-	def rewritten_queries(self, eval_samples: list[EvalSample], query_llm_provider: LLMProvider, embedding_model: HuggingFaceEmbeddings) -> list[Qus]:
-		"""
-		Input: eval_samples, the eval questions; query_llm_provider, the query LLM; embedding_model.
-		Output: one rewritten Qus per eval question, in the same order.
-		What it does: asks the query LLM to rewrite each question, then embeds it and splits it into BM25 tokens.
-		"""
-		rewritten_qus_str_list = []
-		for sample_index in range(len(eval_samples)):
-			eval_sample = eval_samples[sample_index]
-			rewritten_qus_str = query_llm_provider.generate("", REWRITE_PROMPT.format(qus=eval_sample.qus)).text.strip()
-			rewritten_qus_str_list.append(rewritten_qus_str)
-
-			if (sample_index + 1) % 20 == 0 or sample_index + 1 == len(eval_samples):
-				print(f"Questions rewritten : {sample_index + 1} of {len(eval_samples)}")
-
-		rewritten_qus_vectors = embedding_model.embed_documents(rewritten_qus_str_list)
-
-		# Tokens are split the same way as the BM25 chunks
-		rewritten_qus_list = []
-		for sample_index in range(len(eval_samples)):
-			rewritten_qus_list.append(Qus(
-				qus=rewritten_qus_str_list[sample_index],
-				tokens=rewritten_qus_str_list[sample_index].lower().split(),
-				embeddings=np.array(rewritten_qus_vectors[sample_index], dtype=np.float32)
-			))
-		return rewritten_qus_list
-
-	def multi_queries(self, eval_samples: list[EvalSample], query_llm_provider: LLMProvider, embedding_model: HuggingFaceEmbeddings) -> list[list[Qus]]:
-		"""
-		Input: eval_samples, the eval questions; query_llm_provider, the query LLM; embedding_model.
-		Output: one list of n_multi_qus Qus per eval question, in the same order. Empty if the LLM did not return
-		exactly n_multi_qus phrasings; these are counted and the run goes on.
-		What it does: asks the query LLM for n_multi_qus phrasings of each question, then embeds them and splits them
-		into BM25 tokens.
-		"""
-		n_multi_qus = self.query_args.n_multi_qus
-
-		multi_qus_str_list = []
-		multi_dont_know_count = 0
-		for sample_index in range(len(eval_samples)):
-			eval_sample = eval_samples[sample_index]
-
-			# The phrasings come one per line, sometimes with blank lines between them
-			multi_reply = query_llm_provider.generate(
-				"", MULTI_QUERY_PROMPT.format(qus=eval_sample.qus, n_multi_qus=n_multi_qus)
-			).text
-			phrasings = []
-			for reply_line in multi_reply.split("\n"):
-				stripped_line = reply_line.strip()
-				if stripped_line != "":
-					phrasings.append(stripped_line)
-
-			# Any other number of lines means the reply is not just the phrasings, so no phrasings are kept
-			if len(phrasings) != n_multi_qus:
-				print(
-					f"Multi-query I don't know for {eval_sample.id}: {len(phrasings)} lines instead of "
-					f"{n_multi_qus}. Reply: {multi_reply!r}"
-				)
-				phrasings = []
-				multi_dont_know_count = multi_dont_know_count + 1
-			multi_qus_str_list.append(phrasings)
-
-			if (sample_index + 1) % 20 == 0 or sample_index + 1 == len(eval_samples):
-				print(f"Questions rephrased : {sample_index + 1} of {len(eval_samples)}")
-		print(f"Multi-query I don't know : {multi_dont_know_count} of {len(eval_samples)}")
-
-		# The phrasings are embedded as one flat list: n_multi_qus rows per question, none for an I don't know
-		flat_multi_qus_str_list = []
-		for phrasings in multi_qus_str_list:
-			for phrasing in phrasings:
-				flat_multi_qus_str_list.append(phrasing)
-		flat_multi_qus_vectors = embedding_model.embed_documents(flat_multi_qus_str_list)
-
-		# Tokens are split the same way as the BM25 chunks
-		multi_qus_list = []
-		# Position of the question's first phrasing in flat_multi_qus_vectors
-		flat_multi_position = 0
-		for phrasings in multi_qus_str_list:
-			multi_qus = []
-			for phrasing in phrasings:
-				multi_qus.append(Qus(
-					qus=phrasing,
-					tokens=phrasing.lower().split(),
-					embeddings=np.array(flat_multi_qus_vectors[flat_multi_position], dtype=np.float32)
-				))
-				flat_multi_position = flat_multi_position + 1
-			multi_qus_list.append(multi_qus)
-		return multi_qus_list
-
-	def hyde_queries(self, eval_samples: list[EvalSample], query_llm_provider: LLMProvider, embedding_model: HuggingFaceEmbeddings) -> list[Ans]:
-		"""
-		Input: eval_samples, the eval questions; query_llm_provider, the query LLM; embedding_model.
-		Output: one HyDE Ans per eval question, in the same order. A refusal is stored as I_DONT_KNOW; these are
-		counted and the run goes on.
-		What it does: asks the query LLM for a hypothetical answer passage of each question, then embeds it.
-		"""
-		hyde_ans_str_list = []
-		hyde_dont_know_count = 0
-		for sample_index in range(len(eval_samples)):
-			eval_sample = eval_samples[sample_index]
-
-			# A refusal is stored as exactly I_DONT_KNOW, so retrieval can skip it
-			hyde_ans_str = query_llm_provider.generate("", HYDE_PROMPT.format(qus=eval_sample.qus)).text.strip()
-			hyde_ans_lower = hyde_ans_str.lower().replace("’", "'")
-			if hyde_ans_lower.startswith("i don't know") or hyde_ans_lower.startswith("i do not know"):
-				hyde_ans_str = constants.I_DONT_KNOW
-				hyde_dont_know_count = hyde_dont_know_count + 1
-			hyde_ans_str_list.append(hyde_ans_str)
-
-			if (sample_index + 1) % 20 == 0 or sample_index + 1 == len(eval_samples):
-				print(f"HyDE answers written : {sample_index + 1} of {len(eval_samples)}")
-		print(f"HyDE I don't know : {hyde_dont_know_count} of {len(eval_samples)}")
-
-		hyde_ans_vectors = embedding_model.embed_documents(hyde_ans_str_list)
-
-		hyde_ans_list = []
-		for sample_index in range(len(eval_samples)):
-			hyde_ans_list.append(Ans(
-				ans=hyde_ans_str_list[sample_index],
-				embeddings=np.array(hyde_ans_vectors[sample_index], dtype=np.float32)
-			))
-		return hyde_ans_list
 
 	def split_queries(self, queries: list[Query]) -> tuple[list[Query], list[Query]]:
 		"""

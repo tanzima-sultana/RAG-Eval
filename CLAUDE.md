@@ -40,133 +40,78 @@ All commands below assume current working directory is the repo root (`rag-eval/
 config.yaml
 
 scripts/
-	build.sh
-	benchmark.sh
-	serve.sh
-	monitor.sh
+        build.sh                          # -> run_build.py
+        eval_dataset.sh                   # -> run_eval_dataset.py
+        benchmark.sh                      # -> run_benchmark.py
+        analysis.sh                       # -> run_analysis.py
+        serve.sh                          # -> api/app.py (uvicorn)
+        monitor.sh                        # -> api/monitoring.py
 
 src/
-	run_build.py                    # --framework rag | langchain: builds the indexes
-	run_benchmark.py                # --framework rag | langchain: retrieval benchmark on val, answer benchmark on test for top n
+        run_build.py                      # builds the indexes: ingestion, chunking, embedding, indexing, vector DB
+        run_eval_dataset.py               # loads the saved eval dataset, or generates one (paid, ALLOW_PAID_API=1)
+        run_benchmark.py                  # retrieval benchmark on val, answer benchmark on test for top n
+        run_analysis.py                   # reads saved scores, writes summaries, comparisons and reports
 
-	common/
-		constants.py
-		args.py
-		paths.py
-		timing.py
+        common/
+                constants.py
+                args.py
+                paths.py
+                timing.py
 
-	schema/
-		document.py
-		chunk.py
-		embed.py
-		index.py
-		vectordb.py
-		qna.py
-		query.py
-		retrieved.py
-		retrieved_eval.py
-		context.py
-		prompt.py
-		answer.py
-		answer_eval.py
-		analysis.py
-		llm.py
-		setup.py                      # one setup: chunk type, index type, query type, retrieval type, reranking
+        schema/
+                document.py
+                chunk.py
+                embed.py
+                index.py
+                vectordb.py
+                eval_sample.py
+                query.py
+                retrieved.py
+                retrieved_eval.py
+                context.py
+                prompt.py
+                answer.py
+                answer_eval.py
+                analysis.py
+                llm.py
+                setup.py                        # one setup: chunk type, index type, query type, retrieval type, reranking
 
-	llm_provider/
-		validate.py
-		llm_provider.py
+        llm_provider/
+                validate.py
+                llm_provider.py
 
-	rag/                            # built-in RAG
-		build/
-			ingestion/
-				validate.py
-				cache.py
-				ingestion.py
-			chunking/
-				validate.py
-				cache.py
-				chunking.py
-				chunkers/
-					fixed.py
-					sentence.py
-					semantic.py
-			embedding/
-				validate.py
-				cache.py
-				embedding.py
-			indexing/
-				validate.py
-				cache.py
-				indexing.py
-				indexers/
-					faiss.py
-					bm25.py
-				indexing_vectordb.py
+        rag/                              # LangChain RAG
+                build/
+                        ingestion.py
+                        chunking.py
+                        embedding.py
+                        indexing.py
+                        indexing_vectordb.py
 
-		serving/
-			query_transformation/
-				validate.py
-				cache.py
-				query_transformation.py
-			retrieval/
-				validate.py
-				cache.py
-				rerank.py
-				retrieval.py
-				retrievars/
-					dense.py
-					bm25.py
-					hybrid.py
-			context_creation.py
-			prompt_construction.py
-			answer_generation/
-				validate.py
-				cache.py
-				answer_generation.py
-			rag_pipeline.py             # RagPipeline(setup): retrieve(q), answer(q)
+                serving/
+                        query_transformation.py
+                        retrieval.py
+                        context_creation.py
+                        prompt_construction.py
+                        answer_generation.py
+                        rag_pipeline.py               # RagPipeline(setup): retrieve(q), answer(q)
 
-	langchain_rag/                  # LangChain RAG
-		build/
-			ingestion.py
-			chunking.py
-			embedding.py
-			indexing.py
-			indexing_vectordb.py
+        evaluation/                       # computes scores
+                eval_dataset.py                 # the saved questions the benchmark is scored against
+                retrieval_evaluation.py         # benchmark only: needs ground truth
+                answer_evaluation.py            # benchmark: all metrics; api monitoring: reference-free metrics only
 
-		serving/
-			query_transformation.py
-			retrieval.py
-			context_creation.py
-			prompt_construction.py
-			answer_generation.py
-			rag_pipeline.py             # LangChainRagPipeline(setup): retrieve(q), answer(q)
+        analysis/                         # reads saved scores, writes conclusions
+                summary.py
+                comparison.py
+                diagnosis.py
+                report.py
+                analysis.py
 
-	evaluation/                     # shared by both frameworks, by the benchmark and by api monitoring
-		qna/
-			validate.py
-			cache.py
-			qna.py
-		retrieval_evaluation/         # benchmark only: needs ground truth
-			validate.py
-			cache.py
-			retrieval_evaluation.py
-		answer_evaluation/            # benchmark: all metrics; api monitoring: reference-free metrics only
-			validate.py
-			cache.py
-			answer_evaluation.py
-		analysis/
-			validate.py
-			cache.py
-			summary.py
-			comparison.py
-			diagnosis.py
-			report.py
-			analysis.py
-
-	api/                            # live serving: --framework rag | langchain, one best setup
-		app.py                        # FastAPI: startup builds the pipeline; POST /ask, POST /feedback
-		schema.py                     # AskRequest, AskResponse, FeedbackRequest
-		call_log.py                   # saves each call: id, question, chunks, answer, latency, cost, time
-		feedback.py                   # saves thumbs up/down for a call id
-		monitoring.py                 # batch job: reads the call log, runs reference-free answer eval, writes a report
+        api/                              # live serving, one best setup
+                app.py                          # FastAPI: startup builds the pipeline; POST /ask, POST /feedback
+                schema.py                       # AskRequest, AskResponse, FeedbackRequest
+                call_log.py                     # saves each call: id, question, chunks, answer, latency, cost, time
+                feedback.py                     # saves thumbs up/down for a call id
+                monitoring.py                   # batch job: reads the call log, runs reference-free answer eval, writes a report

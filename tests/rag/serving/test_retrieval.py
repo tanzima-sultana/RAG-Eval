@@ -1,7 +1,7 @@
 """
 test_retrieval.py
 
-Tests for langchain_rag.serving.retrieval and paths_temp.get_retrieved_path. No model is loaded: the vector stores, the BM25
+Tests for rag.serving.retrieval (retrieval, single_retrieval and cache) and paths_temp.get_retrieved_path. No model is loaded: the vector stores, the BM25
 model and the cross-encoder are fakes that return fixed scores.
 """
 
@@ -16,9 +16,11 @@ from common.args_temp import QueryArgs
 from common.args_temp import RetrievalArgs
 from common.constants import I_DONT_KNOW
 from common.constants import RRF_K
-from langchain_rag.serving import retrieval as retrieval_module
-from langchain_rag.serving.retrieval import Retrieval
-from langchain_rag.serving.retrieval import load_retrieved
+from rag.serving.retrieval import single_retrieval as single_retrieval_module
+from rag.serving.retrieval.retrieval import Retrieval
+from rag.serving.retrieval.single_retrieval import Search
+from schema.setup import Setup
+from rag.serving.retrieval.cache import load_retrieved
 from schema.chunk import Chunk
 from schema.index import Bm25Index
 from schema.index import FaissIndex
@@ -117,9 +119,9 @@ def fake_cross_encoder(monkeypatch):
     """
     Input: pytest's monkeypatch fixture.
     Output: the FakeCrossEncoder class.
-    What it does: makes Retrieval load the fake cross-encoder.
+    What it does: makes Search load the fake cross-encoder.
     """
-    monkeypatch.setattr(retrieval_module, "CrossEncoder", FakeCrossEncoder)
+    monkeypatch.setattr(single_retrieval_module, "CrossEncoder", FakeCrossEncoder)
     FakeCrossEncoder.scored_questions = []
     return FakeCrossEncoder
 
@@ -232,15 +234,6 @@ def make_bm25_index():
     return Bm25Index(retriever=retriever, index_path="unused")
 
 
-def make_faiss_index(vector_store):
-    """
-    Input: vector_store, a FakeVectorStore.
-    Output: a FaissIndex holding it.
-    What it does: wraps the fake in the index record the run passes to retrieval.
-    """
-    return FaissIndex(index_type="faiss_flatip", vector_store=vector_store, index_path="unused", dimension=2)
-
-
 def make_retrieved(query_type, retrieval_type, index_type, chunk_ids):
     """
     Input: query_type; retrieval_type; index_type; chunk_ids, best first.
@@ -254,12 +247,8 @@ def make_retrieved(query_type, retrieval_type, index_type, chunk_ids):
         doc_ids.append(chunk_ids[position].rsplit("_", 1)[0])
     return Retrieved(
         id="q1",
-        query_type=query_type,
-        chunk_type="fixed",
-        retrieval_type=retrieval_type,
-        index_type=index_type,
+        setup=Setup(chunk_type="fixed", index_type=index_type, query_type=query_type, retrieval_type=retrieval_type, reranking=False),
         top_k=3,
-        reranking=False,
         rerank_top_k=0,
         chunk_ids=chunk_ids,
         chunk_scores=chunk_scores,
@@ -275,7 +264,7 @@ def find_retrieved(retrieved_items, query_type):
     """
     found_items = []
     for retrieved in retrieved_items:
-        if retrieved.query_type == query_type:
+        if retrieved.setup.query_type == query_type:
             found_items.append(retrieved)
     assert len(found_items) == 1
     return found_items[0]
@@ -320,7 +309,138 @@ def test_get_retrieved_path_names_the_index_split_and_query_types(make_retrieval
     )
 
 
-# ---------- compute_retrieval / compute_vectordb_retrieval ----------
+# ---------- dense_search ----------
+
+
+def test_dense_search_keeps_top_k_and_merges_multi_by_best_score(make_retrieval_args):
+    """
+    Input: one query with all four query types.
+    Output: the dense results.
+    What it does: checks each query type's chunks, scores and doc ids, and that multi keeps doc1_1 once with its best score.
+    """
+    retrieved_items = Search(make_retrieval_args()).dense_search(FakeVectorStore(make_dense_results()), "faiss_flatip", make_query())
+
+    original = find_retrieved(retrieved_items, "original")
+    assert original.chunk_ids == ["doc1_0", "doc1_1", "doc2_0"]
+    assert original.doc_ids == ["doc1", "doc1", "doc2"]
+    assert original.setup.chunk_type == "fixed"
+    assert original.setup.reranking is False
+    multi = find_retrieved(retrieved_items, "multi")
+    assert multi.chunk_ids == ["doc1_1", "doc2_1", "doc1_0"]
+    assert multi.chunk_scores == pytest.approx([0.95, 0.4, 0.3])
+    assert find_retrieved(retrieved_items, "hyde").chunk_ids == ["doc2_1"]
+
+
+def test_dense_search_does_not_search_a_hyde_i_dont_know(make_retrieval_args):
+    """
+    Input: a query whose HyDE answer is I_DONT_KNOW.
+    Output: the dense results and the searched vectors.
+    What it does: checks the HyDE vector is not searched but still gets an empty result, so it counts as a miss.
+    """
+    vector_store = FakeVectorStore(make_dense_results())
+
+    retrieved_items = Search(make_retrieval_args()).dense_search(vector_store, "faiss_flatip", make_query(hyde_text=I_DONT_KNOW))
+
+    assert find_retrieved(retrieved_items, "hyde").chunk_ids == []
+    searched_first_values = []
+    for searched_vector in vector_store.searched_vectors:
+        searched_first_values.append(searched_vector[0])
+    assert 5.0 not in searched_first_values
+
+
+def test_dense_search_searches_only_the_query_types_the_query_holds(make_retrieval_args):
+    """
+    Input: a query whose rewritten and multi query types are None.
+    Output: the dense results.
+    What it does: checks only original and hyde are searched.
+    """
+    query = make_query()
+    query.rewritten_qus = None
+    query.multi_qus = None
+
+    retrieved_items = Search(make_retrieval_args()).dense_search(FakeVectorStore(make_dense_results()), "faiss_flatip", query)
+
+    query_types = []
+    for retrieved in retrieved_items:
+        query_types.append(retrieved.setup.query_type)
+    assert query_types == ["original", "hyde"]
+
+
+# ---------- bm25_search ----------
+
+
+def test_bm25_search_drops_zero_scores_and_has_no_hyde(make_retrieval_args):
+    """
+    Input: one query with all four query types.
+    Output: the BM25 results.
+    What it does: checks chunks with score 0 are dropped, multi is merged and HyDE has no result.
+    """
+    retrieved_items = Search(make_retrieval_args()).bm25_search(make_bm25_index(), make_query())
+
+    query_types = []
+    for retrieved in retrieved_items:
+        query_types.append(retrieved.setup.query_type)
+    assert query_types == ["original", "rewritten", "multi"]
+    assert find_retrieved(retrieved_items, "original").chunk_ids == ["doc1_1", "doc2_1", "doc2_0"]
+    assert find_retrieved(retrieved_items, "rewritten").chunk_ids == ["doc1_0"]
+    multi = find_retrieved(retrieved_items, "multi")
+    assert multi.chunk_ids == ["doc2_1", "doc1_0"]
+    assert multi.chunk_scores == pytest.approx([4.0, 1.0])
+    assert multi.setup.index_type == "bm25"
+
+
+# ---------- hybrid_fuse and rerank_result ----------
+
+
+def test_hybrid_fuse_fuses_one_dense_and_bm25_result(make_retrieval_args):
+    """
+    Input: the dense and BM25 results of one query and query type.
+    Output: their hybrid Retrieved.
+    What it does: checks reciprocal rank fusion and the "+" index type.
+    """
+    dense_retrieved = make_retrieved("original", "dense", "faiss_flatip", ["doc1_0", "doc1_1"])
+    bm25_retrieved = make_retrieved("original", "bm25", "bm25", ["doc1_1", "doc2_0"])
+
+    hybrid_retrieved = Search(make_retrieval_args()).hybrid_fuse(dense_retrieved, bm25_retrieved)
+
+    assert hybrid_retrieved.setup.index_type == "faiss_flatip+bm25"
+    assert hybrid_retrieved.setup.retrieval_type == "hybrid"
+    assert hybrid_retrieved.chunk_ids == ["doc1_1", "doc1_0", "doc2_0"]
+    assert hybrid_retrieved.chunk_scores[0] == pytest.approx(1.0 / (RRF_K + 2) + 1.0 / (RRF_K + 1))
+
+
+def test_rerank_result_keeps_the_best_rerank_top_k(make_retrieval_args, fake_cross_encoder):
+    """
+    Input: one plain result whose chunk texts end with their cross-encoder score, and its question.
+    Output: the reranked Retrieved.
+    What it does: checks the chunks are sorted by score, rerank_top_k are kept and the question is the one given.
+    """
+    chunks = {
+        "doc1_0": Chunk(id="doc1_0", text="chunk 0.1", size=2, type="fixed"),
+        "doc1_1": Chunk(id="doc1_1", text="chunk 0.9", size=2, type="fixed"),
+        "doc2_0": Chunk(id="doc2_0", text="chunk 0.5", size=2, type="fixed"),
+    }
+    retrieved = make_retrieved("original", "dense", "faiss_flatip", ["doc1_0", "doc1_1", "doc2_0"])
+
+    reranked = Search(make_retrieval_args(reranking=True)).rerank_result(retrieved, "What is X?", chunks)
+
+    assert reranked.chunk_ids == ["doc1_1", "doc2_0"]
+    assert reranked.chunk_scores == pytest.approx([0.9, 0.5])
+    assert reranked.doc_ids == ["doc1", "doc2"]
+    assert reranked.setup.reranking is True
+    assert set(fake_cross_encoder.scored_questions) == {"What is X?"}
+
+
+# ---------- Retrieval list methods ----------
+
+
+def make_faiss_index(vector_store):
+    """
+    Input: vector_store, a FakeVectorStore.
+    Output: a FaissIndex holding it.
+    What it does: wraps the fake in the index record the run passes to retrieval.
+    """
+    return FaissIndex(index_type="faiss_flatip", vector_store=vector_store, index_path="unused", dimension=2)
 
 
 @pytest.mark.parametrize("retrieval_types, index_kind, expected_count", [
@@ -357,81 +477,19 @@ def test_compute_vectordb_retrieval_searches_the_collection(make_retrieval_args,
     retrieved_items = Retrieval(make_retrieval_args(), make_query_args(), 1).compute_vectordb_retrieval(vectordb, [make_query()], str(tmp_path))
 
     assert len(retrieved_items) == 4
-    assert retrieved_items[0].retrieval_type == "dense"
-    assert retrieved_items[0].index_type == "qdrant"
+    assert retrieved_items[0].setup.retrieval_type == "dense"
+    assert retrieved_items[0].setup.index_type == "qdrant"
 
 
-# ---------- dense_retrieval ----------
-
-
-def test_dense_retrieval_keeps_top_k_and_merges_multi_by_best_score(make_retrieval_args, tmp_path):
-    """
-    Input: one query with all four query types.
-    Output: the dense results.
-    What it does: checks each query type's chunks, scores and doc ids, and that multi keeps doc1_1 once with its best score.
-    """
-    retrieved_items = Retrieval(make_retrieval_args(), make_query_args(), 1).dense_retrieval(
-        FakeVectorStore(make_dense_results()), "faiss_flatip", [make_query()], str(tmp_path)
-    )
-
-    original = find_retrieved(retrieved_items, "original")
-    assert original.chunk_ids == ["doc1_0", "doc1_1", "doc2_0"]
-    assert original.doc_ids == ["doc1", "doc1", "doc2"]
-    assert original.chunk_type == "fixed"
-    assert original.reranking is False
-    multi = find_retrieved(retrieved_items, "multi")
-    assert multi.chunk_ids == ["doc1_1", "doc2_1", "doc1_0"]
-    assert multi.chunk_scores == pytest.approx([0.95, 0.4, 0.3])
-    assert find_retrieved(retrieved_items, "hyde").chunk_ids == ["doc2_1"]
-
-
-def test_dense_retrieval_does_not_search_a_hyde_i_dont_know(make_retrieval_args, tmp_path):
-    """
-    Input: a query whose HyDE answer is I_DONT_KNOW.
-    Output: the dense results and the searched vectors.
-    What it does: checks the HyDE vector is not searched but still gets an empty result, so it counts as a miss.
-    """
-    vector_store = FakeVectorStore(make_dense_results())
-
-    retrieved_items = Retrieval(make_retrieval_args(), make_query_args(), 1).dense_retrieval(
-        vector_store, "faiss_flatip", [make_query(hyde_text=I_DONT_KNOW)], str(tmp_path)
-    )
-
-    assert find_retrieved(retrieved_items, "hyde").chunk_ids == []
-    searched_first_values = []
-    for searched_vector in vector_store.searched_vectors:
-        searched_first_values.append(searched_vector[0])
-    assert 5.0 not in searched_first_values
-
-
-def test_dense_retrieval_searches_only_the_query_types_the_query_holds(make_retrieval_args, tmp_path):
-    """
-    Input: a query whose rewritten and multi query types are None.
-    Output: the dense results.
-    What it does: checks only original and hyde are searched.
-    """
-    query = make_query()
-    query.rewritten_qus = None
-    query.multi_qus = None
-
-    retrieved_items = Retrieval(make_retrieval_args(), make_query_args(), 1).dense_retrieval(
-        FakeVectorStore(make_dense_results()), "faiss_flatip", [query], str(tmp_path)
-    )
-
-    query_types = []
-    for retrieved in retrieved_items:
-        query_types.append(retrieved.query_type)
-    assert query_types == ["original", "hyde"]
-
-
-def test_dense_retrieval_loads_saved_results_without_searching(make_retrieval_args, tmp_path):
+def test_dense_retrieval_gives_dense_search_results_and_loads_them_without_searching(make_retrieval_args, tmp_path):
     """
     Input: the same dense retrieval run twice.
-    Output: the second run's results and the searches it made.
-    What it does: checks the results are saved and the second run loads them without searching.
+    Output: both runs' results and the searches the second run made.
+    What it does: checks the results equal dense_search, are saved, and the second run loads them without searching.
     """
     retrieval = Retrieval(make_retrieval_args(), make_query_args(), 1)
     first_items = retrieval.dense_retrieval(FakeVectorStore(make_dense_results()), "faiss_flatip", [make_query()], str(tmp_path))
+    assert first_items == retrieval.search.dense_search(FakeVectorStore(make_dense_results()), "faiss_flatip", make_query())
 
     second_vector_store = FakeVectorStore(make_dense_results())
     second_items = retrieval.dense_retrieval(second_vector_store, "faiss_flatip", [make_query()], str(tmp_path))
@@ -440,30 +498,17 @@ def test_dense_retrieval_loads_saved_results_without_searching(make_retrieval_ar
     assert second_items == first_items
 
 
-# ---------- bm25_retrieval ----------
-
-
-def test_bm25_retrieval_drops_zero_scores_and_has_no_hyde(make_retrieval_args, tmp_path):
+def test_bm25_retrieval_gives_bm25_search_results(make_retrieval_args, tmp_path):
     """
-    Input: one query with all four query types.
+    Input: one query.
     Output: the BM25 results.
-    What it does: checks chunks with score 0 are dropped, multi is merged and HyDE has no result.
+    What it does: checks the list method gives exactly the bm25_search results.
     """
-    retrieved_items = Retrieval(make_retrieval_args(), make_query_args(), 1).bm25_retrieval(make_bm25_index(), [make_query()], str(tmp_path))
+    retrieval = Retrieval(make_retrieval_args(), make_query_args(), 1)
 
-    query_types = []
-    for retrieved in retrieved_items:
-        query_types.append(retrieved.query_type)
-    assert query_types == ["original", "rewritten", "multi"]
-    assert find_retrieved(retrieved_items, "original").chunk_ids == ["doc1_1", "doc2_1", "doc2_0"]
-    assert find_retrieved(retrieved_items, "rewritten").chunk_ids == ["doc1_0"]
-    multi = find_retrieved(retrieved_items, "multi")
-    assert multi.chunk_ids == ["doc2_1", "doc1_0"]
-    assert multi.chunk_scores == pytest.approx([4.0, 1.0])
-    assert multi.index_type == "bm25"
+    retrieved_items = retrieval.bm25_retrieval(make_bm25_index(), [make_query()], str(tmp_path))
 
-
-# ---------- hybrid_retrieval ----------
+    assert retrieved_items == retrieval.search.bm25_search(make_bm25_index(), make_query())
 
 
 def test_hybrid_retrieval_fuses_ranks_for_each_dense_index(make_retrieval_args, tmp_path):
@@ -486,18 +531,15 @@ def test_hybrid_retrieval_fuses_ranks_for_each_dense_index(make_retrieval_args, 
 
     assert len(hybrid_items) == 2
     flatip_hybrid = hybrid_items[0]
-    assert flatip_hybrid.index_type == "faiss_flatip+bm25"
-    assert flatip_hybrid.retrieval_type == "hybrid"
+    assert flatip_hybrid.setup.index_type == "faiss_flatip+bm25"
+    assert flatip_hybrid.setup.retrieval_type == "hybrid"
     # doc1_1 is rank 2 in dense and rank 1 in BM25, so it beats doc1_0 (rank 1 in dense only)
     assert flatip_hybrid.chunk_ids == ["doc1_1", "doc1_0", "doc2_0"]
     assert flatip_hybrid.chunk_scores[0] == pytest.approx(1.0 / (RRF_K + 2) + 1.0 / (RRF_K + 1))
-    assert hybrid_items[1].index_type == "qdrant+bm25"
+    assert hybrid_items[1].setup.index_type == "qdrant+bm25"
     for hybrid_index_type in ["faiss_flatip+bm25", "qdrant+bm25"]:
         retrieved_path = paths_temp.get_retrieved_path(str(tmp_path), retrieval_args, query_args, 1, hybrid_index_type)
         assert load_retrieved(os.path.join(retrieved_path, "hybrid_top3.json")) is not None
-
-
-# ---------- rerank_retrieval ----------
 
 
 def test_rerank_retrieval_sorts_by_cross_encoder_score_against_the_eval_question(make_retrieval_args, fake_cross_encoder, tmp_path):
@@ -528,9 +570,9 @@ def test_rerank_retrieval_sorts_by_cross_encoder_score_against_the_eval_question
     assert len(reranked_items) == 2
     assert reranked_items[0].chunk_ids == ["doc1_1", "doc2_0"]
     assert reranked_items[0].chunk_scores == pytest.approx([0.9, 0.5])
-    assert reranked_items[0].reranking is True
+    assert reranked_items[0].setup.reranking is True
     assert reranked_items[0].rerank_top_k == 2
-    assert reranked_items[0].query_type == "rewritten"
+    assert reranked_items[0].setup.query_type == "rewritten"
     assert reranked_items[1].chunk_ids == ["doc2_0", "doc1_0"]
     assert set(fake_cross_encoder.scored_questions) == {"What is X?"}
     # The plain results are not changed

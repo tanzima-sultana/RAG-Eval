@@ -1,22 +1,16 @@
 import dataclasses
 
+from schema.setup import Setup
+
 
 @dataclasses.dataclass
 class Retrieved:
-	# The chunks found for one eval question with one query type and one retrieval setup
+	# The chunks found for one eval question with one setup
 	# Same as the EvalSample and Query id, linking the result to its eval question
 	id: str
-	# original, rewritten, multi or hyde
-	query_type: str
-	# fixed, sentence or semantic
-	chunk_type: str
-	# dense, bm25 or hybrid
-	retrieval_type: str
-	# faiss_flatip, faiss_ivf, faiss_hnsw or qdrant for dense, bm25 for bm25, and both joined with "+" for hybrid,
-	# e.g. faiss_flatip+bm25
-	index_type: str
+	# The setup that found the chunks: chunk type, index type, query type, retrieval type and reranking
+	setup: Setup
 	top_k: int
-	reranking: bool
 	# Chunks kept after reranking. 0 when not reranked
 	rerank_top_k: int
 	# The chunks, best first

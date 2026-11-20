@@ -1,7 +1,7 @@
 """
 test_embedding.py
 
-Tests for langchain_rag.build.embedding. HuggingFaceEmbeddings is replaced with a fake that embeds a text by its length,
+Tests for rag.build.embedding. HuggingFaceEmbeddings is replaced with a fake that embeds a text by its length,
 so no model is downloaded.
 """
 
@@ -12,10 +12,10 @@ import pytest
 
 from common import paths_temp
 from common.args_temp import EmbeddingArgs
-from langchain_rag.build import embedding as embedding_module
-from langchain_rag.build.embedding import Embedding
-from langchain_rag.build.embedding import load_embeddings
-from langchain_rag.build.embedding import save_embeddings
+from rag.build import embedding as embedding_module
+from rag.build.embedding import Embedding
+from rag.build.embedding import load_embeddings
+from rag.build.embedding import save_embeddings
 from schema.chunk import Chunk
 from schema.embed import Embedded
 

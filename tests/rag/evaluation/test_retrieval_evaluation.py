@@ -12,6 +12,7 @@ from evaluation.retrieval_evaluation import RetrievalEvaluation
 from schema.chunk import Chunk
 from schema.eval_sample import EvalSample
 from schema.retrieved import Retrieved
+from schema.setup import Setup
 
 
 def make_eval_sample(doc_ids, context):
@@ -46,12 +47,8 @@ def make_retrieved(chunk_ids, top_k=4, reranking=False, rerank_top_k=0):
         doc_ids.append(chunk_id.rsplit("_", 1)[0])
     return Retrieved(
         id="q1",
-        query_type="original",
-        chunk_type="fixed",
-        retrieval_type="dense",
-        index_type="faiss_flatip",
+        setup=Setup(chunk_type="fixed", index_type="faiss_flatip", query_type="original", retrieval_type="dense", reranking=reranking),
         top_k=top_k,
-        reranking=reranking,
         rerank_top_k=rerank_top_k,
         chunk_ids=chunk_ids,
         chunk_scores=chunk_scores,

@@ -6,7 +6,6 @@ from langchain_community.document_loaders import PyPDFium2Loader
 from langchain_core.documents import Document as LangchainDocument
 
 from common import paths_temp
-from common.constants import LANGCHAIN_FRAMEWORK
 from common.args_temp import IngestionArgs
 from schema.document import Document
 from schema.document import DocumentType
@@ -137,9 +136,7 @@ def ingestion(ingestion_args: IngestionArgs) -> dict[str, Document]:
 	validate(ingestion_args)
 
 	# 2. Load from the cache if this dataset_size was saved before
-	output_path = paths_temp.get_output_path(
-		ingestion_args.output_path, LANGCHAIN_FRAMEWORK, ingestion_args.dataset_name
-	)
+	output_path = paths_temp.get_output_path(ingestion_args.output_path, ingestion_args.dataset_name)
 	processed_data_path = paths_temp.get_documents_path(output_path)
 	print(f"Processed data folder : {processed_data_path}")
 	cached_documents = load_documents(processed_data_path, ingestion_args.dataset_size)

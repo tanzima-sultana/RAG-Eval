@@ -1,6 +1,7 @@
 import dataclasses
 
 from schema.retrieved import Retrieved
+from schema.setup import Setup
 
 
 @dataclasses.dataclass
@@ -29,3 +30,15 @@ class RetrievedEval:
 	chunk_eval: Eval
 	# A chunk is relevant if it is from an EvalSample doc. Recall is the share of EvalSample docs found
 	doc_eval: Eval
+
+
+@dataclasses.dataclass
+class SetupScore:
+	# The chunk level scores of one setup, each the mean over its val queries. The setups are ranked by these
+	setup: Setup
+	# The val queries the means are taken over
+	queries_count: int
+	mean_hit: float
+	mean_recall: float
+	mean_mrr: float
+	mean_ndcg: float

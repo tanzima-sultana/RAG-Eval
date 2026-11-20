@@ -378,6 +378,11 @@ def parse_retrieval_args(parser: argparse.ArgumentParser) -> None:
 		type=int,
 		required=True,
 		help="Chunks kept after the cross-encoder reranks the top_k chunks")
+	parser.add_argument(
+		"--n_top_setups",
+		type=int,
+		required=True,
+		help="Best setups by retrieval eval, plain and reranked ranked together, that go on to the answer step")
 
 
 def parse_llm_provider_args(parser: argparse.ArgumentParser) -> None:
@@ -559,12 +564,6 @@ def parse_args() -> argparse.Namespace:
 
 	# 3. Parse the file's flags and then the overrides, so an override replaces the file's value
 	parser = argparse.ArgumentParser(description="RAG parameters", allow_abbrev=False)
-	parser.add_argument(
-		"--framework",
-		type=str,
-		required=True,
-		help="rag or langchain")
-	
 	parse_ingestion_args(parser)
 	parse_chunking_args(parser)
 	parse_indexing_args(parser)

@@ -15,13 +15,13 @@ from common.constants import QDRANT_INDEX
 
 
 # ------ Dataset
-def get_output_path(output_path: str, framework: str, dataset_name: str) -> str:
+def get_output_path(output_path: str, dataset_name: str) -> str:
 	"""
-	Input: output_path, the root output folder; framework; dataset_name.
-	Output: {output_path}/{framework}/{dataset_name}
-	What it does: builds the dataset's output folder for one framework.
+	Input: output_path, the root output folder; dataset_name.
+	Output: {output_path}/{dataset_name}
+	What it does: builds the dataset's output folder.
 	"""
-	return os.path.join(output_path, framework, dataset_name)
+	return os.path.join(output_path, dataset_name)
 
 
 # ------ Ingestion
@@ -114,17 +114,18 @@ def get_bm25_index_path(output_path: str, index_args: IndexArgs) -> str:
 # ------ Vector DB
 def get_qdrant_collection_name(output_path: str, vectordb_args: VectorDbArgs) -> str:
 	"""
-	Input: output_path, the dataset's output folder ({root}/{framework}/{dataset_name}); vectordb_args.
-	Output: {framework}_{dataset_name}_{chunk_type}_{model_name}_{min}_{max}_{overlap}_{threshold}
-	What it does: builds the Qdrant collection name. Any "/" is replaced with "-", as Qdrant does not allow it.
+	Input: output_path, the dataset's output folder ({root}/{dataset_name}); vectordb_args.
+	Output: {root folder name}_{dataset_name}_{chunk_type}_{model_name}_{min}_{max}_{overlap}_{threshold}
+	What it does: builds the Qdrant collection name. The root folder name keeps a temp/ run and an outputs/ run of the
+	same dataset in separate collections. Any "/" is replaced with "-", as Qdrant does not allow it.
 	"""
 	chunking_args = vectordb_args.chunking_args
 	normalized_output_path = os.path.normpath(output_path)
 	dataset_name = os.path.basename(normalized_output_path)
-	framework = os.path.basename(os.path.dirname(normalized_output_path))
+	root_folder_name = os.path.basename(os.path.dirname(normalized_output_path))
 
 	collection_name = (
-		f"{framework}_{dataset_name}_{chunking_args.chunk_type}_{chunking_args.model_name}_"
+		f"{root_folder_name}_{dataset_name}_{chunking_args.chunk_type}_{chunking_args.model_name}_"
 		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
 		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
 	)

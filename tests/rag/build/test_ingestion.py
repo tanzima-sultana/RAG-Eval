@@ -1,7 +1,7 @@
 """
 test_ingestion.py
 
-Tests for langchain_rag.build.ingestion. PyPDFium2Loader is replaced with a fake that reads each file as plain text,
+Tests for rag.build.ingestion. PyPDFium2Loader is replaced with a fake that reads each file as plain text,
 so the test files do not need to be real PDFs.
 """
 
@@ -13,10 +13,10 @@ import pytest
 from langchain_core.documents import Document as LangchainDocument
 
 from common.args_temp import IngestionArgs
-from langchain_rag.build import ingestion as ingestion_module
-from langchain_rag.build.ingestion import convert_langchain_document
-from langchain_rag.build.ingestion import ingestion
-from langchain_rag.build.ingestion import validate
+from rag.build import ingestion as ingestion_module
+from rag.build.ingestion import convert_langchain_document
+from rag.build.ingestion import ingestion
+from rag.build.ingestion import validate
 
 
 class FakePyPDFium2Loader:
@@ -98,9 +98,9 @@ def get_documents_path(output_path):
     """
     Input: output_path, the root output folder.
     Output: the folder ingestion saves documents to.
-    What it does: joins the langchain framework-first layout.
+    What it does: joins the dataset output layout.
     """
-    return os.path.join(output_path, "langchain", "dataset", "documents")
+    return os.path.join(output_path, "dataset", "documents")
 
 
 # ---------- validate ----------

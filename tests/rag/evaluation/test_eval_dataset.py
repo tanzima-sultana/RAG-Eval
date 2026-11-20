@@ -22,7 +22,7 @@ from evaluation.eval_dataset import save_eval_dataset
 from schema.llm import LLMArgs
 from schema.eval_sample import EvalSample
 
-SAVED_EVAL_DATASET_PATH = "temp/langchain/pdfa-eng-wds/eval_dataset/eval_dataset_100_200_anthropic-claude-sonnet-5-5_all-MiniLM-L6-v2.json"
+SAVED_EVAL_DATASET_PATH = "temp/pdfa-eng-wds/eval_dataset/eval_dataset_100_200_anthropic-claude-sonnet-5-5_all-MiniLM-L6-v2.json"
 
 
 def make_eval_dataset_args(**overrides):

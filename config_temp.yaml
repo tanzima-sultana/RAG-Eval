@@ -1,4 +1,3 @@
-framework: "langchain" 
 # 1. Ingestion
 ingestion:
   dataset_size: 15
@@ -62,3 +61,4 @@ retrieval:
   top_k: 20                   # Chunks each retriever returns for a query
   reranking: false            # true to also rerank the top_k chunks with the cross-encoder, false not to
   rerank_top_k: 5             # Chunks kept after the cross-encoder reranks the top_k chunks
+  n_top_setups: 3             # Best setups by retrieval eval, plain and reranked ranked together, that go on to the answer step

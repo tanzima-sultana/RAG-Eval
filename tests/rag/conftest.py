@@ -1,7 +1,7 @@
 """
 conftest.py
 
-Shared fakes and fixtures for the langchain_rag test suite.
+Shared fakes and fixtures for the rag test suite.
 The real models are replaced with fakes, so no model is downloaded.
 """
 

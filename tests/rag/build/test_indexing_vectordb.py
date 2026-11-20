@@ -1,18 +1,18 @@
 """
 test_indexing_vectordb.py
 
-Tests for langchain_rag.build.indexing_vectordb. Qdrant runs in memory and HuggingFaceEmbeddings is replaced with a fake,
+Tests for rag.build.indexing_vectordb. Qdrant runs in memory and HuggingFaceEmbeddings is replaced with a fake,
 so no server is needed and no model is downloaded.
 """
 
 import pytest
 from qdrant_client import QdrantClient
 
-from langchain_rag.build import indexing_vectordb as indexing_vectordb_module
-from langchain_rag.build.indexing_vectordb import IndexingVectorDb
-from langchain_rag.build.indexing_vectordb import qdrant_collection_holds_chunks
+from rag.build import indexing_vectordb as indexing_vectordb_module
+from rag.build.indexing_vectordb import IndexingVectorDb
+from rag.build.indexing_vectordb import qdrant_collection_holds_chunks
 
-OUTPUT_PATH = "out/langchain/dataset"
+OUTPUT_PATH = "out/dataset"
 
 
 @pytest.fixture
@@ -101,7 +101,7 @@ def test_qdrant_builds_collection_with_langchain_payload(patched_embeddings, mem
     vectordb = IndexingVectorDb(make_vectordb_args()).compute_vectordb(chunks, embeddings, OUTPUT_PATH)
 
     assert vectordb.vectordb_type == "qdrant"
-    assert vectordb.collection_name == "langchain_dataset_fixed_fake-model_2_6_2_0.5"
+    assert vectordb.collection_name == "out_dataset_fixed_fake-model_2_6_2_0.5"
     assert vectordb.dimension == 4
     assert memory_qdrant_client.count(vectordb.collection_name).count == 10
     assert qdrant_collection_holds_chunks(memory_qdrant_client, vectordb.collection_name, list(chunks.keys()))
