@@ -43,14 +43,6 @@ N_EVAL_SAMPLES=50
 EVAL_QNA_MODEL="all-MiniLM-L6-v2"
 # Number of documents randomly picked from the dataset for RAGAS to generate the eval QnA from
 SAMPLE_DOCUMENTS=200
-# Seed for that pick, so the same documents are picked every run
-SAMPLE_DOCUMENTS_SEED=42
-# Only documents with more than this many tokens (tiktoken cl100k_base, as RAGAS counts) are sampled,
-# because RAGAS only extracts headlines and summaries from documents over 500 tokens
-EVAL_MIN_DOCUMENT_TOKENS=500
-# An eval passage is linked to the document that contains its first this many characters (whitespace collapsed),
-# because RAGAS sometimes stitches non-adjacent sections of a document into one passage
-EVAL_PASSAGE_MATCH_CHARS=80
 
 # 5. Query
 

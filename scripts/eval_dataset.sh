@@ -1,8 +1,8 @@
 # Loads the saved eval dataset, or generates and saves one if there is none.
 #
 # Usage:
-#   bash scripts/eval_dataset.sh                         # the settings in build_config.yaml
-#   bash scripts/eval_dataset.sh --dataset_size 20       # any setting can be overridden for one run
+#   bash scripts/eval_dataset.sh                                   # the settings in eval_dataset_config.yaml
+#   bash scripts/eval_dataset.sh --documents.dataset_size 20       # any setting can be overridden for one run, as --{section}.{key}
 #
 # Generating calls a paid LLM, so it runs only with ALLOW_PAID_API=1:
 #   ALLOW_PAID_API=1 bash scripts/eval_dataset.sh
@@ -20,4 +20,4 @@ fi
 mkdir -p log
 LOG="log/log.txt"
 
-python3 src/run_eval_dataset.py --config build_config.yaml "$@" 2>&1 | tee "$LOG"
+python3 src/run_eval_dataset.py --config eval_dataset_config.yaml "$@" 2>&1 | tee "$LOG"

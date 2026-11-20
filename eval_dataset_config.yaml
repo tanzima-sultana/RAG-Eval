@@ -1,0 +1,31 @@
+# 1. Where the built documents are
+documents:
+  output_path: outputs/
+  dataset_name: pdfa-eng-wds
+  dataset_size: 5000
+
+# 2. The LLM that writes the eval questions and answers
+eval_dataset_llm:
+  model: anthropic/claude-sonnet-5-5
+  max_tokens: 16000
+  timeout_seconds: 180
+
+# 3. The LLM that builds the RAGAS knowledge graph
+eval_dataset_kg_llm:
+  model: anthropic/claude-haiku-5-5
+  max_tokens: 16000
+  timeout_seconds: 180
+
+# 4. Generation settings
+eval_dataset:
+  embedding_model: all-MiniLM-L6-v2   # Local embedding model RAGAS uses to build its knowledge graph
+  n_sample_documents: 100             # Documents randomly picked for RAGAS to generate the QnA from
+  n_evals_requested: 200              # QnA items to generate
+  sample_documents_seed: 42           # Seed for the document sample, so the same documents are picked every run
+  min_document_tokens: 500            # Only documents with more than this many tokens can be sampled for RAGAS
+  passage_match_chars: 80             # Characters used to match each generated passage back to its document
+
+# 5. Ollama server, used only when an LLM above is an Ollama model
+ollama:
+  api_base: http://localhost:11434
+  context_length: 32768

@@ -5,6 +5,7 @@ Tests for evaluation.eval_dataset. No LLM is called: the cached path never build
 ALLOW_PAID_API stops before any call.
 """
 
+import hashlib
 import os
 import types
 
@@ -19,6 +20,7 @@ from evaluation.eval_dataset import ReplyDidNotFinishError
 from evaluation.eval_dataset import check_reply_finished
 from evaluation.eval_dataset import load_eval_dataset
 from evaluation.eval_dataset import save_eval_dataset
+from rag.build.ingestion import save_documents
 from schema.llm import LLMArgs
 from schema.eval_sample import EvalSample
 
@@ -32,11 +34,17 @@ def make_eval_dataset_args(**overrides):
     What it does: fills in defaults for every field not overridden.
     """
     field_values = {}
+    field_values["output_path"] = "outputs/"
+    field_values["dataset_name"] = "test-dataset"
+    field_values["dataset_size"] = 1
     field_values["eval_dataset_llm_args"] = LLMArgs("anthropic/claude-sonnet-5-5", 100, 30)
     field_values["eval_dataset_kg_llm_args"] = LLMArgs("anthropic/claude-haiku-5-5", 100, 30)
     field_values["eval_dataset_embedding_model"] = "fake-model"
     field_values["n_sample_documents"] = 1
-    field_values["n_sample_evals"] = 2
+    field_values["n_evals_requested"] = 2
+    field_values["sample_documents_seed"] = 42
+    field_values["min_document_tokens"] = 500
+    field_values["passage_match_chars"] = 80
     for field_name in overrides:
         field_values[field_name] = overrides[field_name]
     return EvalDatasetArgs(**field_values)
@@ -87,7 +95,7 @@ def make_finished_response(finish_reason):
 @pytest.mark.parametrize("overrides, message", [
     ({"eval_dataset_embedding_model": " "}, "eval_dataset_embedding_model"),
     ({"n_sample_documents": 0}, "n_sample_documents"),
-    ({"n_sample_evals": 0}, "n_sample_evals"),
+    ({"n_evals_requested": 0}, "n_evals_requested"),
 ])
 def test_validate_raises_for_invalid_setting(overrides, message):
     """
@@ -120,16 +128,27 @@ def test_save_and_load_eval_dataset_round_trip(tmp_path):
 # ---------- compute_eval_dataset ----------
 
 
-def test_compute_eval_dataset_returns_saved_eval_dataset_without_building_an_llm(tmp_path, monkeypatch, capsys):
+def test_compute_eval_dataset_returns_saved_eval_dataset_without_documents_or_llm(tmp_path, monkeypatch, capsys):
     """
-    Input: a saved eval dataset file at the eval dataset path, and no documents.
+    Input: a saved eval dataset file at the eval dataset path, and no saved documents.
     Output: the eval samples and what was printed.
-    What it does: checks the saved eval dataset is returned and no LLMProvider is built, so no key or ALLOW_PAID_API is needed.
+    What it does: checks the cache is checked first: the saved eval dataset is returned, no documents are loaded and
+    no LLMProvider is built, so no key or ALLOW_PAID_API is needed.
     """
     eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
     eval_samples = [make_eval_sample(0), make_eval_sample(1)]
-    save_eval_dataset(paths.get_eval_dataset_path(output_path, eval_dataset_args), eval_samples)
+    save_eval_dataset(paths.get_eval_dataset_path(output_path, eval_dataset_args, make_ollama_args()), eval_samples)
+
+    def fail_to_load_documents(documents_path, dataset_size):
+        """
+        Input: the arguments of load_saved_documents.
+        Output: none.
+        What it does: fails the test if documents are loaded.
+        """
+        raise AssertionError("Documents were loaded for a cached eval dataset")
+
+    monkeypatch.setattr(eval_dataset_module, "load_saved_documents", fail_to_load_documents)
 
     def fail_to_build_llm(llm_args, ollama_args):
         """
@@ -142,7 +161,7 @@ def test_compute_eval_dataset_returns_saved_eval_dataset_without_building_an_llm
     monkeypatch.setattr(eval_dataset_module, "LLMProvider", fail_to_build_llm)
     monkeypatch.delenv("ALLOW_PAID_API", raising=False)
 
-    loaded_eval_samples = EvalDataset(eval_dataset_args, make_ollama_args()).compute_eval_dataset({}, output_path)
+    loaded_eval_samples = EvalDataset(eval_dataset_args, make_ollama_args()).compute_eval_dataset(output_path)
 
     assert loaded_eval_samples == eval_samples
     assert "Eval dataset : 2 (all from cache)" in capsys.readouterr().out
@@ -150,19 +169,105 @@ def test_compute_eval_dataset_returns_saved_eval_dataset_without_building_an_llm
 
 def test_compute_eval_dataset_without_saved_eval_dataset_stops_before_paid_call(tmp_path, monkeypatch, make_document):
     """
-    Input: no saved eval dataset, one long document, and ALLOW_PAID_API not set.
+    Input: no saved eval dataset, one long saved document, and ALLOW_PAID_API not set.
     Output: ValueError, and the eval dataset folder.
-    What it does: checks a cache miss never calls a paid LLM without the opt-in, and saves nothing.
+    What it does: checks a cache miss loads the saved documents and never calls a paid LLM without the opt-in, and saves nothing.
     """
     monkeypatch.delenv("ALLOW_PAID_API", raising=False)
     documents = {}
     documents["doc1"] = make_document("doc1", "word " * 600)
     output_path = str(tmp_path)
+    save_documents(paths.get_documents_path(output_path), documents, 1)
 
     with pytest.raises(ValueError, match="ALLOW_PAID_API"):
-        EvalDataset(make_eval_dataset_args(), make_ollama_args()).compute_eval_dataset(documents, output_path)
+        EvalDataset(make_eval_dataset_args(), make_ollama_args()).compute_eval_dataset(output_path)
 
     assert not os.path.exists(os.path.join(output_path, "eval_dataset"))
+
+
+# ---------- hash and paths ----------
+
+
+def test_eval_dataset_hash_is_12_hex_characters_and_changes_with_any_arg():
+    """
+    Input: the default args, and the same args with one setting changed.
+    Output: the two hashes.
+    What it does: checks the hash is 12 hex characters, stays the same for the same args and changes for a changed arg.
+    """
+    eval_dataset_hash = paths.get_eval_dataset_hash(make_eval_dataset_args(), make_ollama_args())
+    same_eval_dataset_hash = paths.get_eval_dataset_hash(make_eval_dataset_args(), make_ollama_args())
+    changed_eval_dataset_hash = paths.get_eval_dataset_hash(make_eval_dataset_args(passage_match_chars=81), make_ollama_args())
+
+    assert len(eval_dataset_hash) == 12
+    int(eval_dataset_hash, 16)
+    assert eval_dataset_hash == same_eval_dataset_hash
+    assert eval_dataset_hash != changed_eval_dataset_hash
+
+
+def test_eval_dataset_hash_uses_ollama_context_length_only_for_an_ollama_model():
+    """
+    Input: two Ollama context lengths, first with Claude models, then with an Ollama model.
+    Output: the hashes.
+    What it does: checks the context length changes the hash only when one of the LLMs is an Ollama model.
+    """
+    short_context = OllamaArgs(ollama_api_base="http://ollama-test:11434", ollama_context_length=4096)
+    long_context = OllamaArgs(ollama_api_base="http://ollama-test:11434", ollama_context_length=32768)
+    claude_args = make_eval_dataset_args()
+    ollama_args_with_ollama_model = make_eval_dataset_args(eval_dataset_kg_llm_args=LLMArgs("ollama_chat/llama3.1:8b", 100, 30))
+
+    assert paths.get_eval_dataset_hash(claude_args, short_context) == paths.get_eval_dataset_hash(claude_args, long_context)
+    assert paths.get_eval_dataset_hash(ollama_args_with_ollama_model, short_context) != paths.get_eval_dataset_hash(ollama_args_with_ollama_model, long_context)
+
+
+def test_eval_dataset_metadata_and_kg_paths_share_the_eval_dataset_hash(tmp_path):
+    """
+    Input: the default args.
+    Output: the three paths.
+    What it does: checks the eval dataset, metadata and knowledge graph files are named by the same hash.
+    """
+    eval_dataset_args = make_eval_dataset_args()
+    output_path = str(tmp_path)
+    eval_dataset_hash = paths.get_eval_dataset_hash(eval_dataset_args, make_ollama_args())
+
+    assert paths.get_eval_dataset_path(output_path, eval_dataset_args, make_ollama_args()) == os.path.join(output_path, "eval_dataset", f"eval_dataset_{eval_dataset_hash}.json")
+    assert paths.get_eval_dataset_metadata_path(output_path, eval_dataset_args, make_ollama_args()) == os.path.join(output_path, "eval_dataset", f"eval_dataset_{eval_dataset_hash}_metadata.json")
+    assert paths.get_eval_dataset_kg_path(output_path, eval_dataset_args, make_ollama_args()) == os.path.join(output_path, "eval_dataset", f"kg_{eval_dataset_hash}.json")
+
+
+# ---------- make_eval_dataset_metadata ----------
+
+
+def test_make_eval_dataset_metadata_fills_every_field(tmp_path, make_document):
+    """
+    Input: a saved eval dataset of two samples and the one document it came from.
+    Output: the EvalDatasetMetadata.
+    What it does: checks the identity, integrity, source and generation fields.
+    """
+    eval_dataset_args = make_eval_dataset_args()
+    output_path = str(tmp_path)
+    eval_samples = [make_eval_sample(0), make_eval_sample(1)]
+    eval_dataset_path = paths.get_eval_dataset_path(output_path, eval_dataset_args, make_ollama_args())
+    save_eval_dataset(eval_dataset_path, eval_samples)
+    documents = {}
+    documents["doc1"] = make_document("doc1", "word " * 600)
+
+    eval_dataset_metadata = EvalDataset(eval_dataset_args, make_ollama_args()).make_eval_dataset_metadata(documents, output_path, eval_samples)
+
+    with open(eval_dataset_path, "rb") as f:
+        expected_content_hash = hashlib.sha256(f.read()).hexdigest()
+    assert eval_dataset_metadata.eval_dataset_hash == paths.get_eval_dataset_hash(eval_dataset_args, make_ollama_args())
+    assert eval_dataset_metadata.eval_dataset_path == eval_dataset_path
+    assert eval_dataset_metadata.knowledge_graph_path == paths.get_eval_dataset_kg_path(output_path, eval_dataset_args, make_ollama_args())
+    assert eval_dataset_metadata.content_hash == expected_content_hash
+    assert eval_dataset_metadata.n_evals_generated == 2
+    assert eval_dataset_metadata.dataset_name == "test-dataset"
+    assert eval_dataset_metadata.dataset_size == 1
+    assert eval_dataset_metadata.documents_path == paths.get_documents_path(output_path)
+    assert eval_dataset_metadata.documents_hash == hashlib.sha256("doc1".encode("utf-8")).hexdigest()
+    assert eval_dataset_metadata.ollama_context_length is None
+    assert eval_dataset_metadata.sample_documents_seed == 42
+    assert eval_dataset_metadata.min_document_tokens == 500
+    assert eval_dataset_metadata.passage_match_chars == 80
 
 
 # ---------- load_saved_eval_dataset ----------

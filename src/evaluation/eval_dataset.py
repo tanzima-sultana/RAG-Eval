@@ -1,4 +1,7 @@
 import dataclasses
+import datetime
+import hashlib
+import importlib.metadata
 import json
 import os
 import random
@@ -24,11 +27,10 @@ from ragas.utils import num_tokens_from_string
 from common import paths
 from common.args import OllamaArgs
 from common.args import EvalDatasetArgs
-from common.constants import EVAL_MIN_DOCUMENT_TOKENS
-from common.constants import EVAL_PASSAGE_MATCH_CHARS
-from common.constants import SAMPLE_DOCUMENTS_SEED
 from llm_provider.llm_provider import LLMProvider
+from rag.build.ingestion import load_saved_documents
 from schema.document import Document
+from schema.eval_dataset_metadata import EvalDatasetMetadata
 from schema.eval_sample import EvalSample
 
 
@@ -66,6 +68,20 @@ def load_eval_dataset(eval_dataset_path: str) -> list[EvalSample] | None:
 	for eval_sample_dict in eval_sample_dicts:
 		eval_samples.append(EvalSample(**eval_sample_dict))
 	return eval_samples
+
+
+def save_eval_dataset_metadata(eval_dataset_metadata_path: str, eval_dataset_metadata: EvalDatasetMetadata) -> None:
+	"""
+	Input: eval_dataset_metadata_path, the metadata file; eval_dataset_metadata, the metadata of one eval dataset.
+	Output: nothing.
+	What it does: saves the metadata as JSON to a temporary file, then renames it to eval_dataset_metadata_path.
+	"""
+	os.makedirs(os.path.dirname(eval_dataset_metadata_path), exist_ok=True)
+
+	temporary_file = eval_dataset_metadata_path + ".tmp"
+	with open(temporary_file, "w", encoding="utf-8") as f:
+		json.dump(dataclasses.asdict(eval_dataset_metadata), f, indent=2)
+	os.replace(temporary_file, eval_dataset_metadata_path)
 
 
 class ReplyDidNotFinishError(Exception):
@@ -232,31 +248,98 @@ class EvalDataset:
 		if eval_dataset_args.n_sample_documents <= 0:
 			raise ValueError(f"n_sample_documents ({eval_dataset_args.n_sample_documents}) must be greater than 0.")
 
-		if eval_dataset_args.n_sample_evals <= 0:
-			raise ValueError(f"n_sample_evals ({eval_dataset_args.n_sample_evals}) must be greater than 0.")
+		if eval_dataset_args.n_evals_requested <= 0:
+			raise ValueError(f"n_evals_requested ({eval_dataset_args.n_evals_requested}) must be greater than 0.")
 
-	def compute_eval_dataset(self, documents: dict[str, Document], output_path: str) -> list[EvalSample]:
+	def compute_eval_dataset(self, output_path: str) -> list[EvalSample]:
 		"""
-		Input: documents, a dict of doc_id to Document; output_path, the dataset's output folder.
+		Input: output_path, the dataset's output folder.
 		Output: a list of EvalSample.
-		What it does: loads the saved eval dataset. Only if there is none, it generates the eval dataset with RAGAS and saves it.
+		What it does: checks the cache first and loads the saved eval dataset if it is there, with no documents and no
+		LLM. Only if there is none, it loads the saved documents, generates the eval dataset with RAGAS, and saves it
+		and its metadata.
 		"""
 		# 1. Validate the settings
 		self.validate()
 
-		# 2. Load the saved eval dataset. No LLM is built, so a cached run needs no API key or ALLOW_PAID_API
-		eval_dataset_path = paths.get_eval_dataset_path(output_path, self.eval_dataset_args)
+		# 2. Load the saved eval dataset. No documents and no LLM, so a cached run needs no API key or ALLOW_PAID_API
+		eval_dataset_path = paths.get_eval_dataset_path(output_path, self.eval_dataset_args, self.ollama_args)
 		print(f"Eval dataset file : {eval_dataset_path}")
 		eval_samples = load_eval_dataset(eval_dataset_path)
 		if eval_samples is not None:
 			print(f"Eval dataset : {len(eval_samples)} (all from cache)")
 			return eval_samples
 
-		# 3. Generate and save the eval dataset
-		print(f"No saved eval dataset, generating {self.eval_dataset_args.n_sample_evals} items with RAGAS")
+		# 3. Load the documents the build saved, only needed to generate
+		documents_path = paths.get_documents_path(output_path)
+		documents = load_saved_documents(documents_path, self.eval_dataset_args.dataset_size)
+
+		# 4. Generate and save the eval dataset
+		print(f"No saved eval dataset, generating {self.eval_dataset_args.n_evals_requested} items with RAGAS")
 		eval_samples = self.generate_eval_dataset(documents, output_path)
 		save_eval_dataset(eval_dataset_path, eval_samples)
+
+		# 5. Save its metadata next to it: what it is and how it was made
+		eval_dataset_metadata = self.make_eval_dataset_metadata(documents, output_path, eval_samples)
+		eval_dataset_metadata_path = paths.get_eval_dataset_metadata_path(output_path, self.eval_dataset_args, self.ollama_args)
+		save_eval_dataset_metadata(eval_dataset_metadata_path, eval_dataset_metadata)
+		print(f"Eval dataset metadata saved : {eval_dataset_metadata_path}")
 		return eval_samples
+
+	def make_eval_dataset_metadata(self, documents: dict[str, Document], output_path: str, eval_samples: list[EvalSample]) -> EvalDatasetMetadata:
+		"""
+		Input: documents, the document set it was generated from; output_path, the dataset's output folder;
+		eval_samples, the saved eval samples.
+		Output: an EvalDatasetMetadata.
+		What it does: hashes the saved file and the sorted document ids, and collects every setting that shaped the output.
+		"""
+		eval_dataset_args = self.eval_dataset_args
+		eval_dataset_path = paths.get_eval_dataset_path(output_path, eval_dataset_args, self.ollama_args)
+
+		# 1. Hash of the saved eval dataset file
+		with open(eval_dataset_path, "rb") as f:
+			content_hash = hashlib.sha256(f.read()).hexdigest()
+
+		# 2. Hash of the sorted document ids, one per line
+		doc_ids = []
+		for doc_id in documents:
+			doc_ids.append(doc_id)
+		doc_ids.sort()
+		documents_hash = hashlib.sha256("\n".join(doc_ids).encode("utf-8")).hexdigest()
+
+		# 3. The Ollama context length shapes the output only when one of the LLMs is an Ollama model
+		ollama_providers = ["ollama", "ollama_chat"]
+		eval_dataset_llm_provider = eval_dataset_args.eval_dataset_llm_args.llm_model.split("/", 1)[0]
+		eval_dataset_kg_llm_provider = eval_dataset_args.eval_dataset_kg_llm_args.llm_model.split("/", 1)[0]
+		ollama_context_length = None
+		if eval_dataset_llm_provider in ollama_providers or eval_dataset_kg_llm_provider in ollama_providers:
+			ollama_context_length = self.ollama_args.ollama_context_length
+
+		eval_dataset_metadata = EvalDatasetMetadata(
+			eval_dataset_hash=paths.get_eval_dataset_hash(eval_dataset_args, self.ollama_args),
+			eval_dataset_path=eval_dataset_path,
+			knowledge_graph_path=paths.get_eval_dataset_kg_path(output_path, eval_dataset_args, self.ollama_args),
+			content_hash=content_hash,
+			n_evals_generated=len(eval_samples),
+			created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+			dataset_name=eval_dataset_args.dataset_name,
+			dataset_size=eval_dataset_args.dataset_size,
+			documents_path=paths.get_documents_path(output_path),
+			documents_hash=documents_hash,
+			eval_dataset_llm_model=eval_dataset_args.eval_dataset_llm_args.llm_model,
+			eval_dataset_llm_max_tokens=eval_dataset_args.eval_dataset_llm_args.max_tokens,
+			eval_dataset_kg_llm_model=eval_dataset_args.eval_dataset_kg_llm_args.llm_model,
+			eval_dataset_kg_llm_max_tokens=eval_dataset_args.eval_dataset_kg_llm_args.max_tokens,
+			ollama_context_length=ollama_context_length,
+			embedding_model=eval_dataset_args.eval_dataset_embedding_model,
+			n_sample_documents=eval_dataset_args.n_sample_documents,
+			n_evals_requested=eval_dataset_args.n_evals_requested,
+			sample_documents_seed=eval_dataset_args.sample_documents_seed,
+			min_document_tokens=eval_dataset_args.min_document_tokens,
+			passage_match_chars=eval_dataset_args.passage_match_chars,
+			ragas_version=importlib.metadata.version("ragas")
+		)
+		return eval_dataset_metadata
 
 	def load_saved_eval_dataset(self, output_path: str) -> list[EvalSample]:
 		"""
@@ -290,19 +373,19 @@ class EvalDataset:
 		eligible_doc_ids = []
 		for doc_id in documents:
 			document_tokens = num_tokens_from_string(documents[doc_id].text)
-			if document_tokens > EVAL_MIN_DOCUMENT_TOKENS:
+			if document_tokens > eval_dataset_args.min_document_tokens:
 				eligible_doc_ids.append(doc_id)
 		eligible_doc_ids.sort()
-		print(f"Documents with more than {EVAL_MIN_DOCUMENT_TOKENS} tokens : {len(eligible_doc_ids)} of {len(documents)}")
+		print(f"Documents with more than {eval_dataset_args.min_document_tokens} tokens : {len(eligible_doc_ids)} of {len(documents)}")
 
 		if len(eligible_doc_ids) < eval_dataset_args.n_sample_documents:
 			raise ValueError(
 				f"only {len(eligible_doc_ids)} of {len(documents)} documents have more than "
-				f"{EVAL_MIN_DOCUMENT_TOKENS} tokens; n_sample_documents ({eval_dataset_args.n_sample_documents}) is too large"
+				f"{eval_dataset_args.min_document_tokens} tokens; n_sample_documents ({eval_dataset_args.n_sample_documents}) is too large"
 			)
 
 		# 2. Sample documents
-		random_generator = random.Random(SAMPLE_DOCUMENTS_SEED)
+		random_generator = random.Random(eval_dataset_args.sample_documents_seed)
 		sampled_doc_ids = random_generator.sample(eligible_doc_ids, eval_dataset_args.n_sample_documents)
 
 		sampled_documents = {}
@@ -338,7 +421,7 @@ class EvalDataset:
 		ragas_embeddings = LangchainEmbeddingsWrapper(huggingface_embeddings)
 
 		# 5. Build or load the knowledge graph. Saved after building, so a failed or repeated run does not pay again
-		kg_path = paths.get_eval_dataset_kg_path(output_path, eval_dataset_args)
+		kg_path = paths.get_eval_dataset_kg_path(output_path, eval_dataset_args, self.ollama_args)
 		if os.path.exists(kg_path):
 			knowledge_graph = KnowledgeGraph.load(kg_path)
 			print(f"Knowledge graph loaded from cache : {kg_path}")
@@ -372,7 +455,7 @@ class EvalDataset:
 			embedding_model=ragas_embeddings,
 			knowledge_graph=knowledge_graph
 		)
-		testset = testset_generator.generate(testset_size=eval_dataset_args.n_sample_evals)
+		testset = testset_generator.generate(testset_size=eval_dataset_args.n_evals_requested)
 		kg_cost = kg_llm_provider.compute_cost()
 		question_cost = question_llm_provider.compute_cost()
 		print(f"Eval dataset total cost : ${kg_cost.total_cost + question_cost.total_cost:.4f}")
@@ -411,7 +494,7 @@ class EvalDataset:
 						passage_text = reference_context[hop_marker_match.end():]
 					collapsed_passage_text = " ".join(passage_text.split())
 					# RAGAS may stitch non-adjacent sections together, so only the start of the passage is matched
-					passage_start = collapsed_passage_text[:EVAL_PASSAGE_MATCH_CHARS]
+					passage_start = collapsed_passage_text[:eval_dataset_args.passage_match_chars]
 
 					for doc_id in sampled_documents:
 						if doc_id in doc_ids:
@@ -434,7 +517,7 @@ class EvalDataset:
 			eval_samples.append(eval_sample)
 			sample_number = sample_number + 1
 
-		if len(eval_samples) < eval_dataset_args.n_sample_evals:
-			print(f"Warning : Generated {len(eval_samples)} of {eval_dataset_args.n_sample_evals} eval samples. Saving the ones generated.")
+		if len(eval_samples) < eval_dataset_args.n_evals_requested:
+			print(f"Warning : Generated {len(eval_samples)} of {eval_dataset_args.n_evals_requested} eval samples. Saving the ones generated.")
 
 		return eval_samples

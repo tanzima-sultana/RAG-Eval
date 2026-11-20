@@ -126,6 +126,9 @@ def make_eval_dataset_args():
     What it does: builds the eval dataset settings the query path is named by.
     """
     return EvalDatasetArgs(
+        "outputs/",
+        "test-dataset",
+        1,
         LLMArgs("anthropic/claude-sonnet-5-5", 100, 30),
         LLMArgs("anthropic/claude-haiku-5-5", 100, 30),
         "fake-model",

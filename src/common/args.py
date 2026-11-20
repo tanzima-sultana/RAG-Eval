@@ -176,17 +176,125 @@ def make_ollama_args(parsed_args: argparse.Namespace) -> OllamaArgs:
 
 @dataclasses.dataclass
 class EvalDatasetArgs:
+	# Where the built documents are: the root output folder, the dataset name and which saved document set
+	output_path: str
+	dataset_name: str
+	dataset_size: int
 	eval_dataset_llm_args: LLMArgs
 	eval_dataset_kg_llm_args: LLMArgs
 	eval_dataset_embedding_model: str
 	n_sample_documents: int
-	n_sample_evals: int
+	n_evals_requested: int
+	# Seed for the document sample, so the same documents are picked every run
+	sample_documents_seed: int
+	# Only documents with more than this many tokens can be sampled for RAGAS
+	min_document_tokens: int
+	# Characters used to match each generated passage back to its document
+	passage_match_chars: int
+
+
+def make_eval_dataset_config_args(parsed_args: argparse.Namespace) -> EvalDatasetArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_eval_dataset_config().
+	Output: an EvalDatasetArgs holding the eval dataset settings.
+	What it does: builds each LLM's LLMArgs from its own block, and copies the other settings.
+	"""
+	eval_dataset_llm_args = LLMArgs(
+		llm_model=parsed_args.eval_dataset_llm_model,
+		max_tokens=parsed_args.eval_dataset_llm_max_tokens,
+		timeout_seconds=parsed_args.eval_dataset_llm_timeout_seconds
+	)
+	eval_dataset_kg_llm_args = LLMArgs(
+		llm_model=parsed_args.eval_dataset_kg_llm_model,
+		max_tokens=parsed_args.eval_dataset_kg_llm_max_tokens,
+		timeout_seconds=parsed_args.eval_dataset_kg_llm_timeout_seconds
+	)
+	eval_dataset_args = EvalDatasetArgs(
+		output_path=parsed_args.documents_output_path,
+		dataset_name=parsed_args.documents_dataset_name,
+		dataset_size=parsed_args.documents_dataset_size,
+		eval_dataset_llm_args=eval_dataset_llm_args,
+		eval_dataset_kg_llm_args=eval_dataset_kg_llm_args,
+		eval_dataset_embedding_model=parsed_args.eval_dataset_embedding_model,
+		n_sample_documents=parsed_args.eval_dataset_n_sample_documents,
+		n_evals_requested=parsed_args.eval_dataset_n_evals_requested,
+		sample_documents_seed=parsed_args.eval_dataset_sample_documents_seed,
+		min_document_tokens=parsed_args.eval_dataset_min_document_tokens,
+		passage_match_chars=parsed_args.eval_dataset_passage_match_chars
+	)
+	return eval_dataset_args
+
+
+def parse_eval_dataset_config() -> argparse.Namespace:
+	"""
+	Input: none. Reads --config and any override flags from the command line.
+	Output: an argparse.Namespace with one attribute per setting, named {section}_{key}.
+	What it does: reads the eval dataset config file, turns each {section: {key: value}} into the flag
+	--{section}.{key} and parses them. Flags given after --config override the file.
+	"""
+	# 1. Get the config file path. The other command line flags are overrides
+	config_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+	config_parser.add_argument("--config", type=str, required=True, help="YAML config file, e.g. eval_dataset_config.yaml")
+	config_args, override_arguments = config_parser.parse_known_args()
+
+	with open(config_args.config, encoding="utf-8") as config_file:
+		config = yaml.safe_load(config_file)
+
+	# 2. Turn each setting of the file into its flag. The section is part of the flag, so two LLM blocks can share key names
+	config_arguments = []
+	for section in config:
+		section_settings = config[section]
+		if not isinstance(section_settings, dict):
+			raise ValueError(f"{section} in {config_args.config} must be a section holding settings.")
+		for key in section_settings:
+			config_arguments.append(f"--{section}.{key}")
+			config_arguments.append(str(section_settings[key]))
+
+	# 3. Parse the file's flags and then the overrides, so an override replaces the file's value
+	parser = argparse.ArgumentParser(description="Eval dataset parameters", allow_abbrev=False)
+	parser.add_argument("--documents.output_path", dest="documents_output_path", type=str, required=True,
+		help="Root output folder the build saved the documents in")
+	parser.add_argument("--documents.dataset_name", dest="documents_dataset_name", type=str, required=True,
+		help="Dataset name, e.g. pdfa-eng-wds")
+	parser.add_argument("--documents.dataset_size", dest="documents_dataset_size", type=int, required=True,
+		help="Which saved document set to generate from, e.g. 5000")
+	parser.add_argument("--eval_dataset_llm.model", dest="eval_dataset_llm_model", type=str, required=True,
+		help="LiteLLM model that writes the eval questions and answers, e.g. anthropic/claude-sonnet-5-5")
+	parser.add_argument("--eval_dataset_llm.max_tokens", dest="eval_dataset_llm_max_tokens", type=int, required=True,
+		help="Maximum output tokens per call of the eval dataset LLM")
+	parser.add_argument("--eval_dataset_llm.timeout_seconds", dest="eval_dataset_llm_timeout_seconds", type=int, required=True,
+		help="Seconds before one call of the eval dataset LLM times out")
+	parser.add_argument("--eval_dataset_kg_llm.model", dest="eval_dataset_kg_llm_model", type=str, required=True,
+		help="LiteLLM model that builds the RAGAS knowledge graph, e.g. anthropic/claude-haiku-5-5")
+	parser.add_argument("--eval_dataset_kg_llm.max_tokens", dest="eval_dataset_kg_llm_max_tokens", type=int, required=True,
+		help="Maximum output tokens per call of the knowledge graph LLM")
+	parser.add_argument("--eval_dataset_kg_llm.timeout_seconds", dest="eval_dataset_kg_llm_timeout_seconds", type=int, required=True,
+		help="Seconds before one call of the knowledge graph LLM times out")
+	parser.add_argument("--eval_dataset.embedding_model", dest="eval_dataset_embedding_model", type=str, required=True,
+		help="Local embedding model RAGAS uses to build its knowledge graph")
+	parser.add_argument("--eval_dataset.n_sample_documents", dest="eval_dataset_n_sample_documents", type=int, required=True,
+		help="Documents randomly picked for RAGAS to generate the eval dataset from")
+	parser.add_argument("--eval_dataset.n_evals_requested", dest="eval_dataset_n_evals_requested", type=int, required=True,
+		help="Eval samples to generate")
+	parser.add_argument("--eval_dataset.sample_documents_seed", dest="eval_dataset_sample_documents_seed", type=int, required=True,
+		help="Seed for the document sample, so the same documents are picked every run")
+	parser.add_argument("--eval_dataset.min_document_tokens", dest="eval_dataset_min_document_tokens", type=int, required=True,
+		help="Only documents with more than this many tokens can be sampled for RAGAS")
+	parser.add_argument("--eval_dataset.passage_match_chars", dest="eval_dataset_passage_match_chars", type=int, required=True,
+		help="Characters used to match each generated passage back to its document")
+	parser.add_argument("--ollama.api_base", dest="ollama_api_base", type=str, required=True,
+		help="URL of the local Ollama server, used only for an Ollama model")
+	parser.add_argument("--ollama.context_length", dest="ollama_context_length", type=int, required=True,
+		help="Context window in tokens of an Ollama model, used only for an Ollama model")
+
+	parsed_args = parser.parse_args(config_arguments + override_arguments)
+	return parsed_args
 
 
 def make_eval_dataset_args(parsed_args: argparse.Namespace) -> EvalDatasetArgs:
 	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args().
-	Output: an EvalDatasetArgs holding the eval dataset settings.
+	Input: parsed_args, the argparse.Namespace returned by parse_args() from the build config.
+	Output: an EvalDatasetArgs holding the eval dataset settings, which the benchmark uses to find the saved eval dataset.
 	What it does: builds the LLMArgs of the two eval dataset models with the shared LLM settings, and copies the other settings.
 	"""
 	eval_dataset_llm_args = LLMArgs(
@@ -200,11 +308,14 @@ def make_eval_dataset_args(parsed_args: argparse.Namespace) -> EvalDatasetArgs:
 		timeout_seconds=parsed_args.llm_timeout_seconds
 	)
 	eval_dataset_args = EvalDatasetArgs(
+		output_path=parsed_args.output_path,
+		dataset_name=parsed_args.dataset_name,
+		dataset_size=parsed_args.dataset_size,
 		eval_dataset_llm_args=eval_dataset_llm_args,
 		eval_dataset_kg_llm_args=eval_dataset_kg_llm_args,
 		eval_dataset_embedding_model=parsed_args.eval_dataset_embedding_model,
 		n_sample_documents=parsed_args.n_sample_documents,
-		n_sample_evals=parsed_args.n_sample_evals
+		n_evals_requested=parsed_args.n_evals_requested
 	)
 	return eval_dataset_args
 
@@ -236,7 +347,7 @@ def parse_eval_dataset_args(parser: argparse.ArgumentParser) -> None:
 		required=True,
 		help="Documents randomly picked for RAGAS to generate the eval dataset from")
 	parser.add_argument(
-		"--n_sample_evals",
+		"--n_evals_requested",
 		type=int,
 		required=True,
 		help="eval samples to generate")

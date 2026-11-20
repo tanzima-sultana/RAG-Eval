@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 
 from common.args import ChunkingArgs
@@ -5,6 +7,7 @@ from common.args import EmbeddingArgs
 from common.args import IndexArgs
 from common.args import VectorDbArgs
 from common.args import EvalDatasetArgs
+from common.args import OllamaArgs
 from common.args import QueryArgs
 from common.args import RetrievalArgs
 from common.constants import FAISS_FLATIP_INDEX
@@ -153,31 +156,65 @@ def get_best_setups_path(output_path: str) -> str:
 
 
 # ------ Eval dataset
-def get_eval_dataset_path(output_path: str, eval_dataset_args: EvalDatasetArgs) -> str:
+def get_eval_dataset_hash(eval_dataset_args: EvalDatasetArgs, ollama_args: OllamaArgs) -> str:
 	"""
-	Input: output_path, the dataset's output folder; eval_dataset_args.
-	Output: {output_path}/eval_dataset/eval_dataset_{n_sample_documents}_{n_sample_evals}_{eval_dataset_llm_model}_{eval_dataset_embedding_model}.json
-	What it does: builds the eval dataset file path. Any "/" or ":" in a model name is replaced with "-".
+	Input: eval_dataset_args; ollama_args.
+	Output: the first 12 hex characters of the SHA-256 of the eval dataset args.
+	What it does: hashes every arg that shapes the eval dataset, as JSON with sorted keys. The Ollama context length
+	is included only when one of the two LLMs is an Ollama model.
 	"""
-	eval_dataset_llm_model = eval_dataset_args.eval_dataset_llm_args.llm_model.replace("/", "-").replace(":", "-")
-	eval_dataset_embedding_model = eval_dataset_args.eval_dataset_embedding_model.replace("/", "-").replace(":", "-")
-	file_name = (
-		f"eval_dataset_{eval_dataset_args.n_sample_documents}_{eval_dataset_args.n_sample_evals}_"
-		f"{eval_dataset_llm_model}_{eval_dataset_embedding_model}.json"
-	)
-	return os.path.join(output_path, "eval_dataset", file_name)
+	hashed_args = {}
+	hashed_args["dataset_name"] = eval_dataset_args.dataset_name
+	hashed_args["dataset_size"] = eval_dataset_args.dataset_size
+	hashed_args["eval_dataset_llm_model"] = eval_dataset_args.eval_dataset_llm_args.llm_model
+	hashed_args["eval_dataset_llm_max_tokens"] = eval_dataset_args.eval_dataset_llm_args.max_tokens
+	hashed_args["eval_dataset_kg_llm_model"] = eval_dataset_args.eval_dataset_kg_llm_args.llm_model
+	hashed_args["eval_dataset_kg_llm_max_tokens"] = eval_dataset_args.eval_dataset_kg_llm_args.max_tokens
+	hashed_args["embedding_model"] = eval_dataset_args.eval_dataset_embedding_model
+	hashed_args["n_sample_documents"] = eval_dataset_args.n_sample_documents
+	hashed_args["n_evals_requested"] = eval_dataset_args.n_evals_requested
+	hashed_args["sample_documents_seed"] = eval_dataset_args.sample_documents_seed
+	hashed_args["min_document_tokens"] = eval_dataset_args.min_document_tokens
+	hashed_args["passage_match_chars"] = eval_dataset_args.passage_match_chars
+
+	ollama_providers = ["ollama", "ollama_chat"]
+	eval_dataset_llm_provider = eval_dataset_args.eval_dataset_llm_args.llm_model.split("/", 1)[0]
+	eval_dataset_kg_llm_provider = eval_dataset_args.eval_dataset_kg_llm_args.llm_model.split("/", 1)[0]
+	if eval_dataset_llm_provider in ollama_providers or eval_dataset_kg_llm_provider in ollama_providers:
+		hashed_args["ollama_context_length"] = ollama_args.ollama_context_length
+
+	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
+	return hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
 
 
-def get_eval_dataset_kg_path(output_path: str, eval_dataset_args: EvalDatasetArgs) -> str:
+def get_eval_dataset_path(output_path: str, eval_dataset_args: EvalDatasetArgs, ollama_args: OllamaArgs) -> str:
 	"""
-	Input: output_path, the dataset's output folder; eval_dataset_args.
-	Output: {output_path}/eval_dataset/kg_{n_sample_documents}_{eval_dataset_kg_llm_model}_{eval_dataset_embedding_model}.json
-	What it does: builds the RAGAS knowledge graph file path. Any "/" or ":" in a model name is replaced with "-".
+	Input: output_path, the dataset's output folder; eval_dataset_args; ollama_args.
+	Output: {output_path}/eval_dataset/eval_dataset_{hash}.json
+	What it does: builds the eval dataset file path from the hash of its args.
 	"""
-	eval_dataset_kg_llm_model = eval_dataset_args.eval_dataset_kg_llm_args.llm_model.replace("/", "-").replace(":", "-")
-	eval_dataset_embedding_model = eval_dataset_args.eval_dataset_embedding_model.replace("/", "-").replace(":", "-")
-	file_name = f"kg_{eval_dataset_args.n_sample_documents}_{eval_dataset_kg_llm_model}_{eval_dataset_embedding_model}.json"
-	return os.path.join(output_path, "eval_dataset", file_name)
+	eval_dataset_hash = get_eval_dataset_hash(eval_dataset_args, ollama_args)
+	return os.path.join(output_path, "eval_dataset", f"eval_dataset_{eval_dataset_hash}.json")
+
+
+def get_eval_dataset_metadata_path(output_path: str, eval_dataset_args: EvalDatasetArgs, ollama_args: OllamaArgs) -> str:
+	"""
+	Input: output_path, the dataset's output folder; eval_dataset_args; ollama_args.
+	Output: {output_path}/eval_dataset/eval_dataset_{hash}_metadata.json
+	What it does: builds the eval dataset metadata file path from the hash of its args.
+	"""
+	eval_dataset_hash = get_eval_dataset_hash(eval_dataset_args, ollama_args)
+	return os.path.join(output_path, "eval_dataset", f"eval_dataset_{eval_dataset_hash}_metadata.json")
+
+
+def get_eval_dataset_kg_path(output_path: str, eval_dataset_args: EvalDatasetArgs, ollama_args: OllamaArgs) -> str:
+	"""
+	Input: output_path, the dataset's output folder; eval_dataset_args; ollama_args.
+	Output: {output_path}/eval_dataset/kg_{hash}.json
+	What it does: builds the RAGAS knowledge graph file path from the same hash as its eval dataset.
+	"""
+	eval_dataset_hash = get_eval_dataset_hash(eval_dataset_args, ollama_args)
+	return os.path.join(output_path, "eval_dataset", f"kg_{eval_dataset_hash}.json")
 
 
 # ------ Query transformation
@@ -185,7 +222,7 @@ def get_query_path(output_path: str, eval_dataset_args: EvalDatasetArgs, query_a
 	"""
 	Input: output_path, the dataset's output folder; eval_dataset_args, the settings of the eval dataset the queries are made from;
 	query_args.
-	Output: {output_path}/queries/{n_sample_documents}_{n_sample_evals}_{eval_dataset_llm_model}_{eval_dataset_embedding_model}_
+	Output: {output_path}/queries/{n_sample_documents}_{n_evals_requested}_{eval_dataset_llm_model}_{eval_dataset_embedding_model}_
 	{embedding_model}_{query_llm_model}_{n_multi_qus}
 	What it does: builds the folder that holds one query run. Any "/" or ":" in a model name is replaced with "-".
 	"""
@@ -194,7 +231,7 @@ def get_query_path(output_path: str, eval_dataset_args: EvalDatasetArgs, query_a
 	embedding_model = query_args.embedding_model.replace("/", "-").replace(":", "-")
 	query_llm_model = query_args.query_llm_args.llm_model.replace("/", "-").replace(":", "-")
 	folder_name = (
-		f"{eval_dataset_args.n_sample_documents}_{eval_dataset_args.n_sample_evals}_{eval_dataset_llm_model}_{eval_dataset_embedding_model}_"
+		f"{eval_dataset_args.n_sample_documents}_{eval_dataset_args.n_evals_requested}_{eval_dataset_llm_model}_{eval_dataset_embedding_model}_"
 		f"{embedding_model}_{query_llm_model}_{query_args.n_multi_qus}"
 	)
 	return os.path.join(output_path, "queries", folder_name)

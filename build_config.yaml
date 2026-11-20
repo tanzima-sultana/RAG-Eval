@@ -44,7 +44,7 @@ eval_dataset:
   eval_dataset_kg_llm_model: anthropic/claude-haiku-5-5   # Builds the RAGAS knowledge graph
   eval_dataset_embedding_model: all-MiniLM-L6-v2          # Local embedding model RAGAS uses to build its knowledge graph
   n_sample_documents: 100         # Documents randomly picked for RAGAS to generate the QnA from
-  n_sample_evals: 200             # QnA items to generate
+  n_evals_requested: 200          # QnA items to generate
 
 # 7. Query transformation
 query_transformation:
