@@ -17,4 +17,4 @@ fi
 mkdir -p log
 LOG="log/log.txt"
 
-python3 src/run_build.py --config build_config.yaml "$@" 2>&1 | tee "$LOG"
+python3 src/run_build.py --config build_config.yaml --input_path "$INPUT_PATH" "$@" 2>&1 | tee "$LOG"
