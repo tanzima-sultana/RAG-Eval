@@ -186,6 +186,8 @@ class EvalDatasetArgs:
 	output_path: str
 	dataset_name: str
 	dataset_size: int
+	# The document list the build saved, doc_ids_{input hash}.json; its first dataset_size documents are used
+	documents_path: str
 	eval_dataset_llm_args: LLMArgs
 	eval_dataset_kg_llm_args: LLMArgs
 	eval_dataset_embedding_model: str
@@ -219,6 +221,7 @@ def make_eval_dataset_config_args(parsed_args: argparse.Namespace) -> EvalDatase
 		output_path=parsed_args.documents_output_path,
 		dataset_name=parsed_args.documents_dataset_name,
 		dataset_size=parsed_args.documents_dataset_size,
+		documents_path=parsed_args.documents_documents_path,
 		eval_dataset_llm_args=eval_dataset_llm_args,
 		eval_dataset_kg_llm_args=eval_dataset_kg_llm_args,
 		eval_dataset_embedding_model=parsed_args.eval_dataset_embedding_model,
@@ -264,6 +267,8 @@ def parse_eval_dataset_config() -> argparse.Namespace:
 		help="Dataset name, e.g. pdfa-eng-wds")
 	parser.add_argument("--documents.dataset_size", dest="documents_dataset_size", type=int, required=True,
 		help="Which saved document set to generate from, e.g. 5000")
+	parser.add_argument("--documents.documents_path", dest="documents_documents_path", type=str, required=True,
+		help="The document list the build saved, doc_ids_{input hash}.json; its first dataset_size documents are used")
 	parser.add_argument("--eval_dataset_llm.model", dest="eval_dataset_llm_model", type=str, required=True,
 		help="LiteLLM model that writes the eval questions and answers, e.g. anthropic/claude-sonnet-5-5")
 	parser.add_argument("--eval_dataset_llm.max_tokens", dest="eval_dataset_llm_max_tokens", type=int, required=True,

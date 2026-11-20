@@ -221,6 +221,7 @@ def get_eval_dataset_hash(eval_dataset_args: EvalDatasetArgs, ollama_args: Ollam
 	hashed_args = {}
 	hashed_args["dataset_name"] = eval_dataset_args.dataset_name
 	hashed_args["dataset_size"] = eval_dataset_args.dataset_size
+	hashed_args["documents_path"] = eval_dataset_args.documents_path
 	hashed_args["eval_dataset_llm_model"] = eval_dataset_args.eval_dataset_llm_args.llm_model
 	hashed_args["eval_dataset_llm_max_tokens"] = eval_dataset_args.eval_dataset_llm_args.max_tokens
 	hashed_args["eval_dataset_kg_llm_model"] = eval_dataset_args.eval_dataset_kg_llm_args.llm_model

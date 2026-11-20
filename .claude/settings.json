@@ -12,6 +12,17 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/top-rules-reminder.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

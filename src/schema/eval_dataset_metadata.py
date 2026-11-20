@@ -25,7 +25,7 @@ class EvalDatasetMetadata:
 	dataset_name: str
 	# Which saved document set was used
 	dataset_size: int
-	# The documents folder it read from
+	# The document list it read from, the same as documents_path in the eval dataset config
 	documents_path: str
 	# SHA-256 of the sorted document ids of that set
 	documents_hash: str

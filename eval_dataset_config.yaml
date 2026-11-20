@@ -3,6 +3,7 @@ documents:
   output_path: outputs/
   dataset_name: pdfa-eng-wds
   dataset_size: 5000
+  documents_path: outputs/pdfa-eng-wds/documents/doc_ids_91605d709bf2.json   # The document list the build saved; its first dataset_size documents are used
 
 # 2. The LLM that writes the eval questions and answers
 eval_dataset_llm:

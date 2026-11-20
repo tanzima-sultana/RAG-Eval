@@ -28,7 +28,6 @@ from common import paths
 from common.args import OllamaArgs
 from common.args import EvalDatasetArgs
 from llm_provider.llm_provider import LLMProvider
-from rag.build.ingestion import load_saved_documents
 from schema.document import Document
 from schema.eval_dataset_metadata import EvalDatasetMetadata
 from schema.eval_sample import EvalSample
@@ -251,28 +250,82 @@ class EvalDataset:
 		if eval_dataset_args.n_evals_requested <= 0:
 			raise ValueError(f"n_evals_requested ({eval_dataset_args.n_evals_requested}) must be greater than 0.")
 
+	def is_eval_dataset_complete(self, output_path: str) -> bool:
+		"""
+		Input: output_path, the dataset's output folder.
+		Output: True if the eval dataset of these args was generated and is unchanged, else False.
+		What it does: looks for eval_dataset_{hash}_metadata.json, checks the eval dataset and knowledge graph files
+		exist, and checks the eval dataset file's SHA-256 matches the content_hash in the metadata. Prints the first
+		thing missing or changed.
+		"""
+		# 1. The metadata of an eval dataset with these args
+		eval_dataset_metadata_path = paths.get_eval_dataset_metadata_path(output_path, self.eval_dataset_args, self.ollama_args)
+		if not os.path.exists(eval_dataset_metadata_path):
+			print(f"No eval dataset metadata at {eval_dataset_metadata_path}")
+			return False
+		with open(eval_dataset_metadata_path, encoding="utf-8") as f:
+			eval_dataset_metadata_dict = json.load(f)
+
+		# 2. The eval dataset and knowledge graph files
+		eval_dataset_path = paths.get_eval_dataset_path(output_path, self.eval_dataset_args, self.ollama_args)
+		if not os.path.exists(eval_dataset_path):
+			print(f"Missing eval dataset : {eval_dataset_path}")
+			return False
+		kg_path = paths.get_eval_dataset_kg_path(output_path, self.eval_dataset_args, self.ollama_args)
+		if not os.path.exists(kg_path):
+			print(f"Missing knowledge graph : {kg_path}")
+			return False
+
+		# 3. The eval dataset file is unchanged since it was saved
+		with open(eval_dataset_path, "rb") as f:
+			content_hash = hashlib.sha256(f.read()).hexdigest()
+		if content_hash != eval_dataset_metadata_dict["content_hash"]:
+			print(
+				f"Eval dataset changed : {eval_dataset_path} has SHA-256 {content_hash}, the metadata has "
+				f"{eval_dataset_metadata_dict['content_hash']}"
+			)
+			return False
+
+		return True
+
 	def compute_eval_dataset(self, output_path: str) -> list[EvalSample]:
 		"""
 		Input: output_path, the dataset's output folder.
 		Output: a list of EvalSample.
-		What it does: checks the cache first and loads the saved eval dataset if it is there, with no documents and no
-		LLM. Only if there is none, it loads the saved documents, generates the eval dataset with RAGAS, and saves it
-		and its metadata.
+		What it does: if the eval dataset of these args is complete and unchanged, loads it, with no documents and no
+		LLM. Otherwise it loads the first dataset_size documents of the document list at documents_path, generates the
+		eval dataset with RAGAS, and saves it and its metadata.
 		"""
 		# 1. Validate the settings
 		self.validate()
 
-		# 2. Load the saved eval dataset. No documents and no LLM, so a cached run needs no API key or ALLOW_PAID_API
+		# 2. Load the saved eval dataset if it is complete. No documents and no LLM, so this needs no API key or ALLOW_PAID_API
 		eval_dataset_path = paths.get_eval_dataset_path(output_path, self.eval_dataset_args, self.ollama_args)
 		print(f"Eval dataset file : {eval_dataset_path}")
-		eval_samples = load_eval_dataset(eval_dataset_path)
-		if eval_samples is not None:
+		if self.is_eval_dataset_complete(output_path):
+			eval_samples = load_eval_dataset(eval_dataset_path)
 			print(f"Eval dataset : {len(eval_samples)} (all from cache)")
 			return eval_samples
 
-		# 3. Load the documents the build saved, only needed to generate
-		documents_path = paths.get_documents_path(output_path)
-		documents = load_saved_documents(documents_path, self.eval_dataset_args.dataset_size)
+		# 3. Load the first dataset_size documents of the document list the build saved, only needed to generate.
+		# Each document is saved as {doc_id}.json in the same folder as the list
+		documents_path = self.eval_dataset_args.documents_path
+		dataset_size = self.eval_dataset_args.dataset_size
+		with open(documents_path, encoding="utf-8") as f:
+			doc_ids = json.load(f)
+		if len(doc_ids) < dataset_size:
+			raise ValueError(
+				f"The document list {documents_path} has {len(doc_ids)} documents, fewer than dataset_size ({dataset_size})."
+			)
+
+		documents_folder = os.path.dirname(documents_path)
+		documents = {}
+		for doc_id in doc_ids[:dataset_size]:
+			document_file = os.path.join(documents_folder, f"{doc_id}.json")
+			with open(document_file, encoding="utf-8") as f:
+				document_dict = json.load(f)
+			documents[doc_id] = Document.model_validate(document_dict)
+		print(f"Documents : {len(documents)} of {len(doc_ids)} in {documents_path}")
 
 		# 4. Generate and save the eval dataset
 		print(f"No saved eval dataset, generating {self.eval_dataset_args.n_evals_requested} items with RAGAS")
@@ -324,7 +377,7 @@ class EvalDataset:
 			created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
 			dataset_name=eval_dataset_args.dataset_name,
 			dataset_size=eval_dataset_args.dataset_size,
-			documents_path=paths.get_documents_path(output_path),
+			documents_path=eval_dataset_args.documents_path,
 			documents_hash=documents_hash,
 			eval_dataset_llm_model=eval_dataset_args.eval_dataset_llm_args.llm_model,
 			eval_dataset_llm_max_tokens=eval_dataset_args.eval_dataset_llm_args.max_tokens,
@@ -345,18 +398,19 @@ class EvalDataset:
 		"""
 		Input: output_path, the dataset's output folder.
 		Output: a list of EvalSample.
-		What it does: loads the saved eval dataset, and raises ValueError if there is none. It never generates one.
+		What it does: loads the saved eval dataset if it is complete and unchanged, and raises ValueError if not. It
+		never generates one.
 		"""
 		self.validate()
 
-		eval_dataset_path = paths.get_eval_dataset_path(output_path, self.eval_dataset_args)
+		eval_dataset_path = paths.get_eval_dataset_path(output_path, self.eval_dataset_args, self.ollama_args)
 		print(f"Eval dataset file : {eval_dataset_path}")
-		eval_samples = load_eval_dataset(eval_dataset_path)
-		if eval_samples is None:
+		if not self.is_eval_dataset_complete(output_path):
 			raise ValueError(
-				f"No saved eval dataset at {eval_dataset_path}. Run scripts/eval_dataset.sh first to generate it."
+				f"No complete saved eval dataset at {eval_dataset_path}. Run scripts/eval_dataset.sh first to generate it."
 			)
 
+		eval_samples = load_eval_dataset(eval_dataset_path)
 		print(f"Eval dataset : {len(eval_samples)} (all from cache)")
 		return eval_samples
 
