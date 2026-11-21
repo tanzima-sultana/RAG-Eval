@@ -166,7 +166,8 @@ def make_query_args(**overrides):
     field_values["query_split"] = True
     field_values["val_queries_size"] = 1
     field_values["test_queries_size"] = 1
-    field_values["eval_dataset_hash"] = "testevalhash"
+    field_values["ollama_api_base"] = "http://ollama-test:11434"
+    field_values["ollama_context_length"] = 32768
     for field_name in overrides:
         field_values[field_name] = overrides[field_name]
     return QueryArgs(**field_values)
@@ -324,7 +325,7 @@ def test_get_retrieved_path_changes_with_any_arg(make_retrieval_args, make_index
         paths.get_retrieved_path("out", make_retrieval_args(index_args=make_index_args(index_type="", chunking_args=make_chunking_args(max_chunk_size=8))), make_query_args(), 150, "faiss_flatip"),
         paths.get_retrieved_path("out", make_retrieval_args(index_args=make_index_args(index_type="", hnsw_m=8)), make_query_args(), 150, "faiss_flatip"),
         paths.get_retrieved_path("out", make_retrieval_args(top_k=5), make_query_args(), 150, "faiss_flatip"),
-        paths.get_retrieved_path("out", make_retrieval_args(), make_query_args(eval_dataset_hash="otherevalhash"), 150, "faiss_flatip"),
+        paths.get_retrieved_path("out", make_retrieval_args(), make_query_args(n_multi_qus=3), 150, "faiss_flatip"),
         paths.get_retrieved_path("out", make_retrieval_args(), make_query_args(), 100, "faiss_flatip"),
         paths.get_retrieved_path("out", make_retrieval_args(), make_query_args(), 150, "faiss_ivf"),
     ]

@@ -15,6 +15,8 @@ from common.args import RetrievalArgs
 from common.constants import FAISS_FLATIP_INDEX
 from common.constants import FAISS_IVF_INDEX
 from common.constants import FAISS_HNSW_INDEX
+from common.constants import MULTI_QUERY
+from common.constants import ORIGINAL_QUERY
 
 
 # ------ Dataset
@@ -314,36 +316,36 @@ def make_query_hashed_args(query_args: QueryArgs) -> dict:
 	hashed_args["query_split"] = query_args.query_split
 	hashed_args["val_queries_size"] = query_args.val_queries_size
 	hashed_args["test_queries_size"] = query_args.test_queries_size
-	hashed_args["eval_dataset_hash"] = query_args.eval_dataset_hash
 	return hashed_args
 
 
-def get_query_hash(query_args: QueryArgs, ollama_args: OllamaArgs) -> str:
+def get_query_file_path(output_path: str, query_args: QueryArgs, query_type: str, question: str) -> str:
 	"""
-	Input: query_args; ollama_args.
-	Output: the first 12 hex characters of the SHA-256 of the query args.
-	What it does: hashes every query setting and the eval dataset hash, as JSON with sorted keys. The Ollama context
-	length is included only when the query LLM is an Ollama model.
+	Input: output_path, the root output folder; query_args; query_type, one of original, rewritten, multi or hyde;
+	question, one question text.
+	Output: {output_path}/queries/{hash}.json
+	What it does: builds the file of one query type of one question, named by the first 12 hex characters of the
+	SHA-256 of what decides it, as JSON with sorted keys: the query type, the question and the embedding model; for an
+	LLM query type also the query LLM model, its max_tokens and the Ollama context length when it is not None; for
+	multi also n_multi_qus.
 	"""
-	hashed_args = make_query_hashed_args(query_args)
+	hashed_args = {}
+	hashed_args["query_type"] = query_type
+	hashed_args["question"] = question
+	hashed_args["embedding_model"] = query_args.embedding_model
 
-	ollama_providers = ["ollama", "ollama_chat"]
-	query_llm_provider = query_args.query_llm_args.llm_model.split("/", 1)[0]
-	if query_llm_provider in ollama_providers:
-		hashed_args["ollama_context_length"] = ollama_args.ollama_context_length
+	if query_type != ORIGINAL_QUERY:
+		hashed_args["query_llm_model"] = query_args.query_llm_args.llm_model
+		hashed_args["query_llm_max_tokens"] = query_args.query_llm_args.max_tokens
+		if query_args.ollama_context_length is not None:
+			hashed_args["ollama_context_length"] = query_args.ollama_context_length
+
+	if query_type == MULTI_QUERY:
+		hashed_args["n_multi_qus"] = query_args.n_multi_qus
 
 	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
-	return hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
-
-
-def get_query_path(output_path: str, query_args: QueryArgs, ollama_args: OllamaArgs) -> str:
-	"""
-	Input: output_path, the dataset's output folder; query_args; ollama_args.
-	Output: {output_path}/queries/queries_{hash}
-	What it does: builds the folder that holds one query run from the hash of its args.
-	"""
-	query_hash = get_query_hash(query_args, ollama_args)
-	return os.path.join(output_path, "queries", f"queries_{query_hash}")
+	query_hash = hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
+	return os.path.join(output_path, "queries", f"{query_hash}.json")
 
 
 # ------ Retrieval

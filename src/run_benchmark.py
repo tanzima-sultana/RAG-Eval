@@ -76,14 +76,20 @@ def run_benchmark(args) -> None:
 	print(f"Eval dataset : {len(eval_samples)} from {eval_dataset_metadata.eval_dataset_path}")
 	print("\nEval dataset time : ", e2)
 
-	# 4. Query transformation, once for the eval dataset, with the build's embedding model
+	# 4. Query transformation of the eval questions, with the build's embedding model
 	print("\n\nQuery transformation")
-	ollama_args = make_ollama_args(args)
-	query_args = make_query_args(args, manifest.embedding_model, eval_dataset_metadata.eval_dataset_hash)
+	query_args = make_query_args(args, manifest.embedding_model)
+	query_path = args.output_path + "/queries/"
+
+	question_ids = []
+	questions = []
+	for eval_sample in eval_samples:
+		question_ids.append(eval_sample.id)
+		questions.append(eval_sample.qus)
 
 	s3 = time.time()
-	query_transformation = QueryTransformation(query_args, ollama_args)
-	queries = query_transformation.compute_queries(eval_samples, output_path)
+	query_transformation = QueryTransformation(query_args, query_path)
+	queries = query_transformation.transform_query(question_ids, questions)
 	e3 = time.time() - s3
 	print("\nQuery transformation time : ", e3)
 
@@ -195,6 +201,7 @@ def run_benchmark(args) -> None:
 	print("\n\nSetup ranking")
 	best_setups = rank_setups(retrieved_evals, args.n_top_setups)
 	print(f"Best setups : {len(best_setups)}")
+	ollama_args = make_ollama_args(args)
 	benchmark_hash = paths.get_benchmark_hash(make_benchmark_args(args, query_args), ollama_args)
 	save_best_setups(best_setups, manifest, output_path, eval_dataset_metadata.eval_dataset_hash, benchmark_hash)
 

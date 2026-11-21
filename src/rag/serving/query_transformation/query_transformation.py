@@ -1,4 +1,4 @@
-import dataclasses
+import os
 import random
 
 import torch
@@ -10,23 +10,22 @@ from common import paths
 from common.args import OllamaArgs
 from common.args import QueryArgs
 from llm_provider.llm_provider import LLMProvider
-from rag.serving.query_transformation.cache import load_queries
-from rag.serving.query_transformation.cache import save_queries
-from rag.serving.query_transformation.single_query import transform_question
-from schema.eval_sample import EvalSample
+from rag.serving.query_transformation.cache import load_query_entry
+from rag.serving.query_transformation.cache import save_query_entry
+from rag.serving.query_transformation.single_query import transform_single_query
 from schema.query import Query
 
 
 class QueryTransformation:
-	def __init__(self, query_args: QueryArgs, ollama_args: OllamaArgs):
+	def __init__(self, query_args: QueryArgs, output_path: str):
 		"""
-		Input: query_args, the query transformation settings; ollama_args, the Ollama settings, used only if the query
-		LLM is an Ollama model.
+		Input: query_args, the query transformation settings; output_path, the root output folder, under which the
+		queries are saved in queries/.
 		Output: nothing.
-		What it does: stores both settings.
+		What it does: stores both.
 		"""
 		self.query_args = query_args
-		self.ollama_args = ollama_args
+		self.output_path = output_path
 
 	def validate(self) -> None:
 		"""
@@ -57,132 +56,113 @@ class QueryTransformation:
 					f"\"{constants.REWRITTEN_QUERY}\", \"{constants.MULTI_QUERY}\" or \"{constants.HYDE_QUERY}\"."
 				)
 
-	def compute_queries(self, eval_samples: list[EvalSample], output_path: str) -> list[Query]:
+	def transform_query(self, question_ids: list[str], questions: list[str]) -> list[Query]:
 		"""
-		Input: eval_samples, the eval questions; output_path, the dataset's output folder.
-		Output: one Query per eval question, holding only the query types in query_types.
-		What it does: loads the saved queries, generates only the requested query types that are not saved, adds them
-		to the saved queries and saves them. A saved query type is never generated again.
+		Input: question_ids, one id per question; questions, the question texts, in the same order.
+		Output: one Query per question, in the same order, with the question's id and only the query types in
+		query_types. The other query types are None.
+		What it does: looks up each query type of each question in its own saved file, named by the hash of what decides
+		it. Only the query types not saved are made and saved, each as its own file. The embedding model, and the query
+		LLM only if a missing query type needs it, are loaded once at the first miss.
 		"""
 		query_args = self.query_args
 
-		# 1. Validate the settings
+		# 1. Validate the settings and the inputs
 		self.validate()
+		if len(question_ids) != len(questions):
+			raise ValueError(f"question_ids ({len(question_ids)}) and questions ({len(questions)}) must be the same length.")
 
-		# 2. Load the saved queries, or start one empty Query per eval question
-		query_path = paths.get_query_path(output_path, query_args, self.ollama_args)
-		print(f"Query folder : {query_path}")
-		saved_queries = load_queries(query_path)
-		if saved_queries is None:
-			print(f"No saved queries for {len(eval_samples)} questions")
-			query_llm, query_llm_model = query_args.query_llm_args.llm_model.split("/", 1)
-			saved_queries = []
-			for eval_sample in eval_samples:
-				saved_queries.append(Query(
-					id=eval_sample.id,
-					original_qus=None,
-					rewritten_qus=None,
-					multi_qus=None,
-					hyde_ans=None,
-					normalized=True,
-					embedding_model=query_args.embedding_model,
-					llm=query_llm,
-					llm_model=query_llm_model
-				))
+		query_llm, query_llm_model = query_args.query_llm_args.llm_model.split("/", 1)
+		embedding_model = None
+		query_llm_provider = None
+		loaded_count = 0
+		generated_count = 0
+		multi_dont_know_count = 0
+		hyde_dont_know_count = 0
 
-		# The saved queries are made from this eval dataset, so they must be in the same question order
-		if len(saved_queries) != len(eval_samples):
-			raise ValueError(
-				f"The saved queries in {query_path} hold {len(saved_queries)} questions, but the eval dataset holds "
-				f"{len(eval_samples)}. Delete the folder and run again."
-			)
-		for sample_index in range(len(eval_samples)):
-			if saved_queries[sample_index].id != eval_samples[sample_index].id:
-				raise ValueError(
-					f"The saved queries in {query_path} are not in the eval dataset order at position {sample_index}. "
-					"Delete the folder and run again."
-				)
-
-		# 3. Find the requested query types that are not saved. Every query holds the same query types
-		missing_query_types = []
-		if constants.ORIGINAL_QUERY in query_args.query_types and saved_queries[0].original_qus is None:
-			missing_query_types.append(constants.ORIGINAL_QUERY)
-		if constants.REWRITTEN_QUERY in query_args.query_types and saved_queries[0].rewritten_qus is None:
-			missing_query_types.append(constants.REWRITTEN_QUERY)
-		if constants.MULTI_QUERY in query_args.query_types and saved_queries[0].multi_qus is None:
-			missing_query_types.append(constants.MULTI_QUERY)
-		if constants.HYDE_QUERY in query_args.query_types and saved_queries[0].hyde_ans is None:
-			missing_query_types.append(constants.HYDE_QUERY)
-
-		# 4. Generate only the missing query types, add them to the saved queries and save them
-		if len(missing_query_types) == 0:
-			print(f"Queries : {len(saved_queries)} (all requested query types from cache)")
-		else:
-			print(f"Generating query types {missing_query_types} for {len(eval_samples)} questions")
-
-			# Normalized like the chunk embeddings, so a query vector matches the chunk vectors
-			device = "cuda" if torch.cuda.is_available() else "cpu"
-			embedding_model = HuggingFaceEmbeddings(
-				model_name=query_args.embedding_model,
-				model_kwargs={"device": device},
-				encode_kwargs={"batch_size": 256, "normalize_embeddings": True}
-			)
-
-			# The LLM is built only when a missing type needs one. LLMProvider validates it, so a paid model needs
-			# ALLOW_PAID_API=1
-			query_llm_provider = None
-			if missing_query_types != [constants.ORIGINAL_QUERY]:
-				query_llm_provider = LLMProvider(query_args.query_llm_args, self.ollama_args)
-
-			# Each question is transformed on its own, the same way as one live question, and only its missing query
-			# types are copied into its saved query
-			multi_dont_know_count = 0
-			hyde_dont_know_count = 0
-			for sample_index in range(len(eval_samples)):
-				eval_sample = eval_samples[sample_index]
-				new_query = transform_question(
-					query_args, eval_sample.id, eval_sample.qus, missing_query_types, query_llm_provider, embedding_model
-				)
-
-				saved_query = saved_queries[sample_index]
-				if constants.ORIGINAL_QUERY in missing_query_types:
-					saved_query.original_qus = new_query.original_qus
-				if constants.REWRITTEN_QUERY in missing_query_types:
-					saved_query.rewritten_qus = new_query.rewritten_qus
-				if constants.MULTI_QUERY in missing_query_types:
-					saved_query.multi_qus = new_query.multi_qus
-					if len(new_query.multi_qus) == 0:
-						multi_dont_know_count = multi_dont_know_count + 1
-				if constants.HYDE_QUERY in missing_query_types:
-					saved_query.hyde_ans = new_query.hyde_ans
-					if new_query.hyde_ans.ans == constants.I_DONT_KNOW:
-						hyde_dont_know_count = hyde_dont_know_count + 1
-
-				if (sample_index + 1) % 20 == 0 or sample_index + 1 == len(eval_samples):
-					print(f"Questions transformed : {sample_index + 1} of {len(eval_samples)}")
-
-			if constants.MULTI_QUERY in missing_query_types:
-				print(f"Multi-query I don't know : {multi_dont_know_count} of {len(eval_samples)}")
-			if constants.HYDE_QUERY in missing_query_types:
-				print(f"HyDE I don't know : {hyde_dont_know_count} of {len(eval_samples)}")
-
-			if query_llm_provider is not None:
-				query_llm_provider.compute_cost()
-			save_queries(query_path, saved_queries)
-
-		# 5. Return copies holding only the requested query types, so the saved queries stay whole
 		queries = []
-		for saved_query in saved_queries:
-			query = dataclasses.replace(saved_query)
-			if constants.ORIGINAL_QUERY not in query_args.query_types:
-				query.original_qus = None
-			if constants.REWRITTEN_QUERY not in query_args.query_types:
-				query.rewritten_qus = None
-			if constants.MULTI_QUERY not in query_args.query_types:
-				query.multi_qus = None
-			if constants.HYDE_QUERY not in query_args.query_types:
-				query.hyde_ans = None
-			queries.append(query)
+		for question_index in range(len(questions)):
+			question_id = question_ids[question_index]
+			question = questions[question_index]
+
+			# 2. Load the saved query types of this question, and list the missing ones
+			results = {}
+			missing_query_types = []
+			for query_type in query_args.query_types:
+				query_file = paths.get_query_file_path(self.output_path, query_args, query_type, question)
+				result = load_query_entry(query_file)
+				if result is None:
+					missing_query_types.append(query_type)
+				else:
+					results[query_type] = result
+					loaded_count = loaded_count + 1
+
+			# 3. Make only the missing query types, and save each as its own file
+			if len(missing_query_types) > 0:
+				if embedding_model is None:
+					# Normalized like the chunk embeddings, so a query vector matches the chunk vectors
+					device = "cuda" if torch.cuda.is_available() else "cpu"
+					embedding_model = HuggingFaceEmbeddings(
+						model_name=query_args.embedding_model,
+						model_kwargs={"device": device},
+						encode_kwargs={"batch_size": 256, "normalize_embeddings": True}
+					)
+				# The LLM is built only when a missing type needs one. LLMProvider validates it, so a paid model needs
+				# ALLOW_PAID_API=1
+				if query_llm_provider is None and missing_query_types != [constants.ORIGINAL_QUERY]:
+					ollama_args = OllamaArgs(
+						ollama_api_base=query_args.ollama_api_base,
+						ollama_context_length=query_args.ollama_context_length
+					)
+					query_llm_provider = LLMProvider(query_args.query_llm_args, ollama_args)
+
+				new_query = transform_single_query(
+					query_args, question_id, question, missing_query_types, query_llm_provider, embedding_model
+				)
+				for query_type in missing_query_types:
+					if query_type == constants.ORIGINAL_QUERY:
+						result = new_query.original_qus
+						result_llm_model = None
+					elif query_type == constants.REWRITTEN_QUERY:
+						result = new_query.rewritten_qus
+						result_llm_model = query_args.query_llm_args.llm_model
+					elif query_type == constants.MULTI_QUERY:
+						result = new_query.multi_qus
+						result_llm_model = query_args.query_llm_args.llm_model
+						if len(result) == 0:
+							multi_dont_know_count = multi_dont_know_count + 1
+					else:
+						result = new_query.hyde_ans
+						result_llm_model = query_args.query_llm_args.llm_model
+						if result.ans == constants.I_DONT_KNOW:
+							hyde_dont_know_count = hyde_dont_know_count + 1
+
+					query_file = paths.get_query_file_path(self.output_path, query_args, query_type, question)
+					save_query_entry(query_file, query_type, question, result, query_args.embedding_model, result_llm_model)
+					results[query_type] = result
+					generated_count = generated_count + 1
+
+			# 4. One Query of this question, holding only the requested query types
+			queries.append(Query(
+				id=question_id,
+				original_qus=results.get(constants.ORIGINAL_QUERY),
+				rewritten_qus=results.get(constants.REWRITTEN_QUERY),
+				multi_qus=results.get(constants.MULTI_QUERY),
+				hyde_ans=results.get(constants.HYDE_QUERY),
+				normalized=True,
+				embedding_model=query_args.embedding_model,
+				llm=query_llm,
+				llm_model=query_llm_model
+			))
+
+		# 5. What was loaded and what was made
+		print(f"Query folder : {os.path.join(self.output_path, 'queries')}")
+		print(f"Queries : {len(queries)}, query types loaded from cache : {loaded_count}, made : {generated_count}")
+		if generated_count > 0:
+			print(f"Multi-query I don't know : {multi_dont_know_count}")
+			print(f"HyDE I don't know : {hyde_dont_know_count}")
+		if query_llm_provider is not None:
+			query_llm_provider.compute_cost()
 
 		return queries
 

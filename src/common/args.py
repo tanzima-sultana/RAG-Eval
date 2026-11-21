@@ -313,23 +313,33 @@ class QueryArgs:
 	query_split: bool
 	val_queries_size: int
 	test_queries_size: int
-	# The hash of the eval dataset the queries are made from, from its metadata
-	eval_dataset_hash: str
+	# The Ollama server and context length, only when the query LLM is an Ollama model, None otherwise
+	ollama_api_base: str | None
+	ollama_context_length: int | None
 
 
-def make_query_args(parsed_args: argparse.Namespace, embedding_model: str, eval_dataset_hash: str) -> QueryArgs:
+def make_query_args(parsed_args: argparse.Namespace, embedding_model: str) -> QueryArgs:
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_benchmark_config(); embedding_model, the build
-	manifest's embedding model; eval_dataset_hash, from the eval dataset metadata.
+	manifest's embedding model.
 	Output: a QueryArgs holding the query transformation settings.
-	What it does: builds the query LLM's LLMArgs from its own block, and copies the query settings, the embedding model
-	and the eval dataset hash.
+	What it does: builds the query LLM's LLMArgs from its own block, copies the query settings and the embedding model,
+	and copies the Ollama settings only when the query LLM is an Ollama model.
 	"""
 	query_llm_args = LLMArgs(
 		llm_model=parsed_args.query_llm_model,
 		max_tokens=parsed_args.query_llm_max_tokens,
 		timeout_seconds=parsed_args.query_llm_timeout_seconds
 	)
+
+	ollama_providers = ["ollama", "ollama_chat"]
+	query_llm_provider = parsed_args.query_llm_model.split("/", 1)[0]
+	ollama_api_base = None
+	ollama_context_length = None
+	if query_llm_provider in ollama_providers:
+		ollama_api_base = parsed_args.ollama_api_base
+		ollama_context_length = parsed_args.ollama_context_length
+
 	query_args = QueryArgs(
 		query_llm_args=query_llm_args,
 		embedding_model=embedding_model,
@@ -338,7 +348,8 @@ def make_query_args(parsed_args: argparse.Namespace, embedding_model: str, eval_
 		query_split=parsed_args.query_split == "true",
 		val_queries_size=parsed_args.val_queries_size,
 		test_queries_size=parsed_args.test_queries_size,
-		eval_dataset_hash=eval_dataset_hash
+		ollama_api_base=ollama_api_base,
+		ollama_context_length=ollama_context_length
 	)
 	return query_args
 

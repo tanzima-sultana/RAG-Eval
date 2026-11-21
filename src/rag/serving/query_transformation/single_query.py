@@ -50,7 +50,7 @@ def hyde_answer(qus: str, query_llm_provider: LLMProvider) -> str:
 	return hyde_ans_str
 
 
-def transform_question(query_args: QueryArgs, query_id: str, qus: str, query_types: list[str], query_llm_provider: LLMProvider | None, embedding_model: HuggingFaceEmbeddings) -> Query:
+def transform_single_query(query_args: QueryArgs, query_id: str, qus: str, query_types: list[str], query_llm_provider: LLMProvider | None, embedding_model: HuggingFaceEmbeddings) -> Query:
 	"""
 	Input: query_args, the query settings; query_id; qus, one question; query_types, the query types to make;
 	query_llm_provider, the query LLM, None if query_types is only original; embedding_model, normalized like the

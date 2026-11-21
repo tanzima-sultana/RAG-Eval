@@ -9,6 +9,7 @@ import argparse
 import dataclasses
 import json
 import os
+import types
 
 import pytest
 
@@ -102,6 +103,8 @@ class BenchmarkRecord:
         self.loaded_documents = []
         self.loaded_eval_datasets = []
         self.query_args = []
+        self.query_output_paths = []
+        self.transformed_questions = []
         self.loaded_chunks = []
         self.loaded_indexes = []
         self.loaded_vectordbs = []
@@ -132,27 +135,29 @@ def use_fake_benchmark_steps(monkeypatch):
         What it does: records the eval dataset path.
         """
         record.loaded_eval_datasets.append(eval_dataset_path)
-        return ["eval sample"]
+        return [types.SimpleNamespace(id="eval_qna_0", qus="What is X?")]
 
     class FakeQueryTransformation:
         """
-        Stand-in for QueryTransformation: records its args and gives one query for val and test.
+        Stand-in for QueryTransformation: records its args, output folder and questions, and gives one query.
         """
 
-        def __init__(self, query_args, ollama_args):
+        def __init__(self, query_args, output_path):
             """
-            Input: query_args; ollama_args.
+            Input: query_args; output_path.
             Output: nothing.
-            What it does: records query_args.
+            What it does: records query_args and output_path.
             """
             record.query_args.append(query_args)
+            record.query_output_paths.append(output_path)
 
-        def compute_queries(self, eval_samples, output_path):
+        def transform_query(self, question_ids, questions):
             """
-            Input: the arguments of compute_queries.
+            Input: the arguments of transform_query.
             Output: one placeholder query.
-            What it does: nothing else.
+            What it does: records the question ids and questions.
             """
+            record.transformed_questions.append((question_ids, questions))
             return ["query"]
 
         def split_queries(self, queries):
@@ -354,7 +359,8 @@ def test_run_benchmark_loads_every_chunk_type_and_index_the_manifest_lists(tmp_p
     assert record.loaded_documents == [("out/documents", "testinputhash")]
     assert record.loaded_eval_datasets == ["out/eval_dataset/eval_dataset_testevalhash.json"]
     assert record.query_args[0].embedding_model == "fake-model"
-    assert record.query_args[0].eval_dataset_hash == "testevalhash"
+    assert record.query_output_paths == [str(tmp_path)]
+    assert record.transformed_questions == [(["eval_qna_0"], ["What is X?"])]
 
     loaded_chunk_folders = []
     for chunking_args, chunk_path in record.loaded_chunks:
@@ -425,7 +431,8 @@ def make_query_args(**overrides):
     field_values["query_split"] = False
     field_values["val_queries_size"] = 1
     field_values["test_queries_size"] = 1
-    field_values["eval_dataset_hash"] = "testevalhash"
+    field_values["ollama_api_base"] = "http://ollama-test:11434"
+    field_values["ollama_context_length"] = 32768
     for field_name in overrides:
         field_values[field_name] = overrides[field_name]
     return QueryArgs(**field_values)
