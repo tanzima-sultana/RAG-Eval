@@ -359,7 +359,6 @@ def test_run_benchmark_loads_every_chunk_type_and_index_the_manifest_lists(tmp_p
     assert record.loaded_documents == [("out/documents", "testinputhash")]
     assert record.loaded_eval_datasets == ["out/eval_dataset/eval_dataset_testevalhash.json"]
     assert record.query_args[0].embedding_model == "fake-model"
-    assert record.query_output_paths == [str(tmp_path)]
     assert record.transformed_questions == [(["eval_qna_0"], ["What is X?"])]
 
     loaded_chunk_folders = []

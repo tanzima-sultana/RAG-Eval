@@ -1,4 +1,3 @@
-import os
 import random
 
 import torch
@@ -17,15 +16,15 @@ from schema.query import Query
 
 
 class QueryTransformation:
-	def __init__(self, query_args: QueryArgs, output_path: str):
+	def __init__(self, query_args: QueryArgs, query_path: str):
 		"""
-		Input: query_args, the query transformation settings; output_path, the root output folder, under which the
-		queries are saved in queries/.
+		Input: query_args, the query transformation settings; query_path, the folder the query files are saved in,
+		used as given.
 		Output: nothing.
 		What it does: stores both.
 		"""
 		self.query_args = query_args
-		self.output_path = output_path
+		self.query_path = query_path
 
 	def validate(self) -> None:
 		"""
@@ -89,7 +88,7 @@ class QueryTransformation:
 			results = {}
 			missing_query_types = []
 			for query_type in query_args.query_types:
-				query_file = paths.get_query_file_path(self.output_path, query_args, query_type, question)
+				query_file = paths.get_query_file_path(self.query_path, query_args, query_type, question)
 				result = load_query_entry(query_file)
 				if result is None:
 					missing_query_types.append(query_type)
@@ -137,7 +136,7 @@ class QueryTransformation:
 						if result.ans == constants.I_DONT_KNOW:
 							hyde_dont_know_count = hyde_dont_know_count + 1
 
-					query_file = paths.get_query_file_path(self.output_path, query_args, query_type, question)
+					query_file = paths.get_query_file_path(self.query_path, query_args, query_type, question)
 					save_query_entry(query_file, query_type, question, result, query_args.embedding_model, result_llm_model)
 					results[query_type] = result
 					generated_count = generated_count + 1
@@ -156,7 +155,7 @@ class QueryTransformation:
 			))
 
 		# 5. What was loaded and what was made
-		print(f"Query folder : {os.path.join(self.output_path, 'queries')}")
+		print(f"Query folder : {self.query_path}")
 		print(f"Queries : {len(queries)}, query types loaded from cache : {loaded_count}, made : {generated_count}")
 		if generated_count > 0:
 			print(f"Multi-query I don't know : {multi_dont_know_count}")

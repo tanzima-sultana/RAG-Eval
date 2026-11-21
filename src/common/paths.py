@@ -319,11 +319,11 @@ def make_query_hashed_args(query_args: QueryArgs) -> dict:
 	return hashed_args
 
 
-def get_query_file_path(output_path: str, query_args: QueryArgs, query_type: str, question: str) -> str:
+def get_query_file_path(query_path: str, query_args: QueryArgs, query_type: str, question: str) -> str:
 	"""
-	Input: output_path, the root output folder; query_args; query_type, one of original, rewritten, multi or hyde;
-	question, one question text.
-	Output: {output_path}/queries/{hash}.json
+	Input: query_path, the folder the query files are saved in, used as given; query_args; query_type, one of
+	original, rewritten, multi or hyde; question, one question text.
+	Output: {query_path}/{hash}.json
 	What it does: builds the file of one query type of one question, named by the first 12 hex characters of the
 	SHA-256 of what decides it, as JSON with sorted keys: the query type, the question and the embedding model; for an
 	LLM query type also the query LLM model, its max_tokens and the Ollama context length when it is not None; for
@@ -345,7 +345,7 @@ def get_query_file_path(output_path: str, query_args: QueryArgs, query_type: str
 
 	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
 	query_hash = hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
-	return os.path.join(output_path, "queries", f"{query_hash}.json")
+	return os.path.join(query_path, f"{query_hash}.json")
 
 
 # ------ Retrieval

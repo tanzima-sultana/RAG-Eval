@@ -250,17 +250,18 @@ def get_query_file_name(query_args, query_type, question):
     return os.path.basename(paths.get_query_file_path("out", query_args, query_type, question))
 
 
-def test_get_query_file_path_is_a_12_character_hash_under_queries():
+def test_get_query_file_path_is_a_12_character_hash_in_the_given_folder():
     """
     Input: the default query args, the rewritten query type and one question.
     Output: the query file path.
-    What it does: checks the file is queries/{hash}.json with a 12 hex character hash, the same for the same inputs.
+    What it does: checks the file is {hash}.json directly in the given folder, with a 12 hex character hash, the same
+    for the same inputs.
     """
     query_file = paths.get_query_file_path("out", make_query_args(), REWRITTEN_QUERY, "What is X?")
     same_query_file = paths.get_query_file_path("out", make_query_args(), REWRITTEN_QUERY, "What is X?")
 
     file_name = os.path.basename(query_file)
-    assert os.path.dirname(query_file) == os.path.join("out", "queries")
+    assert os.path.dirname(query_file) == "out"
     assert file_name.endswith(".json")
     assert len(file_name) == 12 + len(".json")
     int(file_name[:12], 16)
