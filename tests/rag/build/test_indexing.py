@@ -42,19 +42,61 @@ def test_lowercase_whitespace_tokenize():
 
 @pytest.mark.parametrize("overrides, message", [
     ({"index_type": "qdrant"}, "index_type"),
-    ({"ivf_nlist": 0}, "ivf_nlist"),
-    ({"hnsw_m": 0}, "hnsw_m"),
-    ({"hnsw_ef_construction": 0}, "hnsw_ef_construction"),
-    ({"bm25_tokenizer": "nltk"}, "bm25_tokenizer"),
+    ({"index_type": "faiss_ivf", "ivf_nlist": 0}, "ivf_nlist"),
+    ({"index_type": "faiss_hnsw", "hnsw_m": 0}, "hnsw_m"),
+    ({"index_type": "faiss_hnsw", "hnsw_ef_construction": 0}, "hnsw_ef_construction"),
+    ({"index_type": "bm25", "bm25_tokenizer": "nltk"}, "bm25_tokenizer"),
 ])
 def test_init_raises_for_invalid_setting(patched_embeddings, make_index_args, overrides, message):
     """
-    Input: IndexArgs with one invalid setting.
+    Input: IndexArgs with one invalid setting of its own index type.
     Output: ValueError.
     What it does: checks Indexing validates the settings when it is created, and names the invalid one.
     """
     with pytest.raises(ValueError, match=message):
         Indexing(make_index_args(**overrides))
+
+
+@pytest.mark.parametrize("overrides, message", [
+    ({"index_type": "faiss_ivf", "ivf_nlist": None}, "ivf_nlist is missing"),
+    ({"index_type": "faiss_hnsw", "hnsw_m": None}, "hnsw_m is missing"),
+    ({"index_type": "faiss_hnsw", "hnsw_ef_construction": None}, "hnsw_ef_construction is missing"),
+    ({"index_type": "bm25", "bm25_k1": None}, "bm25_k1 is missing"),
+    ({"index_type": "bm25", "bm25_b": None}, "bm25_b is missing"),
+])
+def test_init_raises_when_a_setting_of_its_index_type_is_missing(patched_embeddings, make_index_args, overrides, message):
+    """
+    Input: IndexArgs with one setting of its own index type missing (None).
+    Output: ValueError.
+    What it does: checks a missing setting the index type needs is named, with its config block.
+    """
+    with pytest.raises(ValueError, match=message):
+        Indexing(make_index_args(**overrides))
+
+
+@pytest.mark.parametrize("index_type", ["faiss_flatip", "faiss_ivf", "faiss_hnsw", "bm25"])
+def test_init_checks_only_the_settings_of_its_index_type(patched_embeddings, make_index_args, index_type):
+    """
+    Input: IndexArgs of one index type, with every setting of the other index types missing (None).
+    Output: nothing.
+    What it does: checks Indexing is created: settings of index types not being built are not needed. faiss_flatip
+    needs none at all.
+    """
+    settings_by_index_type = {
+        "faiss_flatip": [],
+        "faiss_ivf": ["ivf_nlist"],
+        "faiss_hnsw": ["hnsw_m", "hnsw_ef_construction"],
+        "bm25": ["bm25_k1", "bm25_b", "bm25_tokenizer"],
+    }
+    all_settings = ["ivf_nlist", "hnsw_m", "hnsw_ef_construction", "bm25_k1", "bm25_b", "bm25_tokenizer"]
+    overrides = {"index_type": index_type}
+    for setting_name in all_settings:
+        if setting_name not in settings_by_index_type[index_type]:
+            overrides[setting_name] = None
+
+    indexing = Indexing(make_index_args(**overrides))
+
+    assert indexing.index_args.index_type == index_type
 
 
 # ---------- compute_index ----------

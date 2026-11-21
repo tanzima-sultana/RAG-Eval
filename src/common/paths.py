@@ -10,12 +10,11 @@ from common.args import VectorDbArgs
 from common.args import EvalDatasetArgs
 from common.args import OllamaArgs
 from common.args import QueryArgs
+from common.args import BenchmarkArgs
 from common.args import RetrievalArgs
 from common.constants import FAISS_FLATIP_INDEX
 from common.constants import FAISS_IVF_INDEX
 from common.constants import FAISS_HNSW_INDEX
-from common.constants import BM25_INDEX
-from common.constants import QDRANT_INDEX
 
 
 # ------ Dataset
@@ -201,13 +200,38 @@ def get_build_manifest_path(output_path: str, parsed_args: argparse.Namespace, i
 
 
 # ------ Setup ranking
-def get_best_setups_path(output_path: str) -> str:
+def get_best_setups_path(output_path: str, build_hash: str, eval_dataset_hash: str, benchmark_hash: str) -> str:
 	"""
-	Input: output_path, the dataset's output folder.
-	Output: {output_path}/best_setups/best_setups.json
-	What it does: builds the file the benchmark saves its best setups to.
+	Input: output_path, the dataset's output folder; build_hash, from the build manifest; eval_dataset_hash, from the
+	eval dataset metadata; benchmark_hash, from get_benchmark_hash.
+	Output: {output_path}/best_setups/best_setups_{build_hash}_{eval_dataset_hash}_{benchmark_hash}.json
+	What it does: builds the file the benchmark saves its best setups to, named by the three hashes.
 	"""
-	return os.path.join(output_path, "best_setups", "best_setups.json")
+	file_name = f"best_setups_{build_hash}_{eval_dataset_hash}_{benchmark_hash}.json"
+	return os.path.join(output_path, "best_setups", file_name)
+
+
+def get_benchmark_hash(benchmark_args: BenchmarkArgs, ollama_args: OllamaArgs) -> str:
+	"""
+	Input: benchmark_args, the benchmark settings that change its results; ollama_args.
+	Output: the first 12 hex characters of the SHA-256 of those settings.
+	What it does: hashes the query settings, the retrieval and ranking settings, as JSON with sorted keys. The Ollama
+	context length is included only when the query LLM is an Ollama model.
+	"""
+	hashed_args = make_query_hashed_args(benchmark_args.query_args)
+	hashed_args["retrieval_types"] = benchmark_args.retrieval_types
+	hashed_args["top_k"] = benchmark_args.top_k
+	hashed_args["reranking"] = benchmark_args.reranking
+	hashed_args["rerank_top_k"] = benchmark_args.rerank_top_k
+	hashed_args["n_top_setups"] = benchmark_args.n_top_setups
+
+	ollama_providers = ["ollama", "ollama_chat"]
+	query_llm_provider = benchmark_args.query_args.query_llm_args.llm_model.split("/", 1)[0]
+	if query_llm_provider in ollama_providers:
+		hashed_args["ollama_context_length"] = ollama_args.ollama_context_length
+
+	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
+	return hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
 
 
 # ------ Eval dataset
@@ -274,64 +298,90 @@ def get_eval_dataset_kg_path(output_path: str, eval_dataset_args: EvalDatasetArg
 
 
 # ------ Query transformation
-def get_query_path(output_path: str, eval_dataset_args: EvalDatasetArgs, query_args: QueryArgs) -> str:
+def make_query_hashed_args(query_args: QueryArgs) -> dict:
 	"""
-	Input: output_path, the dataset's output folder; eval_dataset_args, the settings of the eval dataset the queries are made from;
-	query_args.
-	Output: {output_path}/queries/{n_sample_documents}_{n_evals_requested}_{eval_dataset_llm_model}_{eval_dataset_embedding_model}_
-	{embedding_model}_{query_llm_model}_{n_multi_qus}
-	What it does: builds the folder that holds one query run. Any "/" or ":" in a model name is replaced with "-".
+	Input: query_args.
+	Output: a dict of every query setting that shapes the queries, keyed by name.
+	What it does: collects each QueryArgs field and the query LLM's model and max_tokens. The LLM timeout is left out,
+	since it does not change the queries.
 	"""
-	eval_dataset_llm_model = eval_dataset_args.eval_dataset_llm_args.llm_model.replace("/", "-").replace(":", "-")
-	eval_dataset_embedding_model = eval_dataset_args.eval_dataset_embedding_model.replace("/", "-").replace(":", "-")
-	embedding_model = query_args.embedding_model.replace("/", "-").replace(":", "-")
-	query_llm_model = query_args.query_llm_args.llm_model.replace("/", "-").replace(":", "-")
-	folder_name = (
-		f"{eval_dataset_args.n_sample_documents}_{eval_dataset_args.n_evals_requested}_{eval_dataset_llm_model}_{eval_dataset_embedding_model}_"
-		f"{embedding_model}_{query_llm_model}_{query_args.n_multi_qus}"
-	)
-	return os.path.join(output_path, "queries", folder_name)
+	hashed_args = {}
+	hashed_args["query_llm_model"] = query_args.query_llm_args.llm_model
+	hashed_args["query_llm_max_tokens"] = query_args.query_llm_args.max_tokens
+	hashed_args["embedding_model"] = query_args.embedding_model
+	hashed_args["n_multi_qus"] = query_args.n_multi_qus
+	hashed_args["query_types"] = query_args.query_types
+	hashed_args["query_split"] = query_args.query_split
+	hashed_args["val_queries_size"] = query_args.val_queries_size
+	hashed_args["test_queries_size"] = query_args.test_queries_size
+	hashed_args["eval_dataset_hash"] = query_args.eval_dataset_hash
+	return hashed_args
+
+
+def get_query_hash(query_args: QueryArgs, ollama_args: OllamaArgs) -> str:
+	"""
+	Input: query_args; ollama_args.
+	Output: the first 12 hex characters of the SHA-256 of the query args.
+	What it does: hashes every query setting and the eval dataset hash, as JSON with sorted keys. The Ollama context
+	length is included only when the query LLM is an Ollama model.
+	"""
+	hashed_args = make_query_hashed_args(query_args)
+
+	ollama_providers = ["ollama", "ollama_chat"]
+	query_llm_provider = query_args.query_llm_args.llm_model.split("/", 1)[0]
+	if query_llm_provider in ollama_providers:
+		hashed_args["ollama_context_length"] = ollama_args.ollama_context_length
+
+	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
+	return hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
+
+
+def get_query_path(output_path: str, query_args: QueryArgs, ollama_args: OllamaArgs) -> str:
+	"""
+	Input: output_path, the dataset's output folder; query_args; ollama_args.
+	Output: {output_path}/queries/queries_{hash}
+	What it does: builds the folder that holds one query run from the hash of its args.
+	"""
+	query_hash = get_query_hash(query_args, ollama_args)
+	return os.path.join(output_path, "queries", f"queries_{query_hash}")
 
 
 # ------ Retrieval
 def get_retrieved_path(output_path: str, retrieval_args: RetrievalArgs, query_args: QueryArgs, val_queries_count: int, index_type: str) -> str:
 	"""
-	Input: output_path, the dataset's output folder; retrieval_args; query_args, for the query types;
-	val_queries_count, the number of val queries searched; index_type, one index type, or a dense and the
-	BM25 index type joined with "+" for hybrid, e.g. faiss_flatip+bm25.
-	Output: {output_path}/retrieved/{chunk_type}/{model_name}/{min}_{max}_{overlap}_{threshold}/{index_folder}/
-	val_{val_queries_count}/{query_types joined by "_"}
-	where index_folder is flatip, ivf_{nlist}, hnsw_{m}_{ef_construction}, bm25_{k1}_{b}_{tokenizer} or qdrant,
-	joined with "+" for hybrid.
-	What it does: builds the folder that holds the retrieved results of one index or hybrid pair.
+	Input: output_path, the dataset's output folder; retrieval_args; query_args; val_queries_count, the number of val
+	queries searched; index_type, one index type, or a dense and the BM25 index type joined with "+" for hybrid,
+	e.g. faiss_flatip+bm25.
+	Output: {output_path}/retrieved/retrieved_{hash}
+	What it does: builds the folder that holds the retrieved results of one index or hybrid pair, from the first 12
+	hex characters of the SHA-256 of all its args: the chunk settings, the index settings and input hash, the
+	retrieval settings, the query settings, the val query count and the index type.
 	"""
 	index_args = retrieval_args.index_args
 	chunking_args = index_args.chunking_args
-	settings_folder = (
-		f"{chunking_args.min_chunk_size}_{chunking_args.max_chunk_size}_"
-		f"{chunking_args.fixed_chunk_overlap}_{chunking_args.semantic_threshold}"
-	)
 
-	index_folders = []
-	for one_index_type in index_type.split("+"):
-		if one_index_type == FAISS_FLATIP_INDEX:
-			index_folders.append("flatip")
-		elif one_index_type == FAISS_IVF_INDEX:
-			index_folders.append(f"ivf_{index_args.ivf_nlist}")
-		elif one_index_type == FAISS_HNSW_INDEX:
-			index_folders.append(f"hnsw_{index_args.hnsw_m}_{index_args.hnsw_ef_construction}")
-		elif one_index_type == BM25_INDEX:
-			index_folders.append(f"bm25_{index_args.bm25_k1}_{index_args.bm25_b}_{index_args.bm25_tokenizer}")
-		elif one_index_type == QDRANT_INDEX:
-			index_folders.append("qdrant")
-		else:
-			raise ValueError(f"index_type ({one_index_type}) is not a supported index type.")
-	index_folder = "+".join(index_folders)
+	hashed_args = {}
+	hashed_args["model_name"] = chunking_args.model_name
+	hashed_args["chunk_type"] = chunking_args.chunk_type
+	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
+	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
+	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
+	hashed_args["semantic_threshold"] = chunking_args.semantic_threshold
+	hashed_args["ivf_nlist"] = index_args.ivf_nlist
+	hashed_args["hnsw_m"] = index_args.hnsw_m
+	hashed_args["hnsw_ef_construction"] = index_args.hnsw_ef_construction
+	hashed_args["bm25_k1"] = index_args.bm25_k1
+	hashed_args["bm25_b"] = index_args.bm25_b
+	hashed_args["bm25_tokenizer"] = index_args.bm25_tokenizer
+	hashed_args["input_hash"] = index_args.input_hash
+	hashed_args["retrieval_types"] = retrieval_args.retrieval_types
+	hashed_args["top_k"] = retrieval_args.top_k
+	hashed_args["reranking"] = retrieval_args.reranking
+	hashed_args["rerank_top_k"] = retrieval_args.rerank_top_k
+	hashed_args["query_args"] = make_query_hashed_args(query_args)
+	hashed_args["val_queries_count"] = val_queries_count
+	hashed_args["index_type"] = index_type
 
-	split_folder = f"val_{val_queries_count}"
-	query_types_folder = "_".join(query_args.query_types)
-
-	return os.path.join(
-		output_path, "retrieved", chunking_args.chunk_type, chunking_args.model_name, settings_folder,
-		index_folder, split_folder, query_types_folder
-	)
+	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
+	retrieved_hash = hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
+	return os.path.join(output_path, "retrieved", f"retrieved_{retrieved_hash}")

@@ -14,7 +14,6 @@ import pytest
 
 from common import paths
 from common.args import OllamaArgs
-from common.args import EvalDatasetArgs
 from common.args import QueryArgs
 from common.constants import I_DONT_KNOW
 from common.constants import HYDE_QUERY
@@ -114,27 +113,10 @@ def make_query_args(**overrides):
     field_values["query_split"] = True
     field_values["val_queries_size"] = 1
     field_values["test_queries_size"] = 1
+    field_values["eval_dataset_hash"] = "testevalhash"
     for field_name in overrides:
         field_values[field_name] = overrides[field_name]
     return QueryArgs(**field_values)
-
-
-def make_eval_dataset_args():
-    """
-    Input: none.
-    Output: an EvalDatasetArgs with test values.
-    What it does: builds the eval dataset settings the query path is named by.
-    """
-    return EvalDatasetArgs(
-        "outputs/",
-        "test-dataset",
-        1,
-        LLMArgs("anthropic/claude-sonnet-5-5", 100, 30),
-        LLMArgs("anthropic/claude-haiku-5-5", 100, 30),
-        "fake-model",
-        1,
-        2,
-    )
 
 
 def make_ollama_args():
@@ -293,6 +275,72 @@ def test_load_queries_raises_when_files_are_out_of_order(tmp_path):
         load_queries(str(tmp_path))
 
 
+# ---------- get_query_hash and get_query_path ----------
+
+
+@pytest.mark.parametrize("overrides", [
+    {"n_multi_qus": 4},
+    {"query_types": [ORIGINAL_QUERY]},
+    {"embedding_model": "other-model"},
+    {"eval_dataset_hash": "otherevalhash"},
+    {"query_llm_args": LLMArgs("ollama_chat/llama3.1:8b", 200, 30)},
+])
+def test_query_hash_is_12_hex_characters_and_changes_with_any_arg(overrides):
+    """
+    Input: the default query args, and the same args with one setting changed.
+    Output: the hashes.
+    What it does: checks the hash is 12 hex characters, stays the same for the same args and changes for a changed arg.
+    """
+    query_hash = paths.get_query_hash(make_query_args(), make_ollama_args())
+    same_query_hash = paths.get_query_hash(make_query_args(), make_ollama_args())
+    changed_query_hash = paths.get_query_hash(make_query_args(**overrides), make_ollama_args())
+
+    assert len(query_hash) == 12
+    int(query_hash, 16)
+    assert query_hash == same_query_hash
+    assert query_hash != changed_query_hash
+
+
+def test_query_hash_ignores_the_llm_timeout():
+    """
+    Input: two query args that differ only in the query LLM timeout.
+    Output: the two hashes.
+    What it does: checks the timeout, which does not change the queries, does not change the hash.
+    """
+    short_timeout = make_query_args(query_llm_args=LLMArgs("ollama_chat/llama3.1:8b", 100, 30))
+    long_timeout = make_query_args(query_llm_args=LLMArgs("ollama_chat/llama3.1:8b", 100, 300))
+
+    assert paths.get_query_hash(short_timeout, make_ollama_args()) == paths.get_query_hash(long_timeout, make_ollama_args())
+
+
+def test_query_hash_uses_ollama_context_length_only_for_an_ollama_model():
+    """
+    Input: two Ollama context lengths, first with an Ollama query LLM, then with a Claude one.
+    Output: the hashes.
+    What it does: checks the context length changes the hash only when the query LLM is an Ollama model.
+    """
+    short_context = OllamaArgs(ollama_api_base="http://ollama-test:11434", ollama_context_length=4096)
+    long_context = OllamaArgs(ollama_api_base="http://ollama-test:11434", ollama_context_length=32768)
+    ollama_query_args = make_query_args()
+    claude_query_args = make_query_args(query_llm_args=LLMArgs("anthropic/claude-haiku-5-5", 100, 30))
+
+    assert paths.get_query_hash(ollama_query_args, short_context) != paths.get_query_hash(ollama_query_args, long_context)
+    assert paths.get_query_hash(claude_query_args, short_context) == paths.get_query_hash(claude_query_args, long_context)
+
+
+def test_get_query_path_is_named_by_the_query_hash(tmp_path):
+    """
+    Input: the default query args.
+    Output: the query folder.
+    What it does: checks the folder is queries/queries_{hash}.
+    """
+    query_hash = paths.get_query_hash(make_query_args(), make_ollama_args())
+
+    query_path = paths.get_query_path(str(tmp_path), make_query_args(), make_ollama_args())
+
+    assert query_path == os.path.join(str(tmp_path), "queries", f"queries_{query_hash}")
+
+
 # ---------- compute_queries ----------
 
 
@@ -303,15 +351,14 @@ def test_compute_queries_returns_saved_queries_without_building_an_llm(fake_quer
     What it does: checks the saved queries are returned, no LLM is built and the saved files are not rewritten.
     """
     query_args = make_query_args()
-    eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
-    query_path = paths.get_query_path(output_path, eval_dataset_args, query_args)
+    query_path = paths.get_query_path(output_path, query_args, make_ollama_args())
     save_queries(query_path, [make_query("eval_qna_0", 3)])
     queries_bytes = read_file_bytes(os.path.join(query_path, "queries.json"))
     embeddings_bytes = read_file_bytes(os.path.join(query_path, "embeddings.npz"))
 
     queries = QueryTransformation(query_args, make_ollama_args()).compute_queries(
-        [make_eval_sample(0, "What is X?")], eval_dataset_args, output_path
+        [make_eval_sample(0, "What is X?")], output_path
     )
 
     assert len(queries) == 1
@@ -329,13 +376,12 @@ def test_compute_queries_returns_only_the_requested_query_types(fake_query_llm, 
     What it does: checks the other query types are None in the result, but stay whole in the saved queries.
     """
     query_args = make_query_args(query_types=[ORIGINAL_QUERY, MULTI_QUERY])
-    eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
-    query_path = paths.get_query_path(output_path, eval_dataset_args, query_args)
+    query_path = paths.get_query_path(output_path, query_args, make_ollama_args())
     save_queries(query_path, [make_query("eval_qna_0", 3)])
 
     queries = QueryTransformation(query_args, make_ollama_args()).compute_queries(
-        [make_eval_sample(0, "What is X?")], eval_dataset_args, output_path
+        [make_eval_sample(0, "What is X?")], output_path
     )
 
     assert queries[0].original_qus.qus == "original"
@@ -356,14 +402,13 @@ def test_compute_queries_generates_and_saves_when_none_are_saved(fake_query_llm,
     """
     fake_query_llm.replies["What is X?"] = {"rewrite": "What does X mean?", "multi": "a\nb\nc", "hyde": "X is a thing."}
     query_args = make_query_args()
-    eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
 
-    queries = QueryTransformation(query_args, make_ollama_args()).compute_queries([make_eval_sample(0, "What is X?")], eval_dataset_args, output_path)
+    queries = QueryTransformation(query_args, make_ollama_args()).compute_queries([make_eval_sample(0, "What is X?")], output_path)
 
     assert fake_query_llm.built_models == ["ollama_chat/llama3.1:8b"]
     assert fake_query_llm.reply_types == ["rewrite", "multi", "hyde"]
-    saved_queries = load_queries(paths.get_query_path(output_path, eval_dataset_args, query_args))
+    saved_queries = load_queries(paths.get_query_path(output_path, query_args, make_ollama_args()))
     assert saved_queries[0].original_qus.qus == "What is X?"
     assert saved_queries[0].rewritten_qus.qus == queries[0].rewritten_qus.qus
     assert len(saved_queries[0].multi_qus) == 3
@@ -378,13 +423,12 @@ def test_compute_queries_generates_only_the_missing_query_types(fake_query_llm, 
     """
     fake_query_llm.replies["What is X?"] = {"rewrite": "A new rewrite?", "multi": "a\nb\nc", "hyde": "X is a thing."}
     query_args = make_query_args()
-    eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
-    query_path = paths.get_query_path(output_path, eval_dataset_args, query_args)
+    query_path = paths.get_query_path(output_path, query_args, make_ollama_args())
     save_queries(query_path, [make_query("eval_qna_0", 0, [ORIGINAL_QUERY, REWRITTEN_QUERY])])
 
     queries = QueryTransformation(query_args, make_ollama_args()).compute_queries(
-        [make_eval_sample(0, "What is X?")], eval_dataset_args, output_path
+        [make_eval_sample(0, "What is X?")], output_path
     )
 
     assert fake_query_llm.reply_types == ["multi", "hyde"]
@@ -403,17 +447,16 @@ def test_compute_queries_builds_no_llm_when_only_original_is_missing(fake_query_
     What it does: checks the original question is embedded without building the query LLM.
     """
     query_args = make_query_args(query_types=[ORIGINAL_QUERY])
-    eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
 
     queries = QueryTransformation(query_args, make_ollama_args()).compute_queries(
-        [make_eval_sample(0, "What is X?")], eval_dataset_args, output_path
+        [make_eval_sample(0, "What is X?")], output_path
     )
 
     assert fake_query_llm.built_models == []
     assert queries[0].original_qus.qus == "What is X?"
     assert queries[0].rewritten_qus is None
-    assert load_queries(paths.get_query_path(output_path, eval_dataset_args, query_args))[0].multi_qus is None
+    assert load_queries(paths.get_query_path(output_path, query_args, make_ollama_args()))[0].multi_qus is None
 
 
 def test_compute_queries_raises_when_saved_queries_are_not_in_eval_dataset_order(fake_query_llm, tmp_path):
@@ -423,13 +466,12 @@ def test_compute_queries_raises_when_saved_queries_are_not_in_eval_dataset_order
     What it does: checks saved queries are never joined with another question.
     """
     query_args = make_query_args()
-    eval_dataset_args = make_eval_dataset_args()
     output_path = str(tmp_path)
-    save_queries(paths.get_query_path(output_path, eval_dataset_args, query_args), [make_query("eval_qna_9", 3)])
+    save_queries(paths.get_query_path(output_path, query_args, make_ollama_args()), [make_query("eval_qna_9", 3)])
 
     with pytest.raises(ValueError, match="not in the eval dataset order"):
         QueryTransformation(query_args, make_ollama_args()).compute_queries(
-            [make_eval_sample(0, "What is X?")], eval_dataset_args, output_path
+            [make_eval_sample(0, "What is X?")], output_path
         )
 
 
@@ -579,7 +621,7 @@ def test_compute_queries_counts_multi_and_hyde_i_dont_know(fake_query_llm, tmp_p
     query_args = make_query_args(query_types=[MULTI_QUERY, HYDE_QUERY])
 
     queries = QueryTransformation(query_args, make_ollama_args()).compute_queries(
-        [make_eval_sample(0, "Q one?"), make_eval_sample(1, "Q two?")], make_eval_dataset_args(), str(tmp_path)
+        [make_eval_sample(0, "Q one?"), make_eval_sample(1, "Q two?")], str(tmp_path)
     )
 
     assert queries[0].multi_qus == []

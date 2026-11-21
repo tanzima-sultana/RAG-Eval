@@ -1,75 +1,89 @@
+import json
 import time
 
 from common import paths
 from common.constants import HYBRID_RETRIEVAL
-from common.args import parse_args
-from common.args import make_ingestion_args
-from common.args import make_chunking_args
-from common.args import make_index_args
-from common.args import make_vectordb_args
-from common.args import make_eval_dataset_args
+from common.constants import QDRANT_INDEX
+from common.args import parse_benchmark_config
+from common.args import make_benchmark_args
+from common.args import make_manifest_chunking_args
+from common.args import make_manifest_index_args
 from common.args import make_ollama_args
 from common.args import make_query_args
 from common.args import make_retrieval_args
-from rag.build.ingestion import load_saved_documents
-from rag.build.chunking import Chunking
-from rag.build.indexing import Indexing
-from rag.build.indexing_vectordb import IndexingVectorDb
-from rag.build.manifest import find_chunk_entry
-from rag.build.manifest import find_index_entry
-from rag.build.manifest import get_index_settings
-from rag.build.manifest import load_build_manifest
-from evaluation.eval_dataset import EvalDataset
-from rag.serving.query_transformation.query_transformation import QueryTransformation
-from rag.serving.retrieval.retrieval import Retrieval
+from common.args import make_vectordb_args
+from evaluation.eval_dataset.cache import load_eval_dataset
 from evaluation.retrieval_evaluation import RetrievalEvaluation
 from evaluation.setup_ranking import rank_setups
 from evaluation.setup_ranking import save_best_setups
+from rag.build.chunking import Chunking
+from rag.build.indexing import Indexing
+from rag.build.indexing_vectordb import IndexingVectorDb
+from rag.build.ingestion import load_documents
+from rag.build.manifest import load_build_manifest_from_path
+from rag.serving.query_transformation.query_transformation import QueryTransformation
+from rag.serving.retrieval.retrieval import Retrieval
+from schema.eval_dataset_metadata import EvalDatasetMetadata
 
 
 def run_benchmark(args) -> None:
 	"""
-	Input: args, the parsed args.
+	Input: args, the parsed benchmark args.
 	Output: nothing.
-	What it does: runs the benchmark: reads the build manifest, loads the documents and the saved eval dataset,
-	transforms the queries, then per chunk type loads the saved chunks and indexes the manifest lists, retrieves the val
-	queries and scores them. The config says what to benchmark, the manifest says where it is. It never builds: a
-	missing or differently built output raises an error. It never generates the eval dataset.
+	What it does: runs the benchmark on one build and one eval dataset: reads the build manifest and the eval dataset
+	metadata, checks they are of the same dataset, loads the documents and the eval set, transforms the queries, then
+	for every chunk type and index the manifest lists loads the saved chunks and index, retrieves the val queries and
+	scores them, and saves the best setups. It never builds and never generates the eval dataset.
 	"""
-	output_path = paths.get_output_path(args.output_path, args.dataset_name)
+	# 1. The build manifest and the eval dataset metadata. The only check is that they are of the same dataset
+	print("\n\nBuild manifest and eval dataset metadata")
+	manifest = load_build_manifest_from_path(args.manifest_path)
+	print(f"Build manifest : {args.manifest_path}, built at {manifest.built_at}")
 
-	# 1. The build manifest: what the build saved and where
-	print("\n\nBuild manifest")
-	manifest = load_build_manifest(output_path)
-	print(f"Build manifest : built at {manifest.built_at}")
+	with open(args.eval_dataset_metadata_path, encoding="utf-8") as f:
+		eval_dataset_metadata = EvalDatasetMetadata(**json.load(f))
+	print(f"Eval dataset metadata : {args.eval_dataset_metadata_path}")
 
-	# 2. Documents, only loaded from the manifest's documents folder
+	if manifest.dataset_name != eval_dataset_metadata.dataset_name:
+		raise ValueError(
+			f"The build manifest is of dataset {manifest.dataset_name}, but the eval dataset metadata is of dataset "
+			f"{eval_dataset_metadata.dataset_name}."
+		)
+
+	output_path = paths.get_output_path(args.output_path, manifest.dataset_name)
+
+	# 2. Documents, the ones the build saved for its input files
 	print("\n\nDocuments")
-	ingestion_args = make_ingestion_args(args)
-
 	s1 = time.time()
-	documents = load_saved_documents(manifest.documents_path, ingestion_args.dataset_size)
+	documents = load_documents(manifest.documents_path, manifest.input_hash)
+	if documents is None:
+		raise FileNotFoundError(
+			f"No saved document list doc_ids_{manifest.input_hash}.json in {manifest.documents_path}. Run scripts/build.sh first."
+		)
 	e1 = time.time() - s1
 	print(f"Documents : {len(documents)}")
 	print("\nDocuments time : ", e1)
 
-	# 3. Eval dataset, only loaded. scripts/eval_dataset.sh generates it
+	# 3. Eval dataset, the one the metadata names
 	print("\n\nEval dataset")
-	eval_dataset_args = make_eval_dataset_args(args)
-	ollama_args = make_ollama_args(args)
-
 	s2 = time.time()
-	eval_samples = EvalDataset(eval_dataset_args, ollama_args).load_saved_eval_dataset(output_path)
+	eval_samples = load_eval_dataset(eval_dataset_metadata.eval_dataset_path)
+	if eval_samples is None:
+		raise FileNotFoundError(
+			f"No saved eval dataset at {eval_dataset_metadata.eval_dataset_path}. Run scripts/eval_dataset.sh first."
+		)
 	e2 = time.time() - s2
+	print(f"Eval dataset : {len(eval_samples)} from {eval_dataset_metadata.eval_dataset_path}")
 	print("\nEval dataset time : ", e2)
 
-	# 4. Query transformation, once for the eval dataset
+	# 4. Query transformation, once for the eval dataset, with the build's embedding model
 	print("\n\nQuery transformation")
-	query_args = make_query_args(args)
+	ollama_args = make_ollama_args(args)
+	query_args = make_query_args(args, manifest.embedding_model, eval_dataset_metadata.eval_dataset_hash)
 
 	s3 = time.time()
 	query_transformation = QueryTransformation(query_args, ollama_args)
-	queries = query_transformation.compute_queries(eval_samples, eval_dataset_args, output_path)
+	queries = query_transformation.compute_queries(eval_samples, output_path)
 	e3 = time.time() - s3
 	print("\nQuery transformation time : ", e3)
 
@@ -81,30 +95,41 @@ def run_benchmark(args) -> None:
 	retrieval_evaluation = RetrievalEvaluation(eval_samples)
 	retrieved_evals = []
 
-	# 6. Chunks, only loaded, once per chunk type
-	for chunk_type in args.chunk_types:
+	# 6. Every chunk type the build made, with the settings it made them with
+	for chunk_entry in manifest.chunk_entries:
+		chunk_type = chunk_entry.chunk_type
 		print(f"\n\n========== Chunk type : {chunk_type} ==========")
 		print("\n\nChunking")
-		chunking_args = make_chunking_args(args, chunk_type)
+		chunking_args = make_manifest_chunking_args(chunk_entry, manifest.embedding_model)
 
 		s5 = time.time()
-		chunk_entry = find_chunk_entry(manifest, chunking_args)
 		chunks = Chunking(chunking_args).load_saved_chunks(documents, chunk_entry.chunk_path)
 		e5 = time.time() - s5
 		print("\nChunking time : ", e5)
 
+		# The index settings of this chunk type, from every index the build made of it
+		chunk_type_index_settings = {}
+		for index_entry in manifest.index_entries:
+			if index_entry.chunk_type != chunk_type:
+				continue
+			for setting_name in index_entry.index_settings:
+				chunk_type_index_settings[setting_name] = index_entry.index_settings[setting_name]
+
 		# The plain dense and BM25 results of this chunk type, filled by the index and vector DB loops
-		retrieval_args = make_retrieval_args(args, chunking_args)
+		chunk_type_index_args = make_manifest_index_args(chunking_args, "", chunk_type_index_settings, manifest.input_hash)
+		retrieval_args = make_retrieval_args(args, chunk_type_index_args)
 		retrieval = Retrieval(retrieval_args, query_args, len(val_queries))
 		retrieved_items = []
 
-		# 7. Indexing and retrieval, once per index type, on the saved index
-		for index_type in args.index_types:
+		# 7. Every FAISS and BM25 index the build made of this chunk type, and retrieval on it
+		for index_entry in manifest.index_entries:
+			if index_entry.chunk_type != chunk_type or index_entry.index_type == QDRANT_INDEX:
+				continue
+			index_type = index_entry.index_type
 			print(f"\n\nIndexing : {index_type}")
-			index_args = make_index_args(args, chunking_args, index_type)
+			index_args = make_manifest_index_args(chunking_args, index_type, chunk_type_index_settings, manifest.input_hash)
 
 			s7 = time.time()
-			index_entry = find_index_entry(manifest, chunk_type, index_type, get_index_settings(index_args))
 			index = Indexing(index_args).load_saved_index(chunks, index_entry.location)
 			e7 = time.time() - s7
 			print("\nIndexing time : ", e7)
@@ -116,14 +141,16 @@ def run_benchmark(args) -> None:
 			e8 = time.time() - s8
 			print("\nRetrieval time : ", e8)
 
-		# 8. Vector DB and retrieval, once per vector DB type, on the saved collection
-		for vectordb_type in args.vectordb_types:
+		# 8. Every Qdrant collection the build made of this chunk type, and retrieval on it
+		for index_entry in manifest.index_entries:
+			if index_entry.chunk_type != chunk_type or index_entry.index_type != QDRANT_INDEX:
+				continue
+			vectordb_type = index_entry.index_type
 			print(f"\n\nVector DB indexing : {vectordb_type}")
-			vectordb_args = make_vectordb_args(args, chunking_args, vectordb_type)
+			vectordb_args = make_vectordb_args(args, chunking_args, vectordb_type, manifest.input_hash)
 
 			s9 = time.time()
-			vectordb_entry = find_index_entry(manifest, chunk_type, vectordb_type, {})
-			vectordb = IndexingVectorDb(vectordb_args).load_saved_vectordb(chunks, vectordb_entry.location)
+			vectordb = IndexingVectorDb(vectordb_args).load_saved_vectordb(chunks, index_entry.location)
 			e9 = time.time() - s9
 			print("\nVector DB indexing time : ", e9)
 
@@ -163,11 +190,13 @@ def run_benchmark(args) -> None:
 
 	print(f"\n\nRetrieved evals : {len(retrieved_evals)}")
 
-	# 12. Rank every setup, plain and reranked together, and keep the best n_top_setups
+	# 12. Rank every setup, plain and reranked together, keep the best n_top_setups and save them, named by the build,
+	# eval dataset and benchmark hashes
 	print("\n\nSetup ranking")
 	best_setups = rank_setups(retrieved_evals, args.n_top_setups)
 	print(f"Best setups : {len(best_setups)}")
-	save_best_setups(best_setups, manifest, output_path)
+	benchmark_hash = paths.get_benchmark_hash(make_benchmark_args(args, query_args), ollama_args)
+	save_best_setups(best_setups, manifest, output_path, eval_dataset_metadata.eval_dataset_hash, benchmark_hash)
 
 
 if __name__ == "__main__":
@@ -177,9 +206,9 @@ if __name__ == "__main__":
 	"""
 	Input: --config and any override flags from the command line.
 	Output: nothing.
-	What it does: parses the args and runs the benchmark.
+	What it does: parses the benchmark config and runs the benchmark.
 	"""
-	args = parse_args()
+	args = parse_benchmark_config()
 	run_benchmark(args)
 
 	elapsed_time = time.time() - start

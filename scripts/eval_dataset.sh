@@ -18,6 +18,6 @@ if [ -f .env ]; then
 fi
 
 mkdir -p log
-LOG="log/log.txt"
+LOG="log/eval_dataset_log.txt"
 
 python3 src/run_eval_dataset.py --config config/eval_dataset_config.yaml "$@" 2>&1 | tee "$LOG"

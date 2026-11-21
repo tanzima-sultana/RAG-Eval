@@ -18,12 +18,15 @@ chunking:
 # 4. Indexing
 indexing:
   index_types: [faiss_flatip, faiss_ivf, faiss_hnsw, bm25]   # one or more of faiss_flatip, faiss_ivf, faiss_hnsw, bm25
-  ivf_nlist: 256
-  hnsw_m: 32
-  hnsw_ef_construction: 200
-  bm25_k1: 1.5
-  bm25_b: 0.75
-  bm25_tokenizer: whitespace
+  faiss_ivf:
+    ivf_nlist: 256
+  faiss_hnsw:
+    hnsw_m: 32
+    hnsw_ef_construction: 200
+  bm25:
+    bm25_k1: 1.5
+    bm25_b: 0.75
+    bm25_tokenizer: whitespace
 
 # 5. Vector DB
 vectordb:

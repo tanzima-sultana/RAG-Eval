@@ -8,7 +8,6 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from common import constants
 from common import paths
 from common.args import OllamaArgs
-from common.args import EvalDatasetArgs
 from common.args import QueryArgs
 from llm_provider.llm_provider import LLMProvider
 from rag.serving.query_transformation.cache import load_queries
@@ -58,10 +57,9 @@ class QueryTransformation:
 					f"\"{constants.REWRITTEN_QUERY}\", \"{constants.MULTI_QUERY}\" or \"{constants.HYDE_QUERY}\"."
 				)
 
-	def compute_queries(self, eval_samples: list[EvalSample], eval_dataset_args: EvalDatasetArgs, output_path: str) -> list[Query]:
+	def compute_queries(self, eval_samples: list[EvalSample], output_path: str) -> list[Query]:
 		"""
-		Input: eval_samples, the eval questions; eval_dataset_args, the settings of their eval dataset; output_path, the dataset's
-		output folder.
+		Input: eval_samples, the eval questions; output_path, the dataset's output folder.
 		Output: one Query per eval question, holding only the query types in query_types.
 		What it does: loads the saved queries, generates only the requested query types that are not saved, adds them
 		to the saved queries and saves them. A saved query type is never generated again.
@@ -72,7 +70,7 @@ class QueryTransformation:
 		self.validate()
 
 		# 2. Load the saved queries, or start one empty Query per eval question
-		query_path = paths.get_query_path(output_path, eval_dataset_args, query_args)
+		query_path = paths.get_query_path(output_path, query_args, self.ollama_args)
 		print(f"Query folder : {query_path}")
 		saved_queries = load_queries(query_path)
 		if saved_queries is None:

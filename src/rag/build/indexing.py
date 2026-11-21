@@ -131,7 +131,8 @@ class Indexing:
 		"""
 		Input: none.
 		Output: nothing.
-		What it does: raises ValueError if an indexing setting is not valid.
+		What it does: raises ValueError if the index type is not supported, or if a setting of this index type is missing
+		or not valid. Only the settings of index_args.index_type are checked: faiss_flatip has none.
 		"""
 		index_args = self.index_args
 
@@ -148,17 +149,29 @@ class Indexing:
 				f"\"{constants.FAISS_HNSW_INDEX}\" or \"{constants.BM25_INDEX}\"."
 			)
 
-		if index_args.ivf_nlist <= 0:
-			raise ValueError(f"ivf_nlist ({index_args.ivf_nlist}) must be greater than 0.")
+		if index_args.index_type == constants.FAISS_IVF_INDEX:
+			if index_args.ivf_nlist is None:
+				raise ValueError("ivf_nlist is missing. Give it in the faiss_ivf block of the indexing config.")
+			if index_args.ivf_nlist <= 0:
+				raise ValueError(f"ivf_nlist ({index_args.ivf_nlist}) must be greater than 0.")
 
-		if index_args.hnsw_m <= 0:
-			raise ValueError(f"hnsw_m ({index_args.hnsw_m}) must be greater than 0.")
+		if index_args.index_type == constants.FAISS_HNSW_INDEX:
+			if index_args.hnsw_m is None:
+				raise ValueError("hnsw_m is missing. Give it in the faiss_hnsw block of the indexing config.")
+			if index_args.hnsw_m <= 0:
+				raise ValueError(f"hnsw_m ({index_args.hnsw_m}) must be greater than 0.")
+			if index_args.hnsw_ef_construction is None:
+				raise ValueError("hnsw_ef_construction is missing. Give it in the faiss_hnsw block of the indexing config.")
+			if index_args.hnsw_ef_construction <= 0:
+				raise ValueError(f"hnsw_ef_construction ({index_args.hnsw_ef_construction}) must be greater than 0.")
 
-		if index_args.hnsw_ef_construction <= 0:
-			raise ValueError(f"hnsw_ef_construction ({index_args.hnsw_ef_construction}) must be greater than 0.")
-
-		if index_args.bm25_tokenizer != "whitespace":
-			raise ValueError(f"bm25_tokenizer ({index_args.bm25_tokenizer}) is not supported. Use \"whitespace\".")
+		if index_args.index_type == constants.BM25_INDEX:
+			if index_args.bm25_k1 is None:
+				raise ValueError("bm25_k1 is missing. Give it in the bm25 block of the indexing config.")
+			if index_args.bm25_b is None:
+				raise ValueError("bm25_b is missing. Give it in the bm25 block of the indexing config.")
+			if index_args.bm25_tokenizer != "whitespace":
+				raise ValueError(f"bm25_tokenizer ({index_args.bm25_tokenizer}) is not supported. Use \"whitespace\".")
 
 	def load_saved_index(self, chunks: dict[str, Chunk], index_folder: str) -> FaissIndex | Bm25Index:
 		"""

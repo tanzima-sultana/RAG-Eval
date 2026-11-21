@@ -140,6 +140,15 @@ def load_build_manifest(output_path: str, parsed_args: argparse.Namespace, input
 	What it does: reads build/manifest_{build hash}.json, and raises FileNotFoundError if the build has not saved one.
 	"""
 	manifest_file = paths.get_build_manifest_path(output_path, parsed_args, input_hash)
+	return load_build_manifest_from_path(manifest_file)
+
+
+def load_build_manifest_from_path(manifest_file: str) -> BuildManifest:
+	"""
+	Input: manifest_file, the path of a saved manifest_{build hash}.json.
+	Output: the saved BuildManifest.
+	What it does: reads the manifest file, and raises FileNotFoundError if it does not exist.
+	"""
 	if not os.path.exists(manifest_file):
 		raise FileNotFoundError(f"No build manifest at {manifest_file}. Run scripts/build.sh first.")
 

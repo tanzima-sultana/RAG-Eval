@@ -15,6 +15,6 @@ if [ -f .env ]; then
 fi
 
 mkdir -p log
-LOG="log/log.txt"
+LOG="log/build_log.txt"
 
 python3 src/run_build.py --config config/build_config.yaml --input_path "$INPUT_PATH" "$@" 2>&1 | tee "$LOG"

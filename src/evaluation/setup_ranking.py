@@ -79,13 +79,14 @@ def rank_setups(retrieved_evals: list[RetrievedEval], n_top_setups: int) -> list
 	return best_setups
 
 
-def save_best_setups(best_setups: list[Setup], manifest: BuildManifest, output_path: str) -> list[SetupRecord]:
+def save_best_setups(best_setups: list[Setup], manifest: BuildManifest, output_path: str, eval_dataset_hash: str, benchmark_hash: str) -> list[SetupRecord]:
 	"""
 	Input: best_setups, best first; manifest, the build manifest, which says where each index and chunk folder is;
-	output_path, the dataset's output folder.
+	output_path, the dataset's output folder; eval_dataset_hash, from the eval dataset metadata; benchmark_hash, from
+	get_benchmark_hash.
 	Output: one SetupRecord per setup, in the same order.
 	What it does: takes each setup's index location(s) and chunk folder from the manifest, and saves the records as
-	JSON through a temporary file.
+	JSON through a temporary file to best_setups_{build_hash}_{eval_dataset_hash}_{benchmark_hash}.json.
 	"""
 	setup_records = []
 	for setup in best_setups:
@@ -114,7 +115,7 @@ def save_best_setups(best_setups: list[Setup], manifest: BuildManifest, output_p
 			chunk_path=chunk_path
 		))
 
-	best_setups_file = paths.get_best_setups_path(output_path)
+	best_setups_file = paths.get_best_setups_path(output_path, manifest.build_hash, eval_dataset_hash, benchmark_hash)
 	os.makedirs(os.path.dirname(best_setups_file), exist_ok=True)
 	setup_record_dicts = []
 	for setup_record in setup_records:
@@ -127,13 +128,14 @@ def save_best_setups(best_setups: list[Setup], manifest: BuildManifest, output_p
 	return setup_records
 
 
-def load_best_setups(output_path: str) -> list[SetupRecord]:
+def load_best_setups(output_path: str, build_hash: str, eval_dataset_hash: str, benchmark_hash: str) -> list[SetupRecord]:
 	"""
-	Input: output_path, the dataset's output folder.
+	Input: output_path, the dataset's output folder; build_hash, eval_dataset_hash and benchmark_hash, the three
+	hashes the file is named by.
 	Output: the saved SetupRecord list, best first.
 	What it does: reads the best setups JSON, and raises FileNotFoundError if the benchmark has not saved it.
 	"""
-	best_setups_file = paths.get_best_setups_path(output_path)
+	best_setups_file = paths.get_best_setups_path(output_path, build_hash, eval_dataset_hash, benchmark_hash)
 	if not os.path.exists(best_setups_file):
 		raise FileNotFoundError(f"No saved best setups at {best_setups_file}. Run scripts/benchmark.sh first.")
 

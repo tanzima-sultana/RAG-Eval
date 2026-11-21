@@ -166,6 +166,7 @@ def make_query_args(**overrides):
     field_values["query_split"] = True
     field_values["val_queries_size"] = 1
     field_values["test_queries_size"] = 1
+    field_values["eval_dataset_hash"] = "testevalhash"
     for field_name in overrides:
         field_values[field_name] = overrides[field_name]
     return QueryArgs(**field_values)
@@ -292,21 +293,44 @@ def test_validate_raises_for_invalid_setting(make_retrieval_args, overrides, mes
 # ---------- get_retrieved_path ----------
 
 
-def test_get_retrieved_path_names_the_index_split_and_query_types(make_retrieval_args):
+def test_get_retrieved_path_is_named_by_a_12_character_hash(make_retrieval_args):
     """
-    Input: the default settings, a hybrid index type, 150 val queries and two query types.
+    Input: the default settings, a hybrid index type and 150 val queries.
     Output: the retrieved folder.
-    What it does: checks each index settings folder, the "+" of hybrid, the val count and the query types are in the
-    name.
+    What it does: checks the folder is retrieved/retrieved_{hash} with a 12 hex character hash, the same for the same args.
     """
-    query_args = make_query_args(query_types=["original", "hyde"])
+    retrieved_path = paths.get_retrieved_path("out", make_retrieval_args(), make_query_args(), 150, "faiss_hnsw+bm25")
+    same_retrieved_path = paths.get_retrieved_path("out", make_retrieval_args(), make_query_args(), 150, "faiss_hnsw+bm25")
 
-    retrieved_path = paths.get_retrieved_path("out", make_retrieval_args(), query_args, 150, "faiss_hnsw+bm25")
+    folder_name = os.path.basename(retrieved_path)
+    assert os.path.dirname(retrieved_path) == os.path.join("out", "retrieved")
+    assert folder_name.startswith("retrieved_")
+    assert len(folder_name) == len("retrieved_") + 12
+    int(folder_name[len("retrieved_"):], 16)
+    assert retrieved_path == same_retrieved_path
 
-    assert retrieved_path == os.path.join(
-        "out", "retrieved", "fixed", "fake-model", "2_6_2_0.5", "hnsw_4_8+bm25_1.5_0.75_whitespace",
-        "val_150", "original_hyde"
-    )
+
+def test_get_retrieved_path_changes_with_any_arg(make_retrieval_args, make_index_args, make_chunking_args):
+    """
+    Input: the default args, and the same args with one of them changed: the input hash, a chunk setting, an index
+    setting, a retrieval setting, a query setting, the val query count or the index type.
+    Output: the retrieved folders.
+    What it does: checks each changed arg gives a different folder.
+    """
+    default_path = paths.get_retrieved_path("out", make_retrieval_args(), make_query_args(), 150, "faiss_flatip")
+
+    changed_paths = [
+        paths.get_retrieved_path("out", make_retrieval_args(index_args=make_index_args(index_type="", input_hash="otherinputhash")), make_query_args(), 150, "faiss_flatip"),
+        paths.get_retrieved_path("out", make_retrieval_args(index_args=make_index_args(index_type="", chunking_args=make_chunking_args(max_chunk_size=8))), make_query_args(), 150, "faiss_flatip"),
+        paths.get_retrieved_path("out", make_retrieval_args(index_args=make_index_args(index_type="", hnsw_m=8)), make_query_args(), 150, "faiss_flatip"),
+        paths.get_retrieved_path("out", make_retrieval_args(top_k=5), make_query_args(), 150, "faiss_flatip"),
+        paths.get_retrieved_path("out", make_retrieval_args(), make_query_args(eval_dataset_hash="otherevalhash"), 150, "faiss_flatip"),
+        paths.get_retrieved_path("out", make_retrieval_args(), make_query_args(), 100, "faiss_flatip"),
+        paths.get_retrieved_path("out", make_retrieval_args(), make_query_args(), 150, "faiss_ivf"),
+    ]
+
+    for changed_path in changed_paths:
+        assert changed_path != default_path
 
 
 # ---------- dense_search ----------

@@ -18,6 +18,7 @@ from common import paths
 from common.args import IngestionArgs
 from rag.build import manifest as manifest_module
 from rag.build.manifest import is_build_complete
+from rag.build.manifest import load_build_manifest_from_path
 from rag.build.manifest import save_build_manifest
 from rag.build.manifest import start_build_manifest
 from schema.manifest import ChunkEntry
@@ -74,6 +75,41 @@ def test_save_build_manifest_writes_to_the_build_hash_file(tmp_path):
     assert saved_manifest["input_hash"] == "testinputhash"
     assert saved_manifest["built_at"] != ""
     assert not os.path.exists(manifest_file + ".tmp")
+
+
+# ---------- load_build_manifest_from_path ----------
+
+
+def test_load_build_manifest_from_path_gives_the_saved_manifest(tmp_path):
+    """
+    Input: a manifest with one chunk and one index entry, saved to its build hash file.
+    Output: the manifest loaded from that file's path.
+    What it does: checks the loaded manifest equals the saved one, with ChunkEntry and IndexEntry entries.
+    """
+    ingestion_args = IngestionArgs(dataset_size=2, dataset_name="dataset", input_path="data/", output_path=str(tmp_path), document_type="pdf")
+    parsed_args = make_parsed_build_args()
+    output_path = os.path.join(str(tmp_path), "dataset")
+    manifest = start_build_manifest(ingestion_args, "fake-model", parsed_args, "testinputhash")
+    manifest.chunk_entries.append(ChunkEntry("fixed", 2, 6, 2, 0.5, "chunks_test", "embeddings_test", 4))
+    manifest.index_entries.append(IndexEntry("fixed", "faiss_ivf", {"ivf_nlist": 2}, "faiss_ivf_test", 4))
+    save_build_manifest(manifest, output_path, parsed_args, "testinputhash")
+    manifest_file = paths.get_build_manifest_path(output_path, parsed_args, "testinputhash")
+
+    loaded_manifest = load_build_manifest_from_path(manifest_file)
+
+    assert loaded_manifest == manifest
+    assert isinstance(loaded_manifest.chunk_entries[0], ChunkEntry)
+    assert isinstance(loaded_manifest.index_entries[0], IndexEntry)
+
+
+def test_load_build_manifest_from_path_raises_when_the_file_is_missing(tmp_path):
+    """
+    Input: a path with no manifest file.
+    Output: FileNotFoundError.
+    What it does: checks a missing manifest is reported with its path.
+    """
+    with pytest.raises(FileNotFoundError, match="No build manifest"):
+        load_build_manifest_from_path(os.path.join(str(tmp_path), "manifest_missing.json"))
 
 
 # ---------- is_build_complete ----------

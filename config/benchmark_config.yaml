@@ -1,0 +1,37 @@
+# 1. What to benchmark: one build and one eval dataset, and where to save the results
+inputs:
+  manifest_path: outputs/pdfa-eng-wds/build/manifest_b196b1c9b445.json                            # The build manifest; every chunk type and index it lists is benchmarked
+  eval_dataset_metadata_path: outputs/pdfa-eng-wds/eval_dataset/eval_dataset_97a6e14c87e5_metadata.json   # The eval dataset metadata; the eval set it names is used
+  output_path: outputs/                                                                           # Root output folder
+
+# 2. Query transformation
+query:
+  query_llm_model: ollama_chat/llama3.1:8b          # Transforms the eval questions
+  n_multi_qus: 3                                    # Phrasings the query LLM writes for each eval question
+  query_types: [original, rewritten, multi, hyde]   # one or more of original, rewritten, multi, hyde
+  query_split: true                                 # true to split the queries into val and test, false to use all of them as both
+  val_queries_size: 150                             # Used only with query_split true: queries for retrieval and retrieval evaluation
+  test_queries_size: 50                             # Used only with query_split true: queries for answer generation and answer evaluation
+
+# 3. The query LLM
+query_llm:
+  max_tokens: 16000           # Maximum output tokens per call
+  timeout_seconds: 180        # Seconds before one call times out
+
+# 4. Ollama server, used only when the query LLM is an Ollama model
+ollama:
+  api_base: http://localhost:11434
+  context_length: 32768
+
+# 5. Retrieval
+retrieval:
+  retrieval_types: [dense, bm25, hybrid]   # one or more of dense, bm25, hybrid
+  top_k: 20                                # Chunks each retriever returns for a query
+  reranking: false                         # true to also rerank the top_k chunks with the cross-encoder, false not to
+  rerank_top_k: 5                          # Chunks kept after the cross-encoder reranks the top_k chunks
+  n_top_setups: 3                          # Best setups by retrieval eval, plain and reranked ranked together
+
+# 6. Qdrant server, where the build's Qdrant collections are
+qdrant:
+  url: http://localhost:6333
+  batch_size: 256
