@@ -81,15 +81,12 @@ def run_benchmark(args) -> None:
 	query_args = make_query_args(args, manifest.embedding_model)
 	query_path = args.output_path + "/queries/"
 
-	question_ids = []
-	questions = []
-	for eval_sample in eval_samples:
-		question_ids.append(eval_sample.id)
-		questions.append(eval_sample.qus)
-
 	s3 = time.time()
 	query_transformation = QueryTransformation(query_args, query_path)
-	queries = query_transformation.transform_query(question_ids, questions)
+	queries = []
+	for eval_sample in eval_samples:
+		query = query_transformation.transform_query(eval_sample.id, eval_sample.qus)
+		queries.append(query)
 	e3 = time.time() - s3
 	print("\nQuery transformation time : ", e3)
 

@@ -21,10 +21,38 @@ class QueryTransformation:
 		Input: query_args, the query transformation settings; query_path, the folder the query files are saved in,
 		used as given.
 		Output: nothing.
-		What it does: stores both.
+		What it does: stores both, validates the settings, then loads the embedding model once and builds the query LLM
+		once, so every question reuses them. The query LLM is built only if query_types has a type that needs it
+		(rewritten, multi or hyde), otherwise it is None.
 		"""
 		self.query_args = query_args
 		self.query_path = query_path
+
+		# 1. Validate the settings before anything is loaded
+		self.validate()
+
+		# 2. The embedding model, normalized like the chunk embeddings, so a query vector matches the chunk vectors
+		device = "cuda" if torch.cuda.is_available() else "cpu"
+		self.embedding_model = HuggingFaceEmbeddings(
+			model_name=query_args.embedding_model,
+			model_kwargs={"device": device},
+			encode_kwargs={"batch_size": 256, "normalize_embeddings": True}
+		)
+
+		# 3. The query LLM, only if a query type needs it. LLMProvider validates it, so a paid model needs
+		# ALLOW_PAID_API=1
+		needs_query_llm = False
+		for query_type in query_args.query_types:
+			if query_type != constants.ORIGINAL_QUERY:
+				needs_query_llm = True
+
+		self.query_llm_provider = None
+		if needs_query_llm:
+			ollama_args = OllamaArgs(
+				ollama_api_base=query_args.ollama_api_base,
+				ollama_context_length=query_args.ollama_context_length
+			)
+			self.query_llm_provider = LLMProvider(query_args.query_llm_args, ollama_args)
 
 	def validate(self) -> None:
 		"""
@@ -55,115 +83,92 @@ class QueryTransformation:
 					f"\"{constants.REWRITTEN_QUERY}\", \"{constants.MULTI_QUERY}\" or \"{constants.HYDE_QUERY}\"."
 				)
 
-	def transform_query(self, question_ids: list[str], questions: list[str]) -> list[Query]:
+	def transform_query(self, question_id: str, question: str) -> Query:
 		"""
-		Input: question_ids, one id per question; questions, the question texts, in the same order.
-		Output: one Query per question, in the same order, with the question's id and only the query types in
-		query_types. The other query types are None.
-		What it does: looks up each query type of each question in its own saved file, named by the hash of what decides
-		it. Only the query types not saved are made and saved, each as its own file. The embedding model, and the query
-		LLM only if a missing query type needs it, are loaded once at the first miss.
+		Input: question_id, the id of one question; question, its text.
+		Output: one Query of this question, with its id and only the query types in query_types. The other query types
+		are None.
+		What it does: looks up each query type of the question in its own saved file, named by the hash of what decides
+		it. Only the query types not saved are made, with the embedding model and query LLM loaded in __init__, and
+		saved, each as its own file. Prints this question's counts and the query LLM's running cost.
 		"""
 		query_args = self.query_args
 
-		# 1. Validate the settings and the inputs
-		self.validate()
-		if len(question_ids) != len(questions):
-			raise ValueError(f"question_ids ({len(question_ids)}) and questions ({len(questions)}) must be the same length.")
+		# 1. Validate the input
+		if question_id.strip() == "":
+			raise ValueError("question_id is empty. Give the id of the question.")
+		if question.strip() == "":
+			raise ValueError(f"question of {question_id} is empty. Give the question text.")
 
 		query_llm, query_llm_model = query_args.query_llm_args.llm_model.split("/", 1)
-		embedding_model = None
-		query_llm_provider = None
 		loaded_count = 0
 		generated_count = 0
 		multi_dont_know_count = 0
 		hyde_dont_know_count = 0
 
-		queries = []
-		for question_index in range(len(questions)):
-			question_id = question_ids[question_index]
-			question = questions[question_index]
+		# 2. Load the saved query types of this question, and list the missing ones
+		results = {}
+		missing_query_types = []
+		for query_type in query_args.query_types:
+			query_file = paths.get_query_file_path(self.query_path, query_args, query_type, question)
+			result = load_query_entry(query_file)
+			if result is None:
+				missing_query_types.append(query_type)
+			else:
+				results[query_type] = result
+				loaded_count = loaded_count + 1
 
-			# 2. Load the saved query types of this question, and list the missing ones
-			results = {}
-			missing_query_types = []
-			for query_type in query_args.query_types:
-				query_file = paths.get_query_file_path(self.query_path, query_args, query_type, question)
-				result = load_query_entry(query_file)
-				if result is None:
-					missing_query_types.append(query_type)
+		# 3. Make only the missing query types, and save each as its own file
+		if len(missing_query_types) > 0:
+			new_query = transform_single_query(
+				query_args, question_id, question, missing_query_types, self.query_llm_provider, self.embedding_model
+			)
+			for query_type in missing_query_types:
+				if query_type == constants.ORIGINAL_QUERY:
+					result = new_query.original_qus
+					result_llm_model = None
+				elif query_type == constants.REWRITTEN_QUERY:
+					result = new_query.rewritten_qus
+					result_llm_model = query_args.query_llm_args.llm_model
+				elif query_type == constants.MULTI_QUERY:
+					result = new_query.multi_qus
+					result_llm_model = query_args.query_llm_args.llm_model
+					if len(result) == 0:
+						multi_dont_know_count = multi_dont_know_count + 1
 				else:
-					results[query_type] = result
-					loaded_count = loaded_count + 1
+					result = new_query.hyde_ans
+					result_llm_model = query_args.query_llm_args.llm_model
+					if result.ans == constants.I_DONT_KNOW:
+						hyde_dont_know_count = hyde_dont_know_count + 1
 
-			# 3. Make only the missing query types, and save each as its own file
-			if len(missing_query_types) > 0:
-				if embedding_model is None:
-					# Normalized like the chunk embeddings, so a query vector matches the chunk vectors
-					device = "cuda" if torch.cuda.is_available() else "cpu"
-					embedding_model = HuggingFaceEmbeddings(
-						model_name=query_args.embedding_model,
-						model_kwargs={"device": device},
-						encode_kwargs={"batch_size": 256, "normalize_embeddings": True}
-					)
-				# The LLM is built only when a missing type needs one. LLMProvider validates it, so a paid model needs
-				# ALLOW_PAID_API=1
-				if query_llm_provider is None and missing_query_types != [constants.ORIGINAL_QUERY]:
-					ollama_args = OllamaArgs(
-						ollama_api_base=query_args.ollama_api_base,
-						ollama_context_length=query_args.ollama_context_length
-					)
-					query_llm_provider = LLMProvider(query_args.query_llm_args, ollama_args)
+				query_file = paths.get_query_file_path(self.query_path, query_args, query_type, question)
+				save_query_entry(query_file, query_type, question, result, query_args.embedding_model, result_llm_model)
+				results[query_type] = result
+				generated_count = generated_count + 1
 
-				new_query = transform_single_query(
-					query_args, question_id, question, missing_query_types, query_llm_provider, embedding_model
-				)
-				for query_type in missing_query_types:
-					if query_type == constants.ORIGINAL_QUERY:
-						result = new_query.original_qus
-						result_llm_model = None
-					elif query_type == constants.REWRITTEN_QUERY:
-						result = new_query.rewritten_qus
-						result_llm_model = query_args.query_llm_args.llm_model
-					elif query_type == constants.MULTI_QUERY:
-						result = new_query.multi_qus
-						result_llm_model = query_args.query_llm_args.llm_model
-						if len(result) == 0:
-							multi_dont_know_count = multi_dont_know_count + 1
-					else:
-						result = new_query.hyde_ans
-						result_llm_model = query_args.query_llm_args.llm_model
-						if result.ans == constants.I_DONT_KNOW:
-							hyde_dont_know_count = hyde_dont_know_count + 1
+		# 4. One Query of this question, holding only the requested query types
+		query = Query(
+			id=question_id,
+			original_qus=results.get(constants.ORIGINAL_QUERY),
+			rewritten_qus=results.get(constants.REWRITTEN_QUERY),
+			multi_qus=results.get(constants.MULTI_QUERY),
+			hyde_ans=results.get(constants.HYDE_QUERY),
+			normalized=True,
+			embedding_model=query_args.embedding_model,
+			llm=query_llm,
+			llm_model=query_llm_model
+		)
 
-					query_file = paths.get_query_file_path(self.query_path, query_args, query_type, question)
-					save_query_entry(query_file, query_type, question, result, query_args.embedding_model, result_llm_model)
-					results[query_type] = result
-					generated_count = generated_count + 1
-
-			# 4. One Query of this question, holding only the requested query types
-			queries.append(Query(
-				id=question_id,
-				original_qus=results.get(constants.ORIGINAL_QUERY),
-				rewritten_qus=results.get(constants.REWRITTEN_QUERY),
-				multi_qus=results.get(constants.MULTI_QUERY),
-				hyde_ans=results.get(constants.HYDE_QUERY),
-				normalized=True,
-				embedding_model=query_args.embedding_model,
-				llm=query_llm,
-				llm_model=query_llm_model
-			))
-
-		# 5. What was loaded and what was made
+		# 5. What was loaded and what was made for this question. The cost is the running total of every call so far
 		print(f"Query folder : {self.query_path}")
-		print(f"Queries : {len(queries)}, query types loaded from cache : {loaded_count}, made : {generated_count}")
+		print(f"Query {question_id} : query types loaded from cache : {loaded_count}, made : {generated_count}")
 		if generated_count > 0:
 			print(f"Multi-query I don't know : {multi_dont_know_count}")
 			print(f"HyDE I don't know : {hyde_dont_know_count}")
-		if query_llm_provider is not None:
-			query_llm_provider.compute_cost()
+		if self.query_llm_provider is not None:
+			self.query_llm_provider.compute_cost()
 
-		return queries
+		return query
 
 	def split_queries(self, queries: list[Query]) -> tuple[list[Query], list[Query]]:
 		"""

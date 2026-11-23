@@ -151,14 +151,14 @@ def use_fake_benchmark_steps(monkeypatch):
             record.query_args.append(query_args)
             record.query_output_paths.append(output_path)
 
-        def transform_query(self, question_ids, questions):
+        def transform_query(self, question_id, question):
             """
-            Input: the arguments of transform_query.
+            Input: the arguments of transform_query, one question id and its question.
             Output: one placeholder query.
-            What it does: records the question ids and questions.
+            What it does: records the question id and question.
             """
-            record.transformed_questions.append((question_ids, questions))
-            return ["query"]
+            record.transformed_questions.append((question_id, question))
+            return "query"
 
         def split_queries(self, queries):
             """
@@ -359,7 +359,7 @@ def test_run_benchmark_loads_every_chunk_type_and_index_the_manifest_lists(tmp_p
     assert record.loaded_documents == [("out/documents", "testinputhash")]
     assert record.loaded_eval_datasets == ["out/eval_dataset/eval_dataset_testevalhash.json"]
     assert record.query_args[0].embedding_model == "fake-model"
-    assert record.transformed_questions == [(["eval_qna_0"], ["What is X?"])]
+    assert record.transformed_questions == [("eval_qna_0", "What is X?")]
 
     loaded_chunk_folders = []
     for chunking_args, chunk_path in record.loaded_chunks:

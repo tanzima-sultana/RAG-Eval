@@ -160,7 +160,7 @@ def read_file_bytes(file_path):
         return f.read()
 
 
-# ---------- validate ----------
+# ---------- __init__ and validate ----------
 
 
 @pytest.mark.parametrize("overrides, message", [
@@ -169,14 +169,47 @@ def read_file_bytes(file_path):
     ({"query_types": []}, "query_types"),
     ({"query_types": ["original", "keyword"]}, "query_type"),
 ])
-def test_validate_raises_for_invalid_setting(overrides, message):
+def test_constructor_raises_for_invalid_setting_before_building_an_llm(fake_query_llm, overrides, message):
     """
     Input: QueryArgs with one invalid setting.
-    Output: ValueError.
-    What it does: checks validate names the invalid setting.
+    Output: ValueError, and the built models.
+    What it does: checks the constructor validates the settings, names the invalid one and builds no LLM.
     """
     with pytest.raises(ValueError, match=message):
-        QueryTransformation(make_query_args(**overrides), "out").validate()
+        QueryTransformation(make_query_args(**overrides), "out")
+
+    assert fake_query_llm.built_models == []
+
+
+def test_constructor_builds_no_llm_when_query_types_is_only_original(fake_query_llm, tmp_path):
+    """
+    Input: only original requested.
+    Output: the built models and the query transformation.
+    What it does: checks no query LLM is built, and the embedding model is loaded.
+    """
+    query_transformation = QueryTransformation(make_query_args(query_types=[ORIGINAL_QUERY]), str(tmp_path))
+
+    assert fake_query_llm.built_models == []
+    assert query_transformation.query_llm_provider is None
+    assert query_transformation.embedding_model is not None
+
+
+def test_constructor_builds_the_llm_once_for_every_question(fake_query_llm, tmp_path):
+    """
+    Input: all four query types requested, nothing saved, two questions sent one at a time.
+    Output: the built models.
+    What it does: checks the query LLM is built once in the constructor and reused by each question.
+    """
+    fake_query_llm.replies["Q one?"] = {"rewrite": "Q one again?", "multi": "a\nb\nc", "hyde": "One."}
+    fake_query_llm.replies["Q two?"] = {"rewrite": "Q two again?", "multi": "a\nb\nc", "hyde": "Two."}
+    query_transformation = QueryTransformation(make_query_args(), str(tmp_path))
+
+    assert fake_query_llm.built_models == ["ollama_chat/llama3.1:8b"]
+
+    query_transformation.transform_query("eval_qna_0", "Q one?")
+    query_transformation.transform_query("eval_qna_1", "Q two?")
+
+    assert fake_query_llm.built_models == ["ollama_chat/llama3.1:8b"]
 
 
 # ---------- save_query_entry / load_query_entry ----------
@@ -350,12 +383,12 @@ def save_every_query_type(output_path, query_args, question):
         save_query_entry(query_file, query_type, question, results[query_type], "fake-model", "ollama_chat/llama3.1:8b")
 
 
-def test_transform_query_loads_every_saved_query_type_without_building_an_llm(fake_query_llm, fake_huggingface_embeddings, tmp_path, capsys):
+def test_transform_query_loads_every_saved_query_type_without_making_any(fake_query_llm, fake_huggingface_embeddings, tmp_path, capsys):
     """
     Input: every query type of one question saved.
-    Output: the queries, the built models, what was printed and the saved files.
-    What it does: checks the saved entries are returned with the question's id, no LLM or embedding is made and no
-    file is rewritten.
+    Output: the query, the prompts the LLM answered, what was printed and the saved files.
+    What it does: checks the saved entries are returned with the question's id, no LLM reply or embedding is made and
+    no file is rewritten.
     """
     query_args = make_query_args()
     output_path = str(tmp_path)
@@ -363,33 +396,32 @@ def test_transform_query_loads_every_saved_query_type_without_building_an_llm(fa
     rewritten_file = paths.get_query_file_path(output_path, query_args, REWRITTEN_QUERY, "What is X?")
     rewritten_bytes = read_file_bytes(rewritten_file)
 
-    queries = QueryTransformation(query_args, output_path).transform_query(["eval_qna_0"], ["What is X?"])
+    query = QueryTransformation(query_args, output_path).transform_query("eval_qna_0", "What is X?")
 
-    assert len(queries) == 1
-    assert queries[0].id == "eval_qna_0"
-    assert queries[0].rewritten_qus.qus == "rewritten"
-    assert len(queries[0].multi_qus) == 3
-    assert fake_query_llm.built_models == []
+    assert query.id == "eval_qna_0"
+    assert query.rewritten_qus.qus == "rewritten"
+    assert len(query.multi_qus) == 3
+    assert fake_query_llm.reply_types == []
     assert fake_huggingface_embeddings.embed_documents_calls == []
-    assert "query types loaded from cache : 4, made : 0" in capsys.readouterr().out
+    assert "Query eval_qna_0 : query types loaded from cache : 4, made : 0" in capsys.readouterr().out
     assert read_file_bytes(rewritten_file) == rewritten_bytes
 
 
 def test_transform_query_makes_and_saves_every_query_type_when_none_is_saved(fake_query_llm, tmp_path):
     """
     Input: one question and nothing saved.
-    Output: the queries and the saved entries.
+    Output: the query and the saved entries.
     What it does: checks every query type is made with the query LLM and saved as its own file, so the next call loads it.
     """
     fake_query_llm.replies["What is X?"] = {"rewrite": "What does X mean?", "multi": "a\nb\nc", "hyde": "X is a thing."}
     query_args = make_query_args()
     output_path = str(tmp_path)
 
-    queries = QueryTransformation(query_args, output_path).transform_query(["eval_qna_0"], ["What is X?"])
+    query = QueryTransformation(query_args, output_path).transform_query("eval_qna_0", "What is X?")
 
     assert fake_query_llm.built_models == ["ollama_chat/llama3.1:8b"]
     assert fake_query_llm.reply_types == ["rewrite", "multi", "hyde"]
-    assert queries[0].rewritten_qus.qus == "What does X mean?"
+    assert query.rewritten_qus.qus == "What does X mean?"
     assert load_query_entry(paths.get_query_file_path(output_path, query_args, ORIGINAL_QUERY, "What is X?")).qus == "What is X?"
     assert load_query_entry(paths.get_query_file_path(output_path, query_args, REWRITTEN_QUERY, "What is X?")).qus == "What does X mean?"
     assert len(load_query_entry(paths.get_query_file_path(output_path, query_args, MULTI_QUERY, "What is X?"))) == 3
@@ -409,75 +441,64 @@ def test_transform_query_makes_only_the_missing_query_types(fake_query_llm, tmp_
     save_query_entry(paths.get_query_file_path(output_path, query_args, ORIGINAL_QUERY, "What is X?"), ORIGINAL_QUERY, "What is X?", query.original_qus, "fake-model", None)
     save_query_entry(paths.get_query_file_path(output_path, query_args, REWRITTEN_QUERY, "What is X?"), REWRITTEN_QUERY, "What is X?", query.rewritten_qus, "fake-model", "ollama_chat/llama3.1:8b")
 
-    queries = QueryTransformation(query_args, output_path).transform_query(["eval_qna_0"], ["What is X?"])
+    query = QueryTransformation(query_args, output_path).transform_query("eval_qna_0", "What is X?")
 
     assert fake_query_llm.reply_types == ["multi", "hyde"]
-    assert queries[0].rewritten_qus.qus == "rewritten"
-    assert len(queries[0].multi_qus) == 3
-    assert queries[0].hyde_ans.ans == "X is a thing."
+    assert query.rewritten_qus.qus == "rewritten"
+    assert len(query.multi_qus) == 3
+    assert query.hyde_ans.ans == "X is a thing."
 
 
 def test_transform_query_returns_only_the_requested_query_types(fake_query_llm, tmp_path):
     """
     Input: every query type of one question saved; only original and multi requested.
-    Output: the queries.
-    What it does: checks the other query types are None.
+    Output: the query.
+    What it does: checks the other query types are None and the LLM answers nothing.
     """
     query_args = make_query_args(query_types=[ORIGINAL_QUERY, MULTI_QUERY])
     output_path = str(tmp_path)
     save_every_query_type(output_path, make_query_args(), "What is X?")
 
-    queries = QueryTransformation(query_args, output_path).transform_query(["eval_qna_0"], ["What is X?"])
+    query = QueryTransformation(query_args, output_path).transform_query("eval_qna_0", "What is X?")
 
-    assert queries[0].original_qus.qus == "original"
-    assert len(queries[0].multi_qus) == 3
-    assert queries[0].rewritten_qus is None
-    assert queries[0].hyde_ans is None
-    assert fake_query_llm.built_models == []
+    assert query.original_qus.qus == "original"
+    assert len(query.multi_qus) == 3
+    assert query.rewritten_qus is None
+    assert query.hyde_ans is None
+    assert fake_query_llm.reply_types == []
 
 
-def test_transform_query_builds_no_llm_when_only_original_is_missing(fake_query_llm, tmp_path):
+def test_transform_query_embeds_the_original_question_without_an_llm(fake_query_llm, tmp_path):
     """
     Input: nothing saved; only original requested.
-    Output: the queries and the built models.
-    What it does: checks the original question is embedded without building the query LLM.
+    Output: the query.
+    What it does: checks the original question is embedded and the other query types are None.
     """
     query_args = make_query_args(query_types=[ORIGINAL_QUERY])
 
-    queries = QueryTransformation(query_args, str(tmp_path)).transform_query(["eval_qna_0"], ["What is X?"])
+    query = QueryTransformation(query_args, str(tmp_path)).transform_query("eval_qna_0", "What is X?")
 
-    assert fake_query_llm.built_models == []
-    assert queries[0].original_qus.qus == "What is X?"
-    assert queries[0].rewritten_qus is None
+    assert query.id == "eval_qna_0"
+    assert query.original_qus.qus == "What is X?"
+    assert query.rewritten_qus is None
 
 
-def test_transform_query_keeps_the_question_order_and_ids(fake_query_llm, tmp_path):
+@pytest.mark.parametrize("question_id, question, message", [
+    ("", "What is X?", "question_id"),
+    ("   ", "What is X?", "question_id"),
+    ("eval_qna_0", "", "question of eval_qna_0"),
+    ("eval_qna_0", "  \n ", "question of eval_qna_0"),
+])
+def test_transform_query_raises_for_an_empty_question_id_or_question(fake_query_llm, tmp_path, question_id, question, message):
     """
-    Input: three questions, only original requested.
-    Output: the queries.
-    What it does: checks one Query per question, in the same order, each with its own id and question.
-    """
-    query_args = make_query_args(query_types=[ORIGINAL_QUERY])
-
-    queries = QueryTransformation(query_args, str(tmp_path)).transform_query(["id_c", "id_a", "id_b"], ["Q c?", "Q a?", "Q b?"])
-
-    query_ids = []
-    query_questions = []
-    for query in queries:
-        query_ids.append(query.id)
-        query_questions.append(query.original_qus.qus)
-    assert query_ids == ["id_c", "id_a", "id_b"]
-    assert query_questions == ["Q c?", "Q a?", "Q b?"]
-
-
-def test_transform_query_raises_when_ids_and_questions_differ_in_length(fake_query_llm, tmp_path):
-    """
-    Input: two ids and one question.
+    Input: an empty or whitespace-only question id or question.
     Output: ValueError.
-    What it does: checks every question needs its own id.
+    What it does: checks the input is rejected and names what is empty.
     """
-    with pytest.raises(ValueError, match="same length"):
-        QueryTransformation(make_query_args(), str(tmp_path)).transform_query(["id_a", "id_b"], ["Q a?"])
+    query_transformation = QueryTransformation(make_query_args(query_types=[ORIGINAL_QUERY]), str(tmp_path))
+
+    with pytest.raises(ValueError, match=message):
+        query_transformation.transform_query(question_id, question)
 
 
 # ---------- one method per query type ----------
@@ -615,26 +636,31 @@ def test_transform_single_query_builds_every_requested_query_type(fake_query_llm
     assert query.llm_model == "llama3.1:8b"
 
 
-def test_transform_query_counts_multi_and_hyde_i_dont_know(fake_query_llm, tmp_path, capsys):
+def test_transform_query_counts_multi_and_hyde_i_dont_know_per_question(fake_query_llm, tmp_path, capsys):
     """
-    Input: two questions, the first with a bad multi reply and a HyDE refusal, and nothing saved.
-    Output: the queries and what was printed.
-    What it does: checks each question keeps its own phrasings and the I don't know counts are printed.
+    Input: two questions sent one at a time, the first with a bad multi reply and a HyDE refusal, and nothing saved.
+    Output: each query and what was printed for each question.
+    What it does: checks each question keeps its own phrasings and the I don't know counts are printed per question.
     """
     fake_query_llm.replies["Q one?"] = {"multi": "bad", "hyde": "I don't know."}
     fake_query_llm.replies["Q two?"] = {"multi": "aa\nbbbb\ncccccc", "hyde": "A passage."}
     query_args = make_query_args(query_types=[MULTI_QUERY, HYDE_QUERY])
+    query_transformation = QueryTransformation(query_args, str(tmp_path))
 
-    queries = QueryTransformation(query_args, str(tmp_path)).transform_query(["eval_qna_0", "eval_qna_1"], ["Q one?", "Q two?"])
+    first_query = query_transformation.transform_query("eval_qna_0", "Q one?")
+    first_printed = capsys.readouterr().out
+    second_query = query_transformation.transform_query("eval_qna_1", "Q two?")
+    second_printed = capsys.readouterr().out
 
-    assert queries[0].multi_qus == []
+    assert first_query.multi_qus == []
     lengths = []
-    for multi_qus in queries[1].multi_qus:
+    for multi_qus in second_query.multi_qus:
         lengths.append(multi_qus.embeddings[0])
     assert lengths == [2.0, 4.0, 6.0]
-    printed = capsys.readouterr().out
-    assert "Multi-query I don't know : 1" in printed
-    assert "HyDE I don't know : 1" in printed
+    assert "Multi-query I don't know : 1" in first_printed
+    assert "HyDE I don't know : 1" in first_printed
+    assert "Multi-query I don't know : 0" in second_printed
+    assert "HyDE I don't know : 0" in second_printed
 
 
 # ---------- split_queries ----------
@@ -652,7 +678,7 @@ def get_query_ids(queries):
     return query_ids
 
 
-def test_split_queries_gives_the_same_disjoint_val_and_test_every_run():
+def test_split_queries_gives_the_same_disjoint_val_and_test_every_run(fake_query_llm):
     """
     Input: 10 queries, 6 for val and 3 for test.
     Output: the val and test queries, twice.
@@ -675,7 +701,7 @@ def test_split_queries_gives_the_same_disjoint_val_and_test_every_run():
     assert set(val_ids).isdisjoint(test_ids)
 
 
-def test_split_queries_uses_all_queries_for_both_when_split_is_off():
+def test_split_queries_uses_all_queries_for_both_when_split_is_off(fake_query_llm):
     """
     Input: 3 queries and query_split false, with sizes that would not fit.
     Output: the val and test queries.
@@ -695,7 +721,7 @@ def test_split_queries_uses_all_queries_for_both_when_split_is_off():
     (1, 0, "at least 1"),
     (2, 2, "must not be more than"),
 ])
-def test_split_queries_raises_for_invalid_sizes(val_queries_size, test_queries_size, message):
+def test_split_queries_raises_for_invalid_sizes(fake_query_llm, val_queries_size, test_queries_size, message):
     """
     Input: 3 queries and a val or test size that is below 1 or does not fit.
     Output: ValueError.
