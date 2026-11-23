@@ -9,8 +9,8 @@ from common import constants
 from common.args import OllamaArgs
 from common.args import QueryArgs
 from llm_provider.llm_provider import LLMProvider
-from rag.serving.query_transformation.cache import QueryLLMCache
-from rag.serving.query_transformation.single_query import transform_single_query
+from rag.serving.query.cache import QueryLLMCache
+from rag.serving.query.single_query import transform_single_query
 from schema.query import Query
 
 

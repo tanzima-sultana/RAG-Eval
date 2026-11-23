@@ -1,7 +1,7 @@
 """
 test_query_transformation.py
 
-Tests for rag.serving.query_transformation (query_transformation, single_query and cache). No LLM is called: the query LLM is replaced with a fake that answers
+Tests for rag.serving.query (query_transformation, single_query and cache). No LLM is called: the query LLM is replaced with a fake that answers
 by prompt, and HuggingFaceEmbeddings with the fake from conftest. Each query type of each question is saved as its own file in tmp_path.
 """
 
@@ -21,10 +21,10 @@ from common.constants import HYDE_QUERY
 from common.constants import MULTI_QUERY
 from common.constants import ORIGINAL_QUERY
 from common.constants import REWRITTEN_QUERY
-from rag.serving.query_transformation import query_transformation as query_transformation_module
-from rag.serving.query_transformation.query_transformation import QueryTransformation
-from rag.serving.query_transformation.cache import QueryLLMCache
-from rag.serving.query_transformation.single_query import transform_single_query
+from rag.serving.query import query_transformation as query_transformation_module
+from rag.serving.query.query_transformation import QueryTransformation
+from rag.serving.query.cache import QueryLLMCache
+from rag.serving.query.single_query import transform_single_query
 from schema.llm import LLMArgs
 from schema.query import Ans
 from schema.query import Query
@@ -166,14 +166,14 @@ def make_query(query_id, multi_count, query_types=None):
     ({"query_types": ["original"]}, "must not be in query_types"),
     ({"query_types": ["rewritten", "original"]}, "must not be in query_types"),
 ])
-def test_constructor_raises_for_invalid_setting_before_building_an_llm(fake_query_llm, overrides, message):
+def test_constructor_raises_for_invalid_setting_before_building_an_llm(fake_query_llm, tmp_path, overrides, message):
     """
     Input: QueryArgs with one invalid setting.
     Output: ValueError, and the built models.
     What it does: checks the constructor validates the settings, names the invalid one and builds no LLM.
     """
     with pytest.raises(ValueError, match=message):
-        QueryTransformation(make_query_args(**overrides), "out")
+        QueryTransformation(make_query_args(**overrides), str(tmp_path))
 
     assert fake_query_llm.built_models == []
 
@@ -694,7 +694,7 @@ def get_query_ids(queries):
     return query_ids
 
 
-def test_split_queries_gives_the_same_disjoint_val_and_test_every_run(fake_query_llm):
+def test_split_queries_gives_the_same_disjoint_val_and_test_every_run(fake_query_llm, tmp_path):
     """
     Input: 10 queries, 6 for val and 3 for test.
     Output: the val and test queries, twice.
@@ -705,8 +705,8 @@ def test_split_queries_gives_the_same_disjoint_val_and_test_every_run(fake_query
         queries.append(make_query(f"q_{query_number}", 0))
     query_args = make_query_args(val_queries_size=6, test_queries_size=3)
 
-    val_queries, test_queries = QueryTransformation(query_args, "out").split_queries(queries)
-    val_queries_again, test_queries_again = QueryTransformation(query_args, "out").split_queries(queries)
+    val_queries, test_queries = QueryTransformation(query_args, str(tmp_path)).split_queries(queries)
+    val_queries_again, test_queries_again = QueryTransformation(query_args, str(tmp_path)).split_queries(queries)
 
     val_ids = get_query_ids(val_queries)
     test_ids = get_query_ids(test_queries)
@@ -717,7 +717,7 @@ def test_split_queries_gives_the_same_disjoint_val_and_test_every_run(fake_query
     assert set(val_ids).isdisjoint(test_ids)
 
 
-def test_split_queries_uses_all_queries_for_both_when_split_is_off(fake_query_llm):
+def test_split_queries_uses_all_queries_for_both_when_split_is_off(fake_query_llm, tmp_path):
     """
     Input: 3 queries and query_split false, with sizes that would not fit.
     Output: the val and test queries.
@@ -726,7 +726,7 @@ def test_split_queries_uses_all_queries_for_both_when_split_is_off(fake_query_ll
     queries = [make_query("q_a", 0), make_query("q_b", 0), make_query("q_c", 0)]
     query_args = make_query_args(query_split=False, val_queries_size=50, test_queries_size=50)
 
-    val_queries, test_queries = QueryTransformation(query_args, "out").split_queries(queries)
+    val_queries, test_queries = QueryTransformation(query_args, str(tmp_path)).split_queries(queries)
 
     assert get_query_ids(val_queries) == ["q_a", "q_b", "q_c"]
     assert get_query_ids(test_queries) == ["q_a", "q_b", "q_c"]
@@ -737,7 +737,7 @@ def test_split_queries_uses_all_queries_for_both_when_split_is_off(fake_query_ll
     (1, 0, "at least 1"),
     (2, 2, "must not be more than"),
 ])
-def test_split_queries_raises_for_invalid_sizes(fake_query_llm, val_queries_size, test_queries_size, message):
+def test_split_queries_raises_for_invalid_sizes(fake_query_llm, tmp_path, val_queries_size, test_queries_size, message):
     """
     Input: 3 queries and a val or test size that is below 1 or does not fit.
     Output: ValueError.
@@ -747,4 +747,4 @@ def test_split_queries_raises_for_invalid_sizes(fake_query_llm, val_queries_size
     query_args = make_query_args(val_queries_size=val_queries_size, test_queries_size=test_queries_size)
 
     with pytest.raises(ValueError, match=message):
-        QueryTransformation(query_args, "out").split_queries(queries)
+        QueryTransformation(query_args, str(tmp_path)).split_queries(queries)
