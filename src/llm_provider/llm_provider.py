@@ -31,8 +31,13 @@ class TokenCounter(BaseCallbackHandler):
 		"""
 		Input: response, the LangChain result of one finished chat model call.
 		Output: nothing.
-		What it does: adds that call's input, cached and output tokens to the totals.
+		What it does: adds that call's input, cached and output tokens to the totals. A reply read from the LLM cache is
+		not counted, since no call was made and no tokens were spent. LangChain gives such a reply with llm_output None.
 		"""
+		# A reply from the LLM cache: LangChain sets llm_output only on a real call
+		if response.llm_output is None:
+			return
+
 		self.number_of_calls = self.number_of_calls + 1
 		for generation_list in response.generations:
 			for generation in generation_list:
@@ -94,19 +99,24 @@ class LLMProvider:
 	def generate(self, system_prompt: str, user_prompt: str) -> LLMResponse:
 		"""
 		Input: system_prompt, the instructions ("" for none); user_prompt, the text sent to the model.
-		Output: an LLMResponse with the reply text and the tokens of this call.
-		What it does: sends the prompts to the model and returns its reply.
+		Output: an LLMResponse with the reply text and the tokens of this call. The tokens are 0 when the reply was read
+		from the LLM cache, since no call was made.
+		What it does: sends the prompts to the model and returns its reply. A reply from the LLM cache is told apart by
+		the token counter, which counts only real calls: if its call count did not go up, the reply came from the cache.
 		"""
 		messages = []
 		if system_prompt != "":
 			messages.append(("system", system_prompt))
 		messages.append(("user", user_prompt))
 
+		number_of_calls_before = self.token_counter.number_of_calls
 		response = self.chat_model.invoke(messages)
 
+		# A reply from the LLM cache spent no tokens: the token counter did not count a call for it
 		input_tokens = 0
 		output_tokens = 0
-		if response.usage_metadata is not None:
+		made_a_call = self.token_counter.number_of_calls > number_of_calls_before
+		if made_a_call and response.usage_metadata is not None:
 			input_tokens = response.usage_metadata["input_tokens"]
 			output_tokens = response.usage_metadata["output_tokens"]
 

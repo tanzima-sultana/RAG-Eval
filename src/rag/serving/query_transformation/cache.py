@@ -1,71 +1,65 @@
-import json
-import os
+import sqlite3
 
-import numpy as np
-
-from common import constants
-from schema.query import Ans
-from schema.query import Qus
+from langchain_community.cache import SQLiteCache
+from langchain_core.load import loads
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration
 
 
-def save_query_entry(query_file: str, query_type: str, question: str, result: Qus | list[Qus] | Ans, embedding_model: str, llm_model: str | None) -> None:
-	"""
-	Input: query_file, the file of this query type of this question; query_type; question, the question text; result,
-	a Qus for original and rewritten, a list of Qus for multi, an Ans for hyde; embedding_model; llm_model, the query
-	LLM model, None for original.
-	Output: nothing.
-	What it does: saves the result with its texts, tokens and vectors as one JSON file, through a temporary file.
-	"""
-	os.makedirs(os.path.dirname(query_file), exist_ok=True)
+class QueryLLMCache(SQLiteCache):
+	def __init__(self, database_path: str, settings_key: str):
+		"""
+		Input: database_path, the SQLite file the query LLM's replies are saved in; settings_key, the query LLM settings
+		LangChain leaves out of its cache key (max_tokens, the Ollama context length and the Ollama URL), as one string.
+		Output: nothing.
+		What it does: opens the LangChain SQLite LLM cache on the file, creating its table if needed, and stores the
+		file path and settings_key. Each reply is saved under (prompt, LangChain's llm string + settings_key).
+		"""
+		super().__init__(database_path=database_path)
+		self.database_path = database_path
+		self.settings_key = settings_key
 
-	entry = {}
-	entry["query_type"] = query_type
-	entry["question"] = question
-	if query_type == constants.MULTI_QUERY:
-		phrasing_dicts = []
-		for phrasing in result:
-			phrasing_dicts.append({"qus": phrasing.qus, "tokens": phrasing.tokens, "embeddings": phrasing.embeddings.tolist()})
-		entry["multi_qus"] = phrasing_dicts
-	elif query_type == constants.HYDE_QUERY:
-		entry["ans"] = result.ans
-		entry["embeddings"] = result.embeddings.tolist()
-	else:
-		entry["qus"] = result.qus
-		entry["tokens"] = result.tokens
-		entry["embeddings"] = result.embeddings.tolist()
-	entry["embedding_model"] = embedding_model
-	entry["llm_model"] = llm_model
+	def lookup(self, prompt: str, llm_string: str) -> list[ChatGeneration] | None:
+		"""
+		Input: prompt, the prompt LangChain sends to the query LLM; llm_string, LangChain's string of the LLM settings.
+		Output: the saved replies of this prompt and settings, or None if none is saved.
+		What it does: reads the saved rows from the SQLite file and turns each back into a ChatGeneration with
+		LangChain's loads, naming the allowed classes explicitly, so no warning is raised and future LangChain versions
+		still read them.
+		"""
+		connection = sqlite3.connect(self.database_path)
+		try:
+			rows = connection.execute(
+				"SELECT response FROM full_llm_cache WHERE prompt = ? AND llm = ? ORDER BY idx",
+				(prompt, llm_string + self.settings_key)
+			).fetchall()
+		finally:
+			connection.close()
 
-	with open(query_file + ".tmp", "w", encoding="utf-8") as f:
-		json.dump(entry, f)
-	os.replace(query_file + ".tmp", query_file)
+		if len(rows) == 0:
+			return None
 
+		generations = []
+		for row in rows:
+			generations.append(loads(row[0], allowed_objects=[ChatGeneration, AIMessage]))
+		return generations
 
-def load_query_entry(query_file: str) -> Qus | list[Qus] | Ans | None:
-	"""
-	Input: query_file, the file of one query type of one question.
-	Output: its result, a Qus for original and rewritten, a list of Qus for multi, an Ans for hyde, or None if the
-	file does not exist.
-	What it does: reads the JSON file and turns its texts, tokens and vectors back into the result.
-	"""
-	if not os.path.exists(query_file):
-		return None
+	def update(self, prompt: str, llm_string: str, return_val: list[ChatGeneration]) -> None:
+		"""
+		Input: prompt, the prompt LangChain sent to the query LLM; llm_string, LangChain's string of the LLM settings;
+		return_val, the query LLM's replies.
+		Output: nothing.
+		What it does: turns LiteLLM's Usage object in each reply's token_usage into a plain dict, on a copy of the
+		reply, since LangChain cannot save it, and saves the replies under (prompt, llm_string + settings_key).
+		"""
+		cleaned_generations = []
+		for generation in return_val:
+			message = generation.message
+			response_metadata = dict(message.response_metadata)
+			token_usage = response_metadata.get("token_usage")
+			if token_usage is not None and hasattr(token_usage, "model_dump"):
+				response_metadata["token_usage"] = token_usage.model_dump()
+			cleaned_message = message.model_copy(update={"response_metadata": response_metadata})
+			cleaned_generations.append(ChatGeneration(message=cleaned_message, generation_info=generation.generation_info))
 
-	with open(query_file, encoding="utf-8") as f:
-		entry = json.load(f)
-
-	query_type = entry["query_type"]
-	if query_type == constants.MULTI_QUERY:
-		phrasings = []
-		for phrasing_dict in entry["multi_qus"]:
-			phrasings.append(Qus(
-				qus=phrasing_dict["qus"],
-				tokens=phrasing_dict["tokens"],
-				embeddings=np.array(phrasing_dict["embeddings"], dtype=np.float32)
-			))
-		return phrasings
-
-	if query_type == constants.HYDE_QUERY:
-		return Ans(ans=entry["ans"], embeddings=np.array(entry["embeddings"], dtype=np.float32))
-
-	return Qus(qus=entry["qus"], tokens=entry["tokens"], embeddings=np.array(entry["embeddings"], dtype=np.float32))
+		super().update(prompt, llm_string + self.settings_key, cleaned_generations)

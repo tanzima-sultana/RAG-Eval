@@ -210,7 +210,7 @@ def use_fake_benchmark_steps(monkeypatch):
             What it does: records the index args and folder.
             """
             record.loaded_indexes.append((self.index_args, index_folder))
-            return "index"
+            return types.SimpleNamespace(vector_store="vector_store")
 
     class FakeIndexingVectorDb:
         """
@@ -232,14 +232,14 @@ def use_fake_benchmark_steps(monkeypatch):
             What it does: records the vector DB args and collection name.
             """
             record.loaded_vectordbs.append((self.vectordb_args, collection_name))
-            return "vectordb"
+            return types.SimpleNamespace(vector_store="vector_store")
 
     class FakeRetrieval:
         """
-        Stand-in for Retrieval: gives no results.
+        Stand-in for Retrieval: one setup, giving a placeholder result per query.
         """
 
-        def __init__(self, retrieval_args, query_args, val_queries_count):
+        def __init__(self, retrieval_args, query_args, query_type, retrieval_type, reranking, index_type, vector_store, bm25_index, chunks, retrieved_path):
             """
             Input: the arguments of Retrieval.
             Output: nothing.
@@ -247,29 +247,13 @@ def use_fake_benchmark_steps(monkeypatch):
             """
             return None
 
-        def compute_retrieval(self, index, index_type, queries, output_path):
+        def retrieve(self, query):
             """
-            Input: the arguments of compute_retrieval.
-            Output: an empty list.
+            Input: the argument of retrieve, one query.
+            Output: a placeholder result.
             What it does: nothing.
             """
-            return []
-
-        def compute_vectordb_retrieval(self, vectordb, queries, output_path):
-            """
-            Input: the arguments of compute_vectordb_retrieval.
-            Output: an empty list.
-            What it does: nothing.
-            """
-            return []
-
-        def hybrid_retrieval(self, retrieved_items, output_path):
-            """
-            Input: the arguments of hybrid_retrieval.
-            Output: an empty list.
-            What it does: nothing.
-            """
-            return []
+            return "retrieved"
 
     class FakeRetrievalEvaluation:
         """
@@ -375,11 +359,12 @@ def test_run_benchmark_loads_every_chunk_type_and_index_the_manifest_lists(tmp_p
         assert index_args.ivf_nlist == 7
         assert index_args.bm25_k1 == 1.5
         assert index_args.input_hash == "testinputhash"
+    # The BM25 index of a chunk type is loaded first and kept for BM25 and hybrid retrieval
     assert loaded_index_folders == [
-        ("fixed", "faiss_ivf", "out/indexes/faiss_ivf_fixed"),
         ("fixed", "bm25", "out/indexes/bm25_fixed"),
-        ("sentence", "faiss_ivf", "out/indexes/faiss_ivf_sentence"),
+        ("fixed", "faiss_ivf", "out/indexes/faiss_ivf_fixed"),
         ("sentence", "bm25", "out/indexes/bm25_sentence"),
+        ("sentence", "faiss_ivf", "out/indexes/faiss_ivf_sentence"),
     ]
 
     loaded_collections = []

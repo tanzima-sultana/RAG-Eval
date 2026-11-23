@@ -6,37 +6,48 @@ from schema.retrieved import Retrieved
 from schema.setup import Setup
 
 
-def save_retrieved(retrieved_file: str, retrieved_items: list[Retrieved]) -> None:
+def save_retrieved_entry(retrieved_file: str, question: str, retrieved: Retrieved) -> None:
 	"""
-	Input: retrieved_file, the cache file of one retrieval setup; retrieved_items, its Retrieved list.
+	Input: retrieved_file, the cache file of one setup and one question; question, the original question text;
+	retrieved, its Retrieved.
 	Output: nothing.
-	What it does: writes the list as JSON to a temporary file, then renames it to retrieved_file.
+	What it does: saves the question and the Retrieved without its id as one JSON file, through a temporary file. The
+	id is left out because the file is named by the question, not the id, so any eval set with this question reuses it.
 	"""
 	os.makedirs(os.path.dirname(retrieved_file), exist_ok=True)
 
-	retrieved_dicts = []
-	for retrieved in retrieved_items:
-		retrieved_dicts.append(dataclasses.asdict(retrieved))
+	entry = {}
+	entry["question"] = question
+	entry["setup"] = dataclasses.asdict(retrieved.setup)
+	entry["top_k"] = retrieved.top_k
+	entry["rerank_top_k"] = retrieved.rerank_top_k
+	entry["chunk_ids"] = retrieved.chunk_ids
+	entry["chunk_scores"] = retrieved.chunk_scores
+	entry["doc_ids"] = retrieved.doc_ids
 
 	with open(retrieved_file + ".tmp", "w", encoding="utf-8") as f:
-		json.dump(retrieved_dicts, f)
+		json.dump(entry, f)
 	os.replace(retrieved_file + ".tmp", retrieved_file)
 
 
-def load_retrieved(retrieved_file: str) -> list[Retrieved] | None:
+def load_retrieved_entry(retrieved_file: str) -> Retrieved | None:
 	"""
-	Input: retrieved_file, the cache file of one retrieval setup.
-	Output: the saved Retrieved list, or None if the file does not exist.
-	What it does: reads the JSON file and builds one Retrieved per entry, with its Setup.
+	Input: retrieved_file, the cache file of one setup and one question.
+	Output: its Retrieved with an empty id, or None if the file does not exist. The caller sets the id.
+	What it does: reads the JSON file and builds the Retrieved with its Setup.
 	"""
 	if not os.path.exists(retrieved_file):
 		return None
 
 	with open(retrieved_file, encoding="utf-8") as f:
-		retrieved_dicts = json.load(f)
+		entry = json.load(f)
 
-	retrieved_items = []
-	for retrieved_dict in retrieved_dicts:
-		retrieved_dict["setup"] = Setup(**retrieved_dict["setup"])
-		retrieved_items.append(Retrieved(**retrieved_dict))
-	return retrieved_items
+	return Retrieved(
+		id="",
+		setup=Setup(**entry["setup"]),
+		top_k=entry["top_k"],
+		rerank_top_k=entry["rerank_top_k"],
+		chunk_ids=entry["chunk_ids"],
+		chunk_scores=entry["chunk_scores"],
+		doc_ids=entry["doc_ids"]
+	)

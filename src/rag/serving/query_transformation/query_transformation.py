@@ -1,3 +1,4 @@
+import os
 import random
 
 import torch
@@ -5,12 +6,10 @@ import torch
 from langchain_huggingface import HuggingFaceEmbeddings
 
 from common import constants
-from common import paths
 from common.args import OllamaArgs
 from common.args import QueryArgs
 from llm_provider.llm_provider import LLMProvider
-from rag.serving.query_transformation.cache import load_query_entry
-from rag.serving.query_transformation.cache import save_query_entry
+from rag.serving.query_transformation.cache import QueryLLMCache
 from rag.serving.query_transformation.single_query import transform_single_query
 from schema.query import Query
 
@@ -18,13 +17,14 @@ from schema.query import Query
 class QueryTransformation:
 	def __init__(self, query_args: QueryArgs, query_path: str):
 		"""
-		Input: query_args, the query transformation settings; query_path, the folder the query files are saved in,
-		used as given.
+		Input: query_args, the query transformation settings; query_path, the folder the query LLM cache file
+		(.langchain.db) is saved in, used as given.
 		Output: nothing.
 		What it does: stores both, validates the settings, then loads the embedding model once and builds the query LLM
 		once, so every question reuses them. Original is always made, and query_types holds only the extra types
 		(rewritten, multi and/or hyde), which all need the query LLM. So the query LLM is built only if query_types is
-		not empty, otherwise it is None.
+		not empty, otherwise it is None. The query LLM gets a LangChain SQLite LLM cache in query_path, so each of its
+		replies is made once and read back on later runs.
 		"""
 		self.query_args = query_args
 		self.query_path = query_path
@@ -49,6 +49,16 @@ class QueryTransformation:
 				ollama_context_length=query_args.ollama_context_length
 			)
 			self.query_llm_provider = LLMProvider(query_args.query_llm_args, ollama_args)
+
+			# 4. The LLM cache of the query LLM only, in query_path. LangChain's key leaves out max_tokens, the Ollama
+			# context length and the Ollama URL, so they are added to it
+			os.makedirs(query_path, exist_ok=True)
+			settings_key = (
+				f"|max_tokens={query_args.query_llm_args.max_tokens}"
+				f"|num_ctx={query_args.ollama_context_length}"
+				f"|api_base={query_args.ollama_api_base}"
+			)
+			self.query_llm_provider.chat_model.cache = QueryLLMCache(os.path.join(query_path, ".langchain.db"), settings_key)
 
 	def validate(self) -> None:
 		"""
@@ -87,10 +97,9 @@ class QueryTransformation:
 		Input: question_id, the id of one question; question, its text.
 		Output: one Query of this question, with its id, always its original query, and the extra query types in
 		query_types. The other extra query types are None.
-		What it does: looks up original and each query type in query_types of the question in its own saved file,
-		named by the hash of what decides
-		it. Only the query types not saved are made, with the embedding model and query LLM loaded in __init__, and
-		saved, each as its own file. Prints this question's counts and the query LLM's running cost.
+		What it does: makes original and each query type in query_types of the question with the embedding model and
+		query LLM loaded in __init__. Each query LLM call reads the LLM cache first and calls the LLM only when the reply
+		is not saved. Prints the question's multi-query and HyDE I don't know and the query LLM's running cost.
 		"""
 		query_args = self.query_args
 
@@ -100,75 +109,25 @@ class QueryTransformation:
 		if question.strip() == "":
 			raise ValueError(f"question of {question_id} is empty. Give the question text.")
 
-		query_llm, query_llm_model = query_args.query_llm_args.llm_model.split("/", 1)
-		loaded_count = 0
-		generated_count = 0
-		multi_dont_know_count = 0
-		hyde_dont_know_count = 0
-
-		# 2. Original is always made, then each extra query type. Load the saved ones of this question, and list the
-		# missing ones
+		# 2. Original is always made, then each extra query type
 		query_types = [constants.ORIGINAL_QUERY]
 		for query_type in query_args.query_types:
 			query_types.append(query_type)
 
-		results = {}
-		missing_query_types = []
-		for query_type in query_types:
-			query_file = paths.get_query_file_path(self.query_path, query_args, query_type, question)
-			result = load_query_entry(query_file)
-			if result is None:
-				missing_query_types.append(query_type)
-			else:
-				results[query_type] = result
-				loaded_count = loaded_count + 1
-
-		# 3. Make only the missing query types, and save each as its own file
-		if len(missing_query_types) > 0:
-			new_query = transform_single_query(
-				query_args, question_id, question, missing_query_types, self.query_llm_provider, self.embedding_model
-			)
-			for query_type in missing_query_types:
-				if query_type == constants.ORIGINAL_QUERY:
-					result = new_query.original_qus
-					result_llm_model = None
-				elif query_type == constants.REWRITTEN_QUERY:
-					result = new_query.rewritten_qus
-					result_llm_model = query_args.query_llm_args.llm_model
-				elif query_type == constants.MULTI_QUERY:
-					result = new_query.multi_qus
-					result_llm_model = query_args.query_llm_args.llm_model
-					if len(result) == 0:
-						multi_dont_know_count = multi_dont_know_count + 1
-				else:
-					result = new_query.hyde_ans
-					result_llm_model = query_args.query_llm_args.llm_model
-					if result.ans == constants.I_DONT_KNOW:
-						hyde_dont_know_count = hyde_dont_know_count + 1
-
-				query_file = paths.get_query_file_path(self.query_path, query_args, query_type, question)
-				save_query_entry(query_file, query_type, question, result, query_args.embedding_model, result_llm_model)
-				results[query_type] = result
-				generated_count = generated_count + 1
-
-		# 4. One Query of this question, holding original and only the requested extra query types
-		query = Query(
-			id=question_id,
-			original_qus=results[constants.ORIGINAL_QUERY],
-			rewritten_qus=results.get(constants.REWRITTEN_QUERY),
-			multi_qus=results.get(constants.MULTI_QUERY),
-			hyde_ans=results.get(constants.HYDE_QUERY),
-			normalized=True,
-			embedding_model=query_args.embedding_model,
-			llm=query_llm,
-			llm_model=query_llm_model
+		query = transform_single_query(
+			query_args, question_id, question, query_types, self.query_llm_provider, self.embedding_model
 		)
 
-		# 5. What was loaded and what was made for this question. The cost is the running total of every call so far
-		print(f"Query folder : {self.query_path}")
-		print(f"Query {question_id} : query types loaded from cache : {loaded_count}, made : {generated_count}")
-		if generated_count > 0:
+		# 3. The question's I don't know, for the requested types. The cost is the running total of every call so far
+		if constants.MULTI_QUERY in query_args.query_types:
+			multi_dont_know_count = 0
+			if len(query.multi_qus) == 0:
+				multi_dont_know_count = 1
 			print(f"Multi-query I don't know : {multi_dont_know_count}")
+		if constants.HYDE_QUERY in query_args.query_types:
+			hyde_dont_know_count = 0
+			if query.hyde_ans.ans == constants.I_DONT_KNOW:
+				hyde_dont_know_count = 1
 			print(f"HyDE I don't know : {hyde_dont_know_count}")
 		if self.query_llm_provider is not None:
 			self.query_llm_provider.compute_cost()

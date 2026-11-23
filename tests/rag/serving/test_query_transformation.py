@@ -7,9 +7,12 @@ by prompt, and HuggingFaceEmbeddings with the fake from conftest. Each query typ
 
 import os
 import types
+import warnings
 
 import numpy as np
 import pytest
+
+from langchain_litellm import ChatLiteLLM
 
 from common import paths
 from common.args import QueryArgs
@@ -20,8 +23,7 @@ from common.constants import ORIGINAL_QUERY
 from common.constants import REWRITTEN_QUERY
 from rag.serving.query_transformation import query_transformation as query_transformation_module
 from rag.serving.query_transformation.query_transformation import QueryTransformation
-from rag.serving.query_transformation.cache import load_query_entry
-from rag.serving.query_transformation.cache import save_query_entry
+from rag.serving.query_transformation.cache import QueryLLMCache
 from rag.serving.query_transformation.single_query import transform_single_query
 from schema.llm import LLMArgs
 from schema.query import Ans
@@ -48,9 +50,11 @@ class FakeQueryLLMProvider:
         """
         Input: llm_args and ollama_args, as LLMProvider takes them.
         Output: nothing.
-        What it does: records the model.
+        What it does: records the model, and gives the fake a chat model with an empty cache field, like the
+        LangChain chat model the cache is attached to.
         """
         FakeQueryLLMProvider.built_models.append(llm_args.llm_model)
+        self.chat_model = types.SimpleNamespace(cache=None)
 
     def generate(self, system_prompt, user_prompt):
         """
@@ -152,16 +156,6 @@ def make_query(query_id, multi_count, query_types=None):
     )
 
 
-def read_file_bytes(file_path):
-    """
-    Input: file_path.
-    Output: the file's bytes.
-    What it does: reads the whole file, so a test can check it was not rewritten.
-    """
-    with open(file_path, "rb") as f:
-        return f.read()
-
-
 # ---------- __init__ and validate ----------
 
 
@@ -215,63 +209,126 @@ def test_constructor_builds_the_llm_once_for_every_question(fake_query_llm, tmp_
     assert fake_query_llm.built_models == ["ollama_chat/llama3.1:8b"]
 
 
-# ---------- save_query_entry / load_query_entry ----------
-
-
-@pytest.mark.parametrize("query_type", ALL_QUERY_TYPES)
-def test_save_and_load_query_entry_round_trip(tmp_path, query_type):
+def test_constructor_attaches_the_llm_cache_to_the_query_llm(fake_query_llm, tmp_path):
     """
-    Input: one result of each query type, saved and loaded back.
-    Output: the loaded result.
-    What it does: checks the texts, tokens and every vector come back.
+    Input: every extra query type requested, and a query folder that does not exist yet.
+    Output: the cache attached to the query LLM's chat model.
+    What it does: checks the folder is created and a QueryLLMCache in it, keyed with the settings LangChain leaves out,
+    is attached to the query LLM.
     """
-    query = make_query("q_a", 3)
-    results = {
-        ORIGINAL_QUERY: query.original_qus,
-        REWRITTEN_QUERY: query.rewritten_qus,
-        MULTI_QUERY: query.multi_qus,
-        HYDE_QUERY: query.hyde_ans,
-    }
-    query_file = os.path.join(str(tmp_path), "queries", "entry.json")
+    query_path = os.path.join(str(tmp_path), "queries")
 
-    save_query_entry(query_file, query_type, "What is X?", results[query_type], "fake-model", "ollama_chat/llama3.1:8b")
-    loaded_result = load_query_entry(query_file)
+    query_transformation = QueryTransformation(make_query_args(), query_path)
 
-    if query_type == MULTI_QUERY:
-        assert len(loaded_result) == 3
-        assert loaded_result[2].qus == "multi 2"
-        assert loaded_result[2].tokens == ["multi", "2"]
-        assert np.array_equal(loaded_result[2].embeddings, [3.0, 2.0, 2.0])
-    elif query_type == HYDE_QUERY:
-        assert loaded_result.ans == "hyde passage"
-        assert np.array_equal(loaded_result.embeddings, [3.0, 3.0, 0.0])
-    else:
-        assert loaded_result.qus == results[query_type].qus
-        assert loaded_result.tokens == results[query_type].tokens
-        assert np.array_equal(loaded_result.embeddings, results[query_type].embeddings)
-    assert not os.path.exists(query_file + ".tmp")
+    cache = query_transformation.query_llm_provider.chat_model.cache
+    assert isinstance(cache, QueryLLMCache)
+    assert cache.database_path == os.path.join(query_path, ".langchain.db")
+    assert cache.settings_key == "|max_tokens=100|num_ctx=32768|api_base=http://ollama-test:11434"
+    assert os.path.isdir(query_path)
 
 
-def test_save_query_entry_keeps_an_empty_multi(tmp_path):
+def test_constructor_attaches_no_cache_when_query_types_is_empty(fake_query_llm, tmp_path):
     """
-    Input: a multi result with no phrasings, saved and loaded back.
-    Output: the loaded result.
-    What it does: checks an empty multi, the I don't know case, loads back as an empty list.
+    Input: empty query_types, so no query LLM.
+    Output: the query LLM and the query folder.
+    What it does: checks there is no query LLM to cache and no cache file folder is made.
     """
-    query_file = os.path.join(str(tmp_path), "entry.json")
+    query_path = os.path.join(str(tmp_path), "queries")
 
-    save_query_entry(query_file, MULTI_QUERY, "What is X?", [], "fake-model", "ollama_chat/llama3.1:8b")
+    query_transformation = QueryTransformation(make_query_args(query_types=[]), query_path)
 
-    assert load_query_entry(query_file) == []
+    assert query_transformation.query_llm_provider is None
+    assert not os.path.exists(query_path)
 
 
-def test_load_query_entry_gives_none_when_the_file_is_missing(tmp_path):
+# ---------- QueryLLMCache ----------
+
+
+def make_mocked_chat_model(cache, mock_reply, max_tokens=100, num_ctx=32768, api_base="http://localhost:11434"):
     """
-    Input: a path with no file.
-    Output: None.
-    What it does: checks a missing entry is reported as None.
+    Input: cache, the QueryLLMCache; mock_reply, the reply LiteLLM gives without calling any LLM; and the settings
+    the cache key adds.
+    Output: a LangChain ChatLiteLLM with the cache attached.
+    What it does: builds the same kind of chat model LLMProvider builds, with LiteLLM's mock_response, so no LLM is
+    called.
     """
-    assert load_query_entry(os.path.join(str(tmp_path), "missing.json")) is None
+    chat_model = ChatLiteLLM(
+        model="ollama_chat/llama3.1:8b",
+        max_tokens=max_tokens,
+        request_timeout=30,
+        api_base=api_base,
+        model_kwargs={"num_ctx": num_ctx, "mock_response": mock_reply},
+    )
+    chat_model.cache = cache
+    return chat_model
+
+
+def make_cache(database_path, max_tokens=100, num_ctx=32768, api_base="http://localhost:11434"):
+    """
+    Input: database_path; the settings the cache key adds.
+    Output: a QueryLLMCache keyed with those settings, as QueryTransformation builds it.
+    What it does: builds the settings_key the same way QueryTransformation does.
+    """
+    settings_key = f"|max_tokens={max_tokens}|num_ctx={num_ctx}|api_base={api_base}"
+    return QueryLLMCache(database_path, settings_key)
+
+
+def test_query_llm_cache_gives_the_saved_reply_back(tmp_path):
+    """
+    Input: the same prompt asked twice, through two caches on the same file, with a different mocked reply each time.
+    Output: both replies.
+    What it does: checks the second ask reads the first reply back as plain text, with LiteLLM's usage saved as a dict.
+    """
+    database_path = os.path.join(str(tmp_path), ".langchain.db")
+    messages = [("user", "Rewrite the question. Question: What is X?")]
+
+    first_reply = make_mocked_chat_model(make_cache(database_path), "reply one").invoke(messages)
+    second_reply = make_mocked_chat_model(make_cache(database_path), "reply two").invoke(messages)
+
+    assert first_reply.text == "reply one"
+    assert second_reply.text == "reply one"
+    assert isinstance(second_reply.response_metadata["token_usage"], dict)
+
+
+@pytest.mark.parametrize("changed_setting", [
+    {"max_tokens": 200},
+    {"num_ctx": 4096},
+    {"api_base": "http://other:11434"},
+])
+def test_query_llm_cache_does_not_reuse_a_reply_of_other_settings(tmp_path, changed_setting):
+    """
+    Input: the same prompt asked with the default settings, then with one setting LangChain leaves out of its key changed.
+    Output: the second reply.
+    What it does: checks the changed setting gives its own reply, not the saved one.
+    """
+    database_path = os.path.join(str(tmp_path), ".langchain.db")
+    messages = [("user", "Rewrite the question. Question: What is X?")]
+    make_mocked_chat_model(make_cache(database_path), "reply one").invoke(messages)
+
+    second_reply = make_mocked_chat_model(make_cache(database_path, **changed_setting), "reply two", **changed_setting).invoke(messages)
+
+    assert second_reply.text == "reply two"
+
+
+def test_query_llm_cache_reads_without_a_warning(tmp_path):
+    """
+    Input: a reply saved, then read back.
+    Output: the warnings raised while reading.
+    What it does: checks reading names the allowed classes, so LangChain raises no allowed_objects warning.
+    """
+    database_path = os.path.join(str(tmp_path), ".langchain.db")
+    messages = [("user", "Rewrite the question. Question: What is X?")]
+    make_mocked_chat_model(make_cache(database_path), "reply one").invoke(messages)
+
+    with warnings.catch_warnings(record=True) as raised_warnings:
+        warnings.simplefilter("always")
+        make_mocked_chat_model(make_cache(database_path), "reply two").invoke(messages)
+
+    warning_messages = []
+    for raised_warning in raised_warnings:
+        warning_messages.append(str(raised_warning.message))
+    for warning_message in warning_messages:
+        assert "allowed_objects" not in warning_message
 
 
 # ---------- get_query_file_path ----------
@@ -368,112 +425,46 @@ def test_get_query_file_path_ignores_the_llm_timeout_and_a_none_ollama_context_l
 # ---------- query ----------
 
 
-def save_every_query_type(output_path, query_args, question):
+def test_query_makes_every_query_type(fake_query_llm, tmp_path):
     """
-    Input: output_path; query_args; question.
-    Output: nothing.
-    What it does: saves an entry of each of the four query types of question, from make_query.
-    """
-    query = make_query("saved", 3)
-    results = {
-        ORIGINAL_QUERY: query.original_qus,
-        REWRITTEN_QUERY: query.rewritten_qus,
-        MULTI_QUERY: query.multi_qus,
-        HYDE_QUERY: query.hyde_ans,
-    }
-    for query_type in ALL_QUERY_TYPES:
-        query_file = paths.get_query_file_path(output_path, query_args, query_type, question)
-        save_query_entry(query_file, query_type, question, results[query_type], "fake-model", "ollama_chat/llama3.1:8b")
-
-
-def test_query_loads_every_saved_query_type_without_making_any(fake_query_llm, fake_huggingface_embeddings, tmp_path, capsys):
-    """
-    Input: every query type of one question saved.
-    Output: the query, the prompts the LLM answered, what was printed and the saved files.
-    What it does: checks the saved entries are returned with the question's id, no LLM reply or embedding is made and
-    no file is rewritten.
-    """
-    query_args = make_query_args()
-    output_path = str(tmp_path)
-    save_every_query_type(output_path, query_args, "What is X?")
-    rewritten_file = paths.get_query_file_path(output_path, query_args, REWRITTEN_QUERY, "What is X?")
-    rewritten_bytes = read_file_bytes(rewritten_file)
-
-    query = QueryTransformation(query_args, output_path).query("eval_qna_0", "What is X?")
-
-    assert query.id == "eval_qna_0"
-    assert query.rewritten_qus.qus == "rewritten"
-    assert len(query.multi_qus) == 3
-    assert fake_query_llm.reply_types == []
-    assert fake_huggingface_embeddings.embed_documents_calls == []
-    assert "Query eval_qna_0 : query types loaded from cache : 4, made : 0" in capsys.readouterr().out
-    assert read_file_bytes(rewritten_file) == rewritten_bytes
-
-
-def test_query_makes_and_saves_every_query_type_when_none_is_saved(fake_query_llm, tmp_path):
-    """
-    Input: one question and nothing saved.
-    Output: the query and the saved entries.
-    What it does: checks every query type is made with the query LLM and saved as its own file, so the next call loads it.
+    Input: one question, every extra query type requested.
+    Output: the query and the prompts the LLM answered.
+    What it does: checks original is made and each extra query type is made with the query LLM.
     """
     fake_query_llm.replies["What is X?"] = {"rewrite": "What does X mean?", "multi": "a\nb\nc", "hyde": "X is a thing."}
-    query_args = make_query_args()
-    output_path = str(tmp_path)
 
-    query = QueryTransformation(query_args, output_path).query("eval_qna_0", "What is X?")
+    query = QueryTransformation(make_query_args(), str(tmp_path)).query("eval_qna_0", "What is X?")
 
     assert fake_query_llm.built_models == ["ollama_chat/llama3.1:8b"]
     assert fake_query_llm.reply_types == ["rewrite", "multi", "hyde"]
+    assert query.id == "eval_qna_0"
+    assert query.original_qus.qus == "What is X?"
     assert query.rewritten_qus.qus == "What does X mean?"
-    assert load_query_entry(paths.get_query_file_path(output_path, query_args, ORIGINAL_QUERY, "What is X?")).qus == "What is X?"
-    assert load_query_entry(paths.get_query_file_path(output_path, query_args, REWRITTEN_QUERY, "What is X?")).qus == "What does X mean?"
-    assert len(load_query_entry(paths.get_query_file_path(output_path, query_args, MULTI_QUERY, "What is X?"))) == 3
-    assert load_query_entry(paths.get_query_file_path(output_path, query_args, HYDE_QUERY, "What is X?")).ans == "X is a thing."
-
-
-def test_query_makes_only_the_missing_query_types(fake_query_llm, tmp_path):
-    """
-    Input: original and rewritten of one question saved; all four requested.
-    Output: the queries and the prompts the LLM answered.
-    What it does: checks only multi and hyde are made, and the saved rewrite is used as it is.
-    """
-    fake_query_llm.replies["What is X?"] = {"rewrite": "A new rewrite?", "multi": "a\nb\nc", "hyde": "X is a thing."}
-    query_args = make_query_args()
-    output_path = str(tmp_path)
-    query = make_query("saved", 0)
-    save_query_entry(paths.get_query_file_path(output_path, query_args, ORIGINAL_QUERY, "What is X?"), ORIGINAL_QUERY, "What is X?", query.original_qus, "fake-model", None)
-    save_query_entry(paths.get_query_file_path(output_path, query_args, REWRITTEN_QUERY, "What is X?"), REWRITTEN_QUERY, "What is X?", query.rewritten_qus, "fake-model", "ollama_chat/llama3.1:8b")
-
-    query = QueryTransformation(query_args, output_path).query("eval_qna_0", "What is X?")
-
-    assert fake_query_llm.reply_types == ["multi", "hyde"]
-    assert query.rewritten_qus.qus == "rewritten"
     assert len(query.multi_qus) == 3
     assert query.hyde_ans.ans == "X is a thing."
 
 
 def test_query_returns_only_the_requested_query_types(fake_query_llm, tmp_path):
     """
-    Input: every query type of one question saved; only multi requested as an extra query type.
-    Output: the query.
-    What it does: checks original and multi are returned, the other query types are None and the LLM answers nothing.
+    Input: one question; only multi requested as an extra query type.
+    Output: the query and the prompts the LLM answered.
+    What it does: checks original and multi are returned, the other query types are None and only multi is asked.
     """
+    fake_query_llm.replies["What is X?"] = {"multi": "a\nb\nc"}
     query_args = make_query_args(query_types=[MULTI_QUERY])
-    output_path = str(tmp_path)
-    save_every_query_type(output_path, make_query_args(), "What is X?")
 
-    query = QueryTransformation(query_args, output_path).query("eval_qna_0", "What is X?")
+    query = QueryTransformation(query_args, str(tmp_path)).query("eval_qna_0", "What is X?")
 
-    assert query.original_qus.qus == "original"
+    assert query.original_qus.qus == "What is X?"
     assert len(query.multi_qus) == 3
     assert query.rewritten_qus is None
     assert query.hyde_ans is None
-    assert fake_query_llm.reply_types == []
+    assert fake_query_llm.reply_types == ["multi"]
 
 
 def test_query_with_empty_query_types_gives_only_original_without_an_llm(fake_query_llm, tmp_path):
     """
-    Input: nothing saved; empty query_types.
+    Input: empty query_types.
     Output: the query and the built models.
     What it does: checks the original question is embedded, every extra query type is None and no LLM is built.
     """
@@ -491,9 +482,9 @@ def test_query_with_empty_query_types_gives_only_original_without_an_llm(fake_qu
 
 def test_query_always_makes_original_besides_the_extra_query_types(fake_query_llm, tmp_path):
     """
-    Input: nothing saved; only hyde requested as an extra query type.
-    Output: the query and the saved original entry.
-    What it does: checks original is made and saved even though it is not in query_types, next to hyde.
+    Input: only hyde requested as an extra query type.
+    Output: the query.
+    What it does: checks original is made even though it is not in query_types, next to hyde.
     """
     fake_query_llm.replies["What is X?"] = {"hyde": "X is a thing."}
     query_args = make_query_args(query_types=[HYDE_QUERY])
@@ -506,7 +497,6 @@ def test_query_always_makes_original_besides_the_extra_query_types(fake_query_ll
     assert query.rewritten_qus is None
     assert query.multi_qus is None
     assert fake_query_llm.reply_types == ["hyde"]
-    assert load_query_entry(paths.get_query_file_path(output_path, query_args, ORIGINAL_QUERY, "What is X?")).qus == "What is X?"
 
 
 @pytest.mark.parametrize("question_id, question, message", [

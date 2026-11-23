@@ -12,6 +12,7 @@ from common.args import OllamaArgs
 from common.args import QueryArgs
 from common.args import BenchmarkArgs
 from common.args import RetrievalArgs
+from common.constants import CROSS_ENCODER_MODEL
 from common.constants import FAISS_FLATIP_INDEX
 from common.constants import FAISS_IVF_INDEX
 from common.constants import FAISS_HNSW_INDEX
@@ -349,20 +350,24 @@ def get_query_file_path(query_path: str, query_args: QueryArgs, query_type: str,
 
 
 # ------ Retrieval
-def get_retrieved_path(output_path: str, retrieval_args: RetrievalArgs, query_args: QueryArgs, val_queries_count: int, index_type: str) -> str:
+def get_retrieved_file_path(retrieved_path: str, retrieval_args: RetrievalArgs, query_args: QueryArgs, query_type: str, question: str, index_type: str | None, retrieval_type: str, reranking: bool) -> str:
 	"""
-	Input: output_path, the dataset's output folder; retrieval_args; query_args; val_queries_count, the number of val
-	queries searched; index_type, one index type, or a dense and the BM25 index type joined with "+" for hybrid,
-	e.g. faiss_flatip+bm25.
-	Output: {output_path}/retrieved/retrieved_{hash}
-	What it does: builds the folder that holds the retrieved results of one index or hybrid pair, from the first 12
-	hex characters of the SHA-256 of all its args: the chunk settings, the index settings and input hash, the
-	retrieval settings, the query settings, the val query count and the index type.
+	Input: retrieved_path, the folder the retrieved files are saved in, used as given; retrieval_args, the retrieval
+	settings of one chunk type; query_args; query_type, the query type searched with; question, the original question
+	text; index_type, the dense index type for dense and hybrid, None for bm25; retrieval_type, dense, bm25 or hybrid;
+	reranking, true for a reranked result.
+	Output: {retrieved_path}/{hash}.json
+	What it does: builds the file of one setup's result for one question, named by the first 12 hex characters of the
+	SHA-256 of what decides it, as JSON with sorted keys: the query's own file name for this query type and question
+	(from get_query_file_path), the chunk settings, the index settings and input hash, the index type, the retrieval
+	type, top_k and reranking; with reranking also rerank_top_k and the cross-encoder model. It is keyed by the
+	question text, not its id, so any eval set with this question reuses it.
 	"""
 	index_args = retrieval_args.index_args
 	chunking_args = index_args.chunking_args
 
 	hashed_args = {}
+	hashed_args["query_file"] = os.path.basename(get_query_file_path("", query_args, query_type, question))
 	hashed_args["model_name"] = chunking_args.model_name
 	hashed_args["chunk_type"] = chunking_args.chunk_type
 	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
@@ -376,14 +381,15 @@ def get_retrieved_path(output_path: str, retrieval_args: RetrievalArgs, query_ar
 	hashed_args["bm25_b"] = index_args.bm25_b
 	hashed_args["bm25_tokenizer"] = index_args.bm25_tokenizer
 	hashed_args["input_hash"] = index_args.input_hash
-	hashed_args["retrieval_types"] = retrieval_args.retrieval_types
-	hashed_args["top_k"] = retrieval_args.top_k
-	hashed_args["reranking"] = retrieval_args.reranking
-	hashed_args["rerank_top_k"] = retrieval_args.rerank_top_k
-	hashed_args["query_args"] = make_query_hashed_args(query_args)
-	hashed_args["val_queries_count"] = val_queries_count
 	hashed_args["index_type"] = index_type
+	hashed_args["retrieval_type"] = retrieval_type
+	hashed_args["top_k"] = retrieval_args.top_k
+	hashed_args["reranking"] = reranking
+
+	if reranking:
+		hashed_args["rerank_top_k"] = retrieval_args.rerank_top_k
+		hashed_args["cross_encoder_model"] = CROSS_ENCODER_MODEL
 
 	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
 	retrieved_hash = hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
-	return os.path.join(output_path, "retrieved", f"retrieved_{retrieved_hash}")
+	return os.path.join(retrieved_path, f"{retrieved_hash}.json")

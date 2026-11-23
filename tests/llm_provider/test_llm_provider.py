@@ -7,6 +7,7 @@ LiteLLM's mock reply reports 10 input tokens and 20 output tokens.
 
 import litellm
 import pytest
+from langchain_core.caches import InMemoryCache
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration
 from langchain_core.outputs import LLMResult
@@ -127,7 +128,7 @@ def test_chat_model_calls_are_counted(paid_api_allowed, make_llm_args, make_olla
 
 def test_token_counter_adds_cached_tokens():
     """
-    Input: one finished call that reports cache written and cache read tokens.
+    Input: one finished real call (llm_output set) that reports the provider's prompt cache written and read tokens.
     Output: the token counter.
     What it does: checks the cached parts are counted next to all input tokens.
     """
@@ -142,13 +143,53 @@ def test_token_counter_adds_cached_tokens():
     )
     token_counter = TokenCounter()
 
-    token_counter.on_llm_end(LLMResult(generations=[[ChatGeneration(message=message)]]))
+    token_counter.on_llm_end(LLMResult(generations=[[ChatGeneration(message=message)]], llm_output={"token_usage": {}}))
 
     assert token_counter.number_of_calls == 1
     assert token_counter.input_tokens == 100
     assert token_counter.cache_creation_tokens == 30
     assert token_counter.cache_read_tokens == 50
     assert token_counter.output_tokens == 5
+
+
+def test_token_counter_skips_a_reply_from_the_llm_cache():
+    """
+    Input: one reply read from the LLM cache, which LangChain gives with llm_output None.
+    Output: the token counter.
+    What it does: checks no call and no tokens are counted, since no call was made.
+    """
+    message = AIMessage(content="ok", usage_metadata={"input_tokens": 100, "output_tokens": 5, "total_tokens": 105})
+    token_counter = TokenCounter()
+
+    token_counter.on_llm_end(LLMResult(generations=[[ChatGeneration(message=message)]], llm_output=None))
+
+    assert token_counter.number_of_calls == 0
+    assert token_counter.input_tokens == 0
+    assert token_counter.output_tokens == 0
+
+
+def test_cached_reply_is_not_counted(paid_api_allowed, make_llm_args, make_ollama_args):
+    """
+    Input: the same prompt sent twice through generate, with LangChain's in-memory LLM cache on the chat model.
+    Output: both LLMResponses and the token counter.
+    What it does: checks the second reply comes from the cache with the same text and 0 tokens, and only the first
+    call is counted.
+    """
+    llm_provider = LLMProvider(make_llm_args(), make_ollama_args())
+    llm_provider.chat_model.cache = InMemoryCache()
+    set_mock_reply(llm_provider, "ok")
+
+    first_response = llm_provider.generate("", "same prompt")
+    second_response = llm_provider.generate("", "same prompt")
+
+    assert first_response.input_tokens == 10
+    assert first_response.output_tokens == 20
+    assert second_response.text == "ok"
+    assert second_response.input_tokens == 0
+    assert second_response.output_tokens == 0
+    assert llm_provider.token_counter.number_of_calls == 1
+    assert llm_provider.token_counter.input_tokens == 10
+    assert llm_provider.token_counter.output_tokens == 20
 
 
 # ---------- compute_cost ----------
