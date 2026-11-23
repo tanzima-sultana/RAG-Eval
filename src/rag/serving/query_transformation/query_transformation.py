@@ -22,8 +22,9 @@ class QueryTransformation:
 		used as given.
 		Output: nothing.
 		What it does: stores both, validates the settings, then loads the embedding model once and builds the query LLM
-		once, so every question reuses them. The query LLM is built only if query_types has a type that needs it
-		(rewritten, multi or hyde), otherwise it is None.
+		once, so every question reuses them. Original is always made, and query_types holds only the extra types
+		(rewritten, multi and/or hyde), which all need the query LLM. So the query LLM is built only if query_types is
+		not empty, otherwise it is None.
 		"""
 		self.query_args = query_args
 		self.query_path = query_path
@@ -39,15 +40,10 @@ class QueryTransformation:
 			encode_kwargs={"batch_size": 256, "normalize_embeddings": True}
 		)
 
-		# 3. The query LLM, only if a query type needs it. LLMProvider validates it, so a paid model needs
-		# ALLOW_PAID_API=1
-		needs_query_llm = False
-		for query_type in query_args.query_types:
-			if query_type != constants.ORIGINAL_QUERY:
-				needs_query_llm = True
-
+		# 3. The query LLM, only if there is an extra query type, since each of them needs it. LLMProvider validates it,
+		# so a paid model needs ALLOW_PAID_API=1
 		self.query_llm_provider = None
-		if needs_query_llm:
+		if len(query_args.query_types) > 0:
 			ollama_args = OllamaArgs(
 				ollama_api_base=query_args.ollama_api_base,
 				ollama_context_length=query_args.ollama_context_length
@@ -68,27 +64,31 @@ class QueryTransformation:
 		if query_args.n_multi_qus < 1:
 			raise ValueError(f"n_multi_qus ({query_args.n_multi_qus}) must be at least 1.")
 
+		# Original is always made, so query_types holds only the extra types. Empty query_types means original only
 		supported_query_types = [
-			constants.ORIGINAL_QUERY,
 			constants.REWRITTEN_QUERY,
 			constants.MULTI_QUERY,
 			constants.HYDE_QUERY
 		]
-		if len(query_args.query_types) == 0:
-			raise ValueError("query_types is empty. Give one or more query types.")
 		for query_type in query_args.query_types:
+			if query_type == constants.ORIGINAL_QUERY:
+				raise ValueError(
+					f"query_type \"{constants.ORIGINAL_QUERY}\" must not be in query_types. It is always made. "
+					f"List only the extra query types, or none for original only."
+				)
 			if query_type not in supported_query_types:
 				raise ValueError(
-					f"query_type ({query_type}) is not supported. Use \"{constants.ORIGINAL_QUERY}\", "
-					f"\"{constants.REWRITTEN_QUERY}\", \"{constants.MULTI_QUERY}\" or \"{constants.HYDE_QUERY}\"."
+					f"query_type ({query_type}) is not supported. Use \"{constants.REWRITTEN_QUERY}\", "
+					f"\"{constants.MULTI_QUERY}\" or \"{constants.HYDE_QUERY}\"."
 				)
 
-	def transform_query(self, question_id: str, question: str) -> Query:
+	def query(self, question_id: str, question: str) -> Query:
 		"""
 		Input: question_id, the id of one question; question, its text.
-		Output: one Query of this question, with its id and only the query types in query_types. The other query types
-		are None.
-		What it does: looks up each query type of the question in its own saved file, named by the hash of what decides
+		Output: one Query of this question, with its id, always its original query, and the extra query types in
+		query_types. The other extra query types are None.
+		What it does: looks up original and each query type in query_types of the question in its own saved file,
+		named by the hash of what decides
 		it. Only the query types not saved are made, with the embedding model and query LLM loaded in __init__, and
 		saved, each as its own file. Prints this question's counts and the query LLM's running cost.
 		"""
@@ -106,10 +106,15 @@ class QueryTransformation:
 		multi_dont_know_count = 0
 		hyde_dont_know_count = 0
 
-		# 2. Load the saved query types of this question, and list the missing ones
+		# 2. Original is always made, then each extra query type. Load the saved ones of this question, and list the
+		# missing ones
+		query_types = [constants.ORIGINAL_QUERY]
+		for query_type in query_args.query_types:
+			query_types.append(query_type)
+
 		results = {}
 		missing_query_types = []
-		for query_type in query_args.query_types:
+		for query_type in query_types:
 			query_file = paths.get_query_file_path(self.query_path, query_args, query_type, question)
 			result = load_query_entry(query_file)
 			if result is None:
@@ -146,10 +151,10 @@ class QueryTransformation:
 				results[query_type] = result
 				generated_count = generated_count + 1
 
-		# 4. One Query of this question, holding only the requested query types
+		# 4. One Query of this question, holding original and only the requested extra query types
 		query = Query(
 			id=question_id,
-			original_qus=results.get(constants.ORIGINAL_QUERY),
+			original_qus=results[constants.ORIGINAL_QUERY],
 			rewritten_qus=results.get(constants.REWRITTEN_QUERY),
 			multi_qus=results.get(constants.MULTI_QUERY),
 			hyde_ans=results.get(constants.HYDE_QUERY),

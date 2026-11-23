@@ -52,10 +52,11 @@ def hyde_answer(qus: str, query_llm_provider: LLMProvider) -> str:
 
 def transform_single_query(query_args: QueryArgs, query_id: str, qus: str, query_types: list[str], query_llm_provider: LLMProvider | None, embedding_model: HuggingFaceEmbeddings) -> Query:
 	"""
-	Input: query_args, the query settings; query_id; qus, one question; query_types, the query types to make;
-	query_llm_provider, the query LLM, None if query_types is only original; embedding_model, normalized like the
-	chunk embeddings.
-	Output: the Query of qus, holding only query_types. The other query types are None.
+	Input: query_args, the query settings; query_id; qus, one question; query_types, the query types still to make,
+	which holds original only when the saved original is missing; query_llm_provider, the query LLM, None when the
+	run has no extra query type; embedding_model, normalized like the chunk embeddings.
+	Output: the Query of qus, holding only query_types. The other query types are None, so original is None here when
+	it was loaded from its saved file; QueryTransformation.query fills it in from that file.
 	What it does: makes each query type of one question and embeds it. Tokens are split the same way as the BM25
 	chunks. Nothing is saved.
 	"""

@@ -162,7 +162,7 @@ def make_query_args(**overrides):
     field_values["query_llm_args"] = LLMArgs("ollama_chat/llama3.1:8b", 100, 30)
     field_values["embedding_model"] = "fake-model"
     field_values["n_multi_qus"] = 2
-    field_values["query_types"] = ["original", "rewritten", "multi", "hyde"]
+    field_values["query_types"] = ["rewritten", "multi", "hyde"]
     field_values["query_split"] = True
     field_values["val_queries_size"] = 1
     field_values["test_queries_size"] = 1

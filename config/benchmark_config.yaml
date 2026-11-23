@@ -8,7 +8,7 @@ inputs:
 query:
   query_llm_model: ollama_chat/llama3.1:8b          # Transforms the eval questions
   n_multi_qus: 3                                    # Phrasings the query LLM writes for each eval question
-  query_types: [original, rewritten, multi, hyde]   # one or more of original, rewritten, multi, hyde
+  query_types: [rewritten, multi, hyde]             # Extra query types: any of rewritten, multi, hyde. Original is always made; [] for original only
   query_split: false                                 # true to split the queries into val and test, false to use all of them as both
   val_queries_size: 150                             # Used only with query_split true: queries for retrieval and retrieval evaluation
   test_queries_size: 50                             # Used only with query_split true: queries for answer generation and answer evaluation

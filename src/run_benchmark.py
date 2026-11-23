@@ -85,7 +85,7 @@ def run_benchmark(args) -> None:
 	query_transformation = QueryTransformation(query_args, query_path)
 	queries = []
 	for eval_sample in eval_samples:
-		query = query_transformation.transform_query(eval_sample.id, eval_sample.qus)
+		query = query_transformation.query(eval_sample.id, eval_sample.qus)
 		queries.append(query)
 	e3 = time.time() - s3
 	print("\nQuery transformation time : ", e3)

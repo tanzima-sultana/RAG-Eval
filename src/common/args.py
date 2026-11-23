@@ -491,8 +491,8 @@ def parse_benchmark_config() -> argparse.Namespace:
 		help="LiteLLM model that transforms the eval questions, e.g. ollama_chat/llama3.1:8b")
 	parser.add_argument("--query.n_multi_qus", dest="n_multi_qus", type=int, required=True,
 		help="Phrasings the query LLM writes for each eval question")
-	parser.add_argument("--query.query_types", dest="query_types", type=str, nargs="+", required=True,
-		help="Query types to make and search with: original, rewritten, multi and/or hyde")
+	parser.add_argument("--query.query_types", dest="query_types", type=str, nargs="*", required=True,
+		help="Extra query types to make and search with, besides original: rewritten, multi and/or hyde. Empty for original only")
 	# The config's true is read as the string "True", so the value is lowercased first
 	parser.add_argument("--query.query_split", dest="query_split", type=str.lower, required=True, choices=["true", "false"],
 		help="true to split the queries into val and test, false to use all of them as both")

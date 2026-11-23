@@ -33,7 +33,7 @@ def make_benchmark_parsed_args(tmp_path, manifest_path, eval_dataset_metadata_pa
     """
     return argparse.Namespace(
         manifest_path=manifest_path, eval_dataset_metadata_path=eval_dataset_metadata_path, output_path=str(tmp_path),
-        query_llm_model="ollama_chat/llama3.1:8b", n_multi_qus=3, query_types=["original"], query_split="false",
+        query_llm_model="ollama_chat/llama3.1:8b", n_multi_qus=3, query_types=[], query_split="false",
         val_queries_size=1, test_queries_size=1, query_llm_max_tokens=100, query_llm_timeout_seconds=30,
         ollama_api_base="http://ollama-test:11434", ollama_context_length=32768,
         retrieval_types=["dense", "bm25", "hybrid"], top_k=3, reranking="false", rerank_top_k=2, n_top_setups=1,
@@ -151,9 +151,9 @@ def use_fake_benchmark_steps(monkeypatch):
             record.query_args.append(query_args)
             record.query_output_paths.append(output_path)
 
-        def transform_query(self, question_id, question):
+        def query(self, question_id, question):
             """
-            Input: the arguments of transform_query, one question id and its question.
+            Input: the arguments of query, one question id and its question.
             Output: one placeholder query.
             What it does: records the question id and question.
             """
@@ -426,7 +426,7 @@ def make_query_args(**overrides):
     field_values["query_llm_args"] = LLMArgs("ollama_chat/llama3.1:8b", 100, 30)
     field_values["embedding_model"] = "fake-model"
     field_values["n_multi_qus"] = 3
-    field_values["query_types"] = ["original"]
+    field_values["query_types"] = []
     field_values["query_split"] = False
     field_values["val_queries_size"] = 1
     field_values["test_queries_size"] = 1

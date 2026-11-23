@@ -24,8 +24,9 @@ class Ans:
 class Query:
 	# Same as the EvalSample id, linking the query to its eval question
 	id: str
-	# Each query type is None when it is not in query_types of this run
-	original_qus: Qus | None
+	# The question as it is. Always made, not set by query_types
+	original_qus: Qus
+	# Each extra query type is None when it is not in query_types of this run
 	rewritten_qus: Qus | None
 	# n_multi_qus phrasings. Empty if the LLM did not return exactly n_multi_qus of them
 	multi_qus: list[Qus] | None
