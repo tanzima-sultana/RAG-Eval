@@ -9,7 +9,7 @@ import math
 import pytest
 
 from evaluation.retrieval_evaluation import RetrievalEvaluation
-from schema.chunk import Chunk
+from schema.chunk import Document
 from schema.eval_sample import EvalSample
 from schema.retrieved import Retrieved
 from schema.setup import Setup
@@ -59,7 +59,7 @@ def make_retrieved(chunk_ids, top_k=4, reranking=False, rerank_top_k=0):
 def make_chunks():
     """
     Input: none.
-    Output: a dict of chunk_id to Chunk.
+    Output: a dict of chunk_id to Document.
     What it does: doc1_0 matches the first passage, doc1_1 the second, doc1_2 is from doc1 but matches neither,
     and doc2_0 matches the first passage but is from another doc.
     """
@@ -71,7 +71,7 @@ def make_chunks():
     }
     chunks = {}
     for chunk_id in texts:
-        chunks[chunk_id] = Chunk(id=chunk_id, text=texts[chunk_id], size=4, type="fixed")
+        chunks[chunk_id] = Document(id=chunk_id, text=texts[chunk_id], size=4, type="fixed")
     return chunks
 
 

@@ -1,7 +1,7 @@
 # 1. What to benchmark: one build and one eval dataset, and where to save the results
 inputs:
-  manifest_path: outputs/pdfa-eng-wds/build/manifest_b196b1c9b445.json                           # The build manifest; every chunk type and index it lists is benchmarked
-  eval_dataset_metadata_path: outputs/pdfa-eng-wds/eval_dataset/eval_dataset_97a6e14c87e5_metadata.json   # The eval dataset metadata; the eval set it names is used
+  manifest_path: outputs/pdfa-eng-wds/build/manifest_fec52ec1befe.json                         # The build manifest; every chunk type and index it lists is benchmarked
+  eval_dataset_metadata_path: outputs/pdfa-eng-wds/eval_dataset/eval_dataset_5f74faf08fdb_metadata.json   # The eval dataset metadata; the eval set it names is used
   output_path: outputs/                                                                           # Root output folder
 
 # 2. Query transformation

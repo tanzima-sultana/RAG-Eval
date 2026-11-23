@@ -21,7 +21,7 @@ from rag.serving.retrieval.retrieval import Retrieval
 from rag.serving.retrieval.single_retrieval import SingleRetrieval
 from schema.setup import Setup
 from rag.serving.retrieval.cache import load_retrieved
-from schema.chunk import Chunk
+from schema.chunk import Document
 from schema.index import Bm25Index
 from schema.index import FaissIndex
 from schema.llm import LLMArgs
@@ -441,9 +441,9 @@ def test_rerank_result_keeps_the_best_rerank_top_k(make_retrieval_args, fake_cro
     What it does: checks the chunks are sorted by score, rerank_top_k are kept and the question is the one given.
     """
     chunks = {
-        "doc1_0": Chunk(id="doc1_0", text="chunk 0.1", size=2, type="fixed"),
-        "doc1_1": Chunk(id="doc1_1", text="chunk 0.9", size=2, type="fixed"),
-        "doc2_0": Chunk(id="doc2_0", text="chunk 0.5", size=2, type="fixed"),
+        "doc1_0": Document(id="doc1_0", text="chunk 0.1", size=2, type="fixed"),
+        "doc1_1": Document(id="doc1_1", text="chunk 0.9", size=2, type="fixed"),
+        "doc2_0": Document(id="doc2_0", text="chunk 0.5", size=2, type="fixed"),
     }
     retrieved = make_retrieved("original", "dense", "faiss_flatip", ["doc1_0", "doc1_1", "doc2_0"])
 
@@ -575,9 +575,9 @@ def test_rerank_retrieval_sorts_by_cross_encoder_score_against_the_eval_question
     query type is scored against the eval question from the eval dataset.
     """
     chunks = {
-        "doc1_0": Chunk(id="doc1_0", text="chunk 0.1", size=2, type="fixed"),
-        "doc1_1": Chunk(id="doc1_1", text="chunk 0.9", size=2, type="fixed"),
-        "doc2_0": Chunk(id="doc2_0", text="chunk 0.5", size=2, type="fixed"),
+        "doc1_0": Document(id="doc1_0", text="chunk 0.1", size=2, type="fixed"),
+        "doc1_1": Document(id="doc1_1", text="chunk 0.9", size=2, type="fixed"),
+        "doc2_0": Document(id="doc2_0", text="chunk 0.5", size=2, type="fixed"),
     }
     retrieved_items = [
         make_retrieved("rewritten", "dense", "faiss_flatip", ["doc1_0", "doc1_1", "doc2_0"]),

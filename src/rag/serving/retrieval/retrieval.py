@@ -10,7 +10,7 @@ from common.args import RetrievalArgs
 from rag.serving.retrieval.cache import load_retrieved
 from rag.serving.retrieval.cache import save_retrieved
 from rag.serving.retrieval.single_retrieval import SingleRetrieval
-from schema.chunk import Chunk
+from schema.chunk import Document
 from schema.eval_sample import EvalSample
 from schema.index import Bm25Index
 from schema.index import FaissIndex
@@ -165,9 +165,9 @@ class Retrieval:
 
 		return hybrid_items
 
-	def rerank_retrieval(self, retrieved_items: list[Retrieved], chunks: dict[str, Chunk], eval_samples: list[EvalSample], output_path: str) -> list[Retrieved]:
+	def rerank_retrieval(self, retrieved_items: list[Retrieved], chunks: dict[str, Document], eval_samples: list[EvalSample], output_path: str) -> list[Retrieved]:
 		"""
-		Input: retrieved_items, the plain results of this chunk type; chunks, a dict of chunk_id to Chunk; eval_samples,
+		Input: retrieved_items, the plain results of this chunk type; chunks, a dict of chunk_id to Document; eval_samples,
 		the eval questions; output_path, the dataset's output folder.
 		Output: one reranked Retrieved per plain result, holding its best rerank_top_k chunks.
 		What it does: for each retrieval setup (retrieval type and index type), loads the saved reranked results, or

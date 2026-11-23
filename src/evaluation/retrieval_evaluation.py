@@ -1,7 +1,7 @@
 import math
 
 from common import constants
-from schema.chunk import Chunk
+from schema.chunk import Document
 from schema.eval_sample import EvalSample
 from schema.retrieved import Retrieved
 from schema.retrieved_eval import Eval
@@ -48,9 +48,9 @@ class RetrievalEvaluation:
 		for eval_sample in eval_samples:
 			self.eval_samples_by_id[eval_sample.id] = eval_sample
 
-	def compute_retrieved_evals(self, retrieved_items: list[Retrieved], chunks: dict[str, Chunk]) -> list[RetrievedEval]:
+	def compute_retrieved_evals(self, retrieved_items: list[Retrieved], chunks: dict[str, Document]) -> list[RetrievedEval]:
 		"""
-		Input: retrieved_items, the results to score; chunks, a dict of chunk_id to Chunk of their chunk type.
+		Input: retrieved_items, the results to score; chunks, a dict of chunk_id to Document of their chunk type.
 		Output: one RetrievedEval per Retrieved, in the same order.
 		What it does: scores each Retrieved against its eval question at chunk level and at doc level.
 		"""
@@ -73,7 +73,7 @@ class RetrievalEvaluation:
 		print(f"Retrieved scored : {len(retrieved_evals)}")
 		return retrieved_evals
 
-	def chunk_eval(self, retrieved: Retrieved, chunks: dict[str, Chunk], eval_sample: EvalSample, k: int) -> Eval:
+	def chunk_eval(self, retrieved: Retrieved, chunks: dict[str, Document], eval_sample: EvalSample, k: int) -> Eval:
 		"""
 		Input: retrieved; chunks; eval_sample, its eval question; k.
 		Output: the Eval at chunk level.

@@ -8,7 +8,7 @@ from langchain_qdrant import QdrantVectorStore
 
 from common import constants
 from common.args import RetrievalArgs
-from schema.chunk import Chunk
+from schema.chunk import Document
 from schema.index import Bm25Index
 from schema.query import Query
 from schema.retrieved import Retrieved
@@ -252,9 +252,9 @@ class SingleRetrieval:
 			doc_ids=doc_ids
 		)
 
-	def rerank_result(self, retrieved: Retrieved, original_qus: str, chunks: dict[str, Chunk]) -> Retrieved:
+	def rerank_result(self, retrieved: Retrieved, original_qus: str, chunks: dict[str, Document]) -> Retrieved:
 		"""
-		Input: retrieved, one plain result; original_qus, its original question; chunks, a dict of chunk_id to Chunk.
+		Input: retrieved, one plain result; original_qus, its original question; chunks, a dict of chunk_id to Document.
 		Output: the reranked Retrieved, holding its best rerank_top_k chunks.
 		What it does: scores each chunk against the original question with the cross-encoder and keeps the best
 		rerank_top_k. Nothing is saved.
