@@ -95,8 +95,8 @@ def run_benchmark(args) -> None:
 	val_queries, test_queries = query_transformation.split_queries(queries)
 
 	# Scores of every plain and reranked result, of every chunk type
-	retrieval_evaluation = RetrievalEvaluation(eval_samples)
-	retrieved_evals = []
+	# retrieval_evaluation = RetrievalEvaluation(eval_samples)
+	# retrieved_evals = []
 
 	# 6. Every chunk type the build made, with the settings it made them with
 	for chunk_entry in manifest.chunk_entries:
@@ -184,23 +184,23 @@ def run_benchmark(args) -> None:
 			print("\nReranking time : ", e12)
 
 		# 11. Retrieval evaluation of the plain and reranked results, while this chunk type's chunks are loaded
-		print("\n\nRetrieval evaluation")
-		s13 = time.time()
-		chunk_type_retrieved_evals = retrieval_evaluation.compute_retrieved_evals(retrieved_items, chunks)
-		retrieved_evals.extend(chunk_type_retrieved_evals)
-		e13 = time.time() - s13
-		print("\nRetrieval evaluation time : ", e13)
+		# print("\n\nRetrieval evaluation")
+		# s13 = time.time()
+		# chunk_type_retrieved_evals = retrieval_evaluation.compute_retrieved_evals(retrieved_items, chunks)
+		# retrieved_evals.extend(chunk_type_retrieved_evals)
+		# e13 = time.time() - s13
+		# print("\nRetrieval evaluation time : ", e13)
 
-	print(f"\n\nRetrieved evals : {len(retrieved_evals)}")
+	# print(f"\n\nRetrieved evals : {len(retrieved_evals)}")
 
 	# 12. Rank every setup, plain and reranked together, keep the best n_top_setups and save them, named by the build,
 	# eval dataset and benchmark hashes
-	print("\n\nSetup ranking")
-	best_setups = rank_setups(retrieved_evals, args.n_top_setups)
-	print(f"Best setups : {len(best_setups)}")
-	ollama_args = make_ollama_args(args)
-	benchmark_hash = paths.get_benchmark_hash(make_benchmark_args(args, query_args), ollama_args)
-	save_best_setups(best_setups, manifest, output_path, eval_dataset_metadata.eval_dataset_hash, benchmark_hash)
+	# print("\n\nSetup ranking")
+	# best_setups = rank_setups(retrieved_evals, args.n_top_setups)
+	# print(f"Best setups : {len(best_setups)}")
+	# ollama_args = make_ollama_args(args)
+	# benchmark_hash = paths.get_benchmark_hash(make_benchmark_args(args, query_args), ollama_args)
+	# save_best_setups(best_setups, manifest, output_path, eval_dataset_metadata.eval_dataset_hash, benchmark_hash)
 
 
 if __name__ == "__main__":

@@ -10,13 +10,13 @@ from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain_community.retrievers import BM25Retriever
 from langchain_community.vectorstores import FAISS
 from langchain_community.vectorstores.utils import DistanceStrategy
-from langchain_core.documents import Document
+from langchain_core.documents import Document as LangchainDocument
 from langchain_huggingface import HuggingFaceEmbeddings
 
 from common import constants
 from common import paths
 from common.args import IndexArgs
-from schema.chunk import Chunk
+from schema.chunk import Document
 from schema.embed import Embedded
 from schema.index import FaissIndex
 from schema.index import Bm25Index
@@ -173,9 +173,9 @@ class Indexing:
 			if index_args.bm25_tokenizer != "whitespace":
 				raise ValueError(f"bm25_tokenizer ({index_args.bm25_tokenizer}) is not supported. Use \"whitespace\".")
 
-	def load_saved_index(self, chunks: dict[str, Chunk], index_folder: str) -> FaissIndex | Bm25Index:
+	def load_saved_index(self, chunks: dict[str, Document], index_folder: str) -> FaissIndex | Bm25Index:
 		"""
-		Input: chunks, a dict of chunk_id to Chunk, the chunks the index must hold; index_folder, the index folder from
+		Input: chunks, a dict of chunk_id to Document, the chunks the index must hold; index_folder, the index folder from
 		the build manifest.
 		Output: a FaissIndex or a Bm25Index.
 		What it does: loads the index the build saved, and raises FileNotFoundError if it is not saved or holds
@@ -208,9 +208,9 @@ class Indexing:
 			dimension=vector_store.index.d
 		)
 
-	def compute_index(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex | Bm25Index:
+	def compute_index(self, chunks: dict[str, Document], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex | Bm25Index:
 		"""
-		Input: chunks, a dict of chunk_id to Chunk; embeddings, a dict of chunk_id to Embedded; output_path, the
+		Input: chunks, a dict of chunk_id to Document; embeddings, a dict of chunk_id to Embedded; output_path, the
 		dataset's output folder.
 		Output: a FaissIndex or a Bm25Index.
 		What it does: calls the indexing method of the index type.
@@ -227,7 +227,7 @@ class Indexing:
 
 		return index
 
-	def faiss_flatip_indexing(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex:
+	def faiss_flatip_indexing(self, chunks: dict[str, Document], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex:
 		"""
 		Input: chunks; embeddings; output_path, the dataset's output folder.
 		Output: a FaissIndex holding an exact inner product (IndexFlatIP) vector store.
@@ -268,7 +268,7 @@ class Indexing:
 			dimension=dimension
 		)
 
-	def faiss_ivf_indexing(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex:
+	def faiss_ivf_indexing(self, chunks: dict[str, Document], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex:
 		"""
 		Input: chunks; embeddings; output_path, the dataset's output folder.
 		Output: a FaissIndex holding an IVF (IndexIVFFlat) vector store with ivf_nlist clusters.
@@ -319,7 +319,7 @@ class Indexing:
 			dimension=dimension
 		)
 
-	def faiss_hnsw_indexing(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex:
+	def faiss_hnsw_indexing(self, chunks: dict[str, Document], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex:
 		"""
 		Input: chunks; embeddings; output_path, the dataset's output folder.
 		Output: a FaissIndex holding an HNSW (IndexHNSWFlat) vector store.
@@ -362,7 +362,7 @@ class Indexing:
 			dimension=dimension
 		)
 
-	def wrap_faiss_index(self, faiss_index: faiss.Index, chunk_ids: list[str], chunks: dict[str, Chunk]) -> FAISS:
+	def wrap_faiss_index(self, faiss_index: faiss.Index, chunk_ids: list[str], chunks: dict[str, Document]) -> FAISS:
 		"""
 		Input: faiss_index, a built FAISS index; chunk_ids, the chunk id at each FAISS position; chunks.
 		Output: a LangChain FAISS vector store around faiss_index.
@@ -373,7 +373,7 @@ class Indexing:
 		index_to_docstore_id = {}
 		for position in range(len(chunk_ids)):
 			chunk_id = chunk_ids[position]
-			documents_by_chunk_id[chunk_id] = Document(
+			documents_by_chunk_id[chunk_id] = LangchainDocument(
 				page_content=chunks[chunk_id].text,
 				metadata={"chunk_id": chunk_id}
 			)
@@ -388,9 +388,9 @@ class Indexing:
 		)
 		return vector_store
 
-	def bm25_indexing(self, chunks: dict[str, Chunk], output_path: str) -> Bm25Index:
+	def bm25_indexing(self, chunks: dict[str, Document], output_path: str) -> Bm25Index:
 		"""
-		Input: chunks, a dict of chunk_id to Chunk; output_path, the dataset's output folder.
+		Input: chunks, a dict of chunk_id to Document; output_path, the dataset's output folder.
 		Output: a Bm25Index holding a LangChain BM25Retriever.
 		What it does: loads the saved retriever if it holds the same chunks, otherwise builds and saves a new one.
 		"""

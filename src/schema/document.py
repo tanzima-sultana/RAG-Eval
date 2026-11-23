@@ -31,7 +31,7 @@ class Metadata(BaseModel):
 	title: str | None = None
 	creation_date: str | None = None
 
-class Document(BaseModel):
+class File(BaseModel):
 	id: str = Field(..., description="Unique identifier derived from content hash")
 	type: DocumentType = Field(..., description="Detected document type (e.g., pdf, docx)")
 	text: str = Field(..., description="Cleaned full text content of the document")

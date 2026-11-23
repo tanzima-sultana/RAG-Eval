@@ -10,7 +10,7 @@ from qdrant_client.models import VectorParams
 from common import constants
 from common import paths
 from common.args import VectorDbArgs
-from schema.chunk import Chunk
+from schema.chunk import Document
 from schema.embed import Embedded
 from schema.vectordb import VectorDb
 
@@ -84,9 +84,9 @@ class IndexingVectorDb:
 		if vectordb_args.qdrant_batch_size <= 0:
 			raise ValueError(f"qdrant_batch_size ({vectordb_args.qdrant_batch_size}) must be greater than 0.")
 
-	def load_saved_vectordb(self, chunks: dict[str, Chunk], collection_name: str) -> VectorDb:
+	def load_saved_vectordb(self, chunks: dict[str, Document], collection_name: str) -> VectorDb:
 		"""
-		Input: chunks, a dict of chunk_id to Chunk, the chunks the collection must hold; collection_name, from the build
+		Input: chunks, a dict of chunk_id to Document, the chunks the collection must hold; collection_name, from the build
 		manifest.
 		Output: a VectorDb holding a LangChain QdrantVectorStore.
 		What it does: connects to the collection the build filled, and raises FileNotFoundError if it does not exist or
@@ -129,9 +129,9 @@ class IndexingVectorDb:
 			dimension=dimension
 		)
 
-	def compute_vectordb(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> VectorDb:
+	def compute_vectordb(self, chunks: dict[str, Document], embeddings: dict[str, Embedded], output_path: str) -> VectorDb:
 		"""
-		Input: chunks, a dict of chunk_id to Chunk; embeddings, a dict of chunk_id to Embedded; output_path, the
+		Input: chunks, a dict of chunk_id to Document; embeddings, a dict of chunk_id to Embedded; output_path, the
 		dataset's output folder.
 		Output: a VectorDb.
 		What it does: calls the indexing method of the vector DB type.
@@ -140,7 +140,7 @@ class IndexingVectorDb:
 		vectordb = self.qdrant_indexing(chunks, embeddings, output_path)
 		return vectordb
 
-	def qdrant_indexing(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> VectorDb:
+	def qdrant_indexing(self, chunks: dict[str, Document], embeddings: dict[str, Embedded], output_path: str) -> VectorDb:
 		"""
 		Input: chunks; embeddings; output_path, the dataset's output folder.
 		Output: a VectorDb holding a LangChain QdrantVectorStore.

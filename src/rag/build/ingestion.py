@@ -7,16 +7,16 @@ from langchain_core.documents import Document as LangchainDocument
 
 from common import paths
 from common.args import IngestionArgs
-from schema.document import Document
+from schema.document import File
 from schema.document import DocumentType
 from schema.document import Metadata
 
 
-def convert_langchain_document(langchain_document: LangchainDocument, document_type: str) -> Document:
+def convert_langchain_document(langchain_document: LangchainDocument, document_type: str) -> File:
 	"""
 	Input: langchain_document, one loaded LangChain Document; document_type.
-	Output: our own Document.
-	What it does: converts the LangChain Document into our Document.
+	Output: our own File.
+	What it does: converts the LangChain Document into our File.
 	"""
 	langchain_metadata = langchain_document.metadata
 	document_file = langchain_metadata["source"]
@@ -49,7 +49,7 @@ def convert_langchain_document(langchain_document: LangchainDocument, document_t
 		creation_date=creation_date,
 	)
 
-	document = Document(
+	document = File(
 		id=content_hash[:16],
 		type=DocumentType(document_type),
 		text=langchain_document.page_content,
@@ -58,7 +58,7 @@ def convert_langchain_document(langchain_document: LangchainDocument, document_t
 	return document
 
 
-def save_documents(processed_data_path: str, documents: dict[str, Document], input_hash: str) -> None:
+def save_documents(processed_data_path: str, documents: dict[str, File], input_hash: str) -> None:
 	"""
 	Input: processed_data_path; documents; input_hash, the hash of the input files the documents were read from.
 	Output: nothing.
@@ -79,10 +79,10 @@ def save_documents(processed_data_path: str, documents: dict[str, Document], inp
 		json.dump(doc_ids, f)
 
 
-def load_documents(processed_data_path: str, input_hash: str) -> dict[str, Document] | None:
+def load_documents(processed_data_path: str, input_hash: str) -> dict[str, File] | None:
 	"""
 	Input: processed_data_path; input_hash, the hash of the input files.
-	Output: a dict of doc_id to Document, or None if the documents of these input files are not saved.
+	Output: a dict of doc_id to File, or None if the documents of these input files are not saved.
 	What it does: loads every document listed in doc_ids_{input_hash}.json.
 	"""
 	doc_ids_file = os.path.join(processed_data_path, f"doc_ids_{input_hash}.json")
@@ -97,7 +97,7 @@ def load_documents(processed_data_path: str, input_hash: str) -> dict[str, Docum
 		document_file = os.path.join(processed_data_path, f"{doc_id}.json")
 		with open(document_file, encoding="utf-8") as f:
 			document_dict = json.load(f)
-		documents[doc_id] = Document.model_validate(document_dict)
+		documents[doc_id] = File.model_validate(document_dict)
 
 	return documents
 
@@ -126,10 +126,10 @@ def validate(ingestion_args: IngestionArgs) -> None:
 		)
 
 
-def load_saved_documents(documents_path: str, dataset_size: int) -> dict[str, Document]:
+def load_saved_documents(documents_path: str, dataset_size: int) -> dict[str, File]:
 	"""
 	Input: documents_path, the documents folder from the build manifest; dataset_size.
-	Output: a dict of doc_id to Document.
+	Output: a dict of doc_id to File.
 	What it does: loads the documents the build saved, and raises FileNotFoundError if they are not saved. It never
 	reads the input files.
 	"""
@@ -175,10 +175,10 @@ def compute_input_hash(ingestion_args: IngestionArgs) -> str:
 	return hashlib.sha256(file_hashes_json.encode("utf-8")).hexdigest()[:12]
 
 
-def ingestion(ingestion_args: IngestionArgs, input_hash: str) -> dict[str, Document]:
+def ingestion(ingestion_args: IngestionArgs, input_hash: str) -> dict[str, File]:
 	"""
 	Input: ingestion_args, the ingestion settings; input_hash, the hash of the input files from compute_input_hash.
-	Output: a dict of doc_id to Document.
+	Output: a dict of doc_id to File.
 	What it does: loads the documents from the cache, or loads the files with LangChain and saves them.
 	"""
 	# 1. Validate the settings

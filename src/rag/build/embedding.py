@@ -7,7 +7,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 
 from common import paths
 from common.args import EmbeddingArgs
-from schema.chunk import Chunk
+from schema.chunk import Document
 from schema.embed import Embedded
 
 
@@ -80,9 +80,9 @@ class Embedding:
 			show_progress=True
 		)
 
-	def compute_embeddings(self, chunks: dict[str, Chunk], output_path: str) -> dict[str, Embedded]:
+	def compute_embeddings(self, chunks: dict[str, Document], output_path: str) -> dict[str, Embedded]:
 		"""
-		Input: chunks, a dict of chunk_id to Chunk; output_path, the dataset's output folder.
+		Input: chunks, a dict of chunk_id to Document; output_path, the dataset's output folder.
 		Output: a dict of chunk_id to Embedded.
 		What it does: loads saved embeddings, embeds the remaining chunks with LangChain and saves them.
 		"""

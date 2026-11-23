@@ -13,8 +13,8 @@ from langchain_core.embeddings import Embeddings
 from common.args import ChunkingArgs
 from common.args import IndexArgs
 from common.args import VectorDbArgs
-from schema.chunk import Chunk
-from schema.document import Document
+from schema.chunk import Document
+from schema.document import File
 from schema.document import DocumentType
 from schema.document import Metadata
 from schema.embed import Embedded
@@ -234,17 +234,17 @@ def make_vectordb_args(make_chunking_args):
 def make_document():
     """
     Input: none.
-    Output: a function that builds a Document from an id and text.
+    Output: a function that builds a File from an id and text.
     What it does: returns a builder that fills in minimal valid metadata.
     """
     def build_document(doc_id, text):
         """
         Input: doc_id and text.
-        Output: a pdf Document with that id and text.
-        What it does: builds the Document with placeholder metadata.
+        Output: a pdf File with that id and text.
+        What it does: builds the File with placeholder metadata.
         """
         metadata = Metadata(source="file.pdf", file_size_bytes=1, content_hash="hash")
-        return Document(id=doc_id, type=DocumentType.PDF, text=text, metadata=metadata)
+        return File(id=doc_id, type=DocumentType.PDF, text=text, metadata=metadata)
 
     return build_document
 
@@ -268,7 +268,7 @@ def make_chunks_and_embeddings():
         for chunk_index in range(chunk_count):
             doc_index = chunk_index % doc_count
             chunk_id = f"doc{doc_index}_{chunk_index}"
-            chunks[chunk_id] = Chunk(chunk_id, f"word{chunk_index} shared", 2, "fixed")
+            chunks[chunk_id] = Document(chunk_id, f"word{chunk_index} shared", 2, "fixed")
 
             vector = random_generator.normal(size=DIMENSION).astype(np.float32)
             vector = vector / np.linalg.norm(vector)

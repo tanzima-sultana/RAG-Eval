@@ -134,7 +134,7 @@ def test_validate_raises_for_invalid_setting(tmp_path, field_name, field_value, 
 def test_convert_langchain_document_fills_id_and_metadata(tmp_path):
     """
     Input: a LangChain Document of a file, with an empty author.
-    Output: our Document.
+    Output: our File.
     What it does: checks the id is the first 16 characters of the file hash and the metadata is copied.
     """
     document_file = tmp_path / "a.pdf"

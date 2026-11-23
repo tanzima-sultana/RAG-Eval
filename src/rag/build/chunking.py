@@ -17,8 +17,8 @@ from langchain_text_splitters import split_text_on_tokens
 from common import constants
 from common import paths
 from common.args import ChunkingArgs
-from schema.document import Document
-from schema.chunk import Chunk
+from schema.document import File
+from schema.chunk import Document
 
 
 class SentenceTransformerEmbeddings(Embeddings):
@@ -56,7 +56,7 @@ class SentenceTransformerEmbeddings(Embeddings):
 		return embedding_lists[0]
 
 
-def save_chunks(chunk_path: str, doc_id: str, chunks: dict[str, Chunk]) -> None:
+def save_chunks(chunk_path: str, doc_id: str, chunks: dict[str, Document]) -> None:
 	"""
 	Input: chunk_path; doc_id; chunks, the document's chunks.
 	Output: nothing.
@@ -73,10 +73,10 @@ def save_chunks(chunk_path: str, doc_id: str, chunks: dict[str, Chunk]) -> None:
 		json.dump(chunk_dicts, f)
 
 
-def load_chunks(chunk_path: str, doc_id: str) -> dict[str, Chunk] | None:
+def load_chunks(chunk_path: str, doc_id: str) -> dict[str, Document] | None:
 	"""
 	Input: chunk_path; doc_id.
-	Output: a dict of chunk_id to Chunk, or None if the document has no saved chunks.
+	Output: a dict of chunk_id to Document, or None if the document has no saved chunks.
 	What it does: loads the document's chunks from {doc_id}.json.
 	"""
 	chunk_file = os.path.join(chunk_path, f"{doc_id}.json")
@@ -88,7 +88,7 @@ def load_chunks(chunk_path: str, doc_id: str) -> dict[str, Chunk] | None:
 
 	chunks = {}
 	for chunk_dict in chunk_dicts:
-		chunk = Chunk(**chunk_dict)
+		chunk = Document(**chunk_dict)
 		chunks[chunk.id] = chunk
 
 	return chunks
@@ -138,10 +138,10 @@ class Chunking:
 				f"max_chunk_size ({chunking_args.max_chunk_size})."
 			)
 
-	def load_saved_chunks(self, documents: dict[str, Document], chunk_path: str) -> dict[str, Chunk]:
+	def load_saved_chunks(self, documents: dict[str, File], chunk_path: str) -> dict[str, Document]:
 		"""
-		Input: documents, a dict of doc_id to Document; chunk_path, the chunk folder from the build manifest.
-		Output: a dict of chunk_id to Chunk for every document.
+		Input: documents, a dict of doc_id to File; chunk_path, the chunk folder from the build manifest.
+		Output: a dict of chunk_id to Document for every document.
 		What it does: loads the chunks the build saved, and raises FileNotFoundError if any document has none. It never
 		chunks.
 		"""
@@ -157,10 +157,10 @@ class Chunking:
 		print(f"Chunks : {len(chunks)} (all from cache)")
 		return chunks
 
-	def compute_chunks(self, documents: dict[str, Document], output_path: str) -> dict[str, Chunk]:
+	def compute_chunks(self, documents: dict[str, File], output_path: str) -> dict[str, Document]:
 		"""
-		Input: documents, a dict of doc_id to Document; output_path, the dataset's output folder.
-		Output: a dict of chunk_id to Chunk for every document.
+		Input: documents, a dict of doc_id to File; output_path, the dataset's output folder.
+		Output: a dict of chunk_id to Document for every document.
 		What it does: loads saved chunks, chunks the remaining documents with LangChain and saves them.
 		"""
 		# 1. Validate the settings
@@ -206,9 +206,9 @@ class Chunking:
 
 		return chunks
 
-	def fixed_chunking(self, documents: dict[str, Document]) -> dict[str, dict[str, Chunk]]:
+	def fixed_chunking(self, documents: dict[str, File]) -> dict[str, dict[str, Document]]:
 		"""
-		Input: documents, a dict of doc_id to Document.
+		Input: documents, a dict of doc_id to File.
 		Output: a dict of doc_id to that document's chunks.
 		What it does: splits each document into overlapping token windows with SentenceTransformersTokenTextSplitter.
 		"""
@@ -230,9 +230,9 @@ class Chunking:
 
 		return chunks_by_document
 
-	def sentence_chunking(self, documents: dict[str, Document]) -> dict[str, dict[str, Chunk]]:
+	def sentence_chunking(self, documents: dict[str, File]) -> dict[str, dict[str, Document]]:
 		"""
-		Input: documents, a dict of doc_id to Document.
+		Input: documents, a dict of doc_id to File.
 		Output: a dict of doc_id to that document's chunks.
 		What it does: packs whole sentences into chunks with NLTKTextSplitter, then cuts too-long pieces.
 		"""
@@ -259,9 +259,9 @@ class Chunking:
 
 		return chunks_by_document
 
-	def semantic_chunking(self, documents: dict[str, Document]) -> dict[str, dict[str, Chunk]]:
+	def semantic_chunking(self, documents: dict[str, File]) -> dict[str, dict[str, Document]]:
 		"""
-		Input: documents, a dict of doc_id to Document.
+		Input: documents, a dict of doc_id to File.
 		Output: a dict of doc_id to that document's chunks.
 		What it does: splits each document at topic changes with SemanticChunker, then cuts too-long pieces.
 		"""
@@ -286,18 +286,18 @@ class Chunking:
 
 		return chunks_by_document
 
-	def make_chunks(self, doc_id: str, chunk_texts: list[str]) -> dict[str, Chunk]:
+	def make_chunks(self, doc_id: str, chunk_texts: list[str]) -> dict[str, Document]:
 		"""
 		Input: doc_id; chunk_texts, the document's chunk texts in order.
-		Output: a dict of chunk_id to Chunk.
-		What it does: wraps each text into a Chunk with id "{doc_id}_{n}".
+		Output: a dict of chunk_id to Document.
+		What it does: wraps each text into a Document with id "{doc_id}_{n}".
 		"""
 		chunks = {}
 		for chunk_index in range(len(chunk_texts)):
 			chunk_text = chunk_texts[chunk_index]
 			chunk_id = f"{doc_id}_{chunk_index}"
 			chunk_size = self.count_tokens(chunk_text)
-			chunks[chunk_id] = Chunk(chunk_id, chunk_text, chunk_size, self.chunking_args.chunk_type)
+			chunks[chunk_id] = Document(chunk_id, chunk_text, chunk_size, self.chunking_args.chunk_type)
 		return chunks
 
 	def cut_long_pieces(self, piece_texts: list[str]) -> list[str]:

@@ -16,7 +16,7 @@ from rag.build import embedding as embedding_module
 from rag.build.embedding import Embedding
 from rag.build.embedding import load_embeddings
 from rag.build.embedding import save_embeddings
-from schema.chunk import Chunk
+from schema.chunk import Document
 from schema.embed import Embedded
 
 
@@ -34,7 +34,7 @@ def patched_embeddings(monkeypatch, fake_huggingface_embeddings):
 def make_chunks(chunk_texts_by_doc_id):
     """
     Input: chunk_texts_by_doc_id, a dict of doc_id to that document's chunk texts.
-    Output: a dict of chunk_id to Chunk, with ids "{doc_id}_{n}".
+    Output: a dict of chunk_id to Document, with ids "{doc_id}_{n}".
     What it does: builds the chunks Embedding takes.
     """
     chunks = {}
@@ -42,7 +42,7 @@ def make_chunks(chunk_texts_by_doc_id):
         chunk_texts = chunk_texts_by_doc_id[doc_id]
         for chunk_index in range(len(chunk_texts)):
             chunk_id = f"{doc_id}_{chunk_index}"
-            chunks[chunk_id] = Chunk(chunk_id, chunk_texts[chunk_index], 1, "fixed")
+            chunks[chunk_id] = Document(chunk_id, chunk_texts[chunk_index], 1, "fixed")
     return chunks
 
 

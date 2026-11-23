@@ -14,12 +14,12 @@ from rag.build.chunking import Chunking
 from rag.build.chunking import SentenceTransformerEmbeddings
 from rag.build.chunking import load_chunks
 from rag.build.chunking import save_chunks
-from schema.chunk import Chunk
+from schema.chunk import Document
 
 
 def get_chunk_texts(chunks):
     """
-    Input: chunks, a dict of chunk_id to Chunk.
+    Input: chunks, a dict of chunk_id to Document.
     Output: the list of chunk texts in order.
     What it does: collects each chunk's text.
     """
@@ -32,7 +32,7 @@ def get_chunk_texts(chunks):
 def make_documents(make_document, text):
     """
     Input: the make_document fixture and one text.
-    Output: a dict with one Document, "doc", holding that text.
+    Output: a dict with one File, "doc", holding that text.
     What it does: builds the documents dict the chunking methods take.
     """
     documents = {}
@@ -73,8 +73,8 @@ def test_save_and_load_chunks_round_trip(tmp_path):
     What it does: checks the chunks come back the same, and a missing document gives None.
     """
     chunks = {}
-    chunks["doc_0"] = Chunk("doc_0", "one two", 2, "fixed")
-    chunks["doc_1"] = Chunk("doc_1", "three", 1, "fixed")
+    chunks["doc_0"] = Document("doc_0", "one two", 2, "fixed")
+    chunks["doc_1"] = Document("doc_1", "three", 1, "fixed")
 
     save_chunks(str(tmp_path), "doc", chunks)
 
