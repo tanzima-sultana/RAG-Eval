@@ -21,18 +21,18 @@ from common.args import EvalDatasetArgs
 from evaluation.eval_dataset.knowledge_graph import apply_transforms_dropping_failed_nodes
 from evaluation.eval_dataset.knowledge_graph import check_reply_finished
 from llm_provider.llm_provider import LLMProvider
-from schema.document import Document
+from schema.document import File
 from schema.eval_sample import EvalSample
 
 
 def generate_eval_dataset(
-	documents: dict[str, Document],
+	documents: dict[str, File],
 	output_path: str,
 	eval_dataset_args: EvalDatasetArgs,
 	ollama_args: OllamaArgs
 ) -> list[EvalSample]:
 	"""
-	Input: documents, a dict of doc_id to Document; output_path, the dataset's output folder; eval_dataset_args, the
+	Input: documents, a dict of doc_id to File; output_path, the dataset's output folder; eval_dataset_args, the
 	eval dataset settings; ollama_args, the Ollama settings.
 	Output: a list of EvalSample. Raises ValueError if RAGAS generates none.
 	What it does: samples documents long enough for RAGAS, builds or loads the RAGAS knowledge graph, generates

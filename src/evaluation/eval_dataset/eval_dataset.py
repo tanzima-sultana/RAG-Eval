@@ -12,7 +12,7 @@ from evaluation.eval_dataset.cache import load_eval_dataset
 from evaluation.eval_dataset.cache import save_eval_dataset
 from evaluation.eval_dataset.cache import save_eval_dataset_metadata
 from evaluation.eval_dataset.eval_sample import generate_eval_dataset
-from schema.document import Document
+from schema.document import File
 from schema.eval_dataset_metadata import EvalDatasetMetadata
 from schema.eval_sample import EvalSample
 
@@ -80,7 +80,7 @@ class EvalDataset:
 			document_file = os.path.join(documents_folder, f"{doc_id}.json")
 			with open(document_file, encoding="utf-8") as f:
 				document_dict = json.load(f)
-			documents[doc_id] = Document.model_validate(document_dict)
+			documents[doc_id] = File.model_validate(document_dict)
 		print(f"Documents : {len(documents)} of {len(doc_ids)} in {documents_path}")
 
 		# 4. Generate and save the eval dataset
@@ -95,7 +95,7 @@ class EvalDataset:
 		print(f"Eval dataset metadata saved : {eval_dataset_metadata_path}")
 		return eval_samples
 
-	def make_eval_dataset_metadata(self, documents: dict[str, Document], output_path: str, eval_samples: list[EvalSample]) -> EvalDatasetMetadata:
+	def make_eval_dataset_metadata(self, documents: dict[str, File], output_path: str, eval_samples: list[EvalSample]) -> EvalDatasetMetadata:
 		"""
 		Input: documents, the document set it was generated from; output_path, the dataset's output folder;
 		eval_samples, the saved eval samples.

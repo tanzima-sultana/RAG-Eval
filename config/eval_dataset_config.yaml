@@ -3,7 +3,7 @@ documents:
   output_path: outputs/
   dataset_name: pdfa-eng-wds
   dataset_size: 50
-  documents_path: outputs/pdfa-eng-wds/documents/doc_ids_e64bca45359f.json   
+  documents_path:  outputs/pdfa-eng-wds/documents/doc_ids_cd67488a57d6.json  
 
 # 2. The LLM that writes the eval questions and answers
 eval_dataset_llm:
