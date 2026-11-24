@@ -1,9 +1,12 @@
 import argparse
 import dataclasses
+import os
 
 import yaml
 
 from schema.llm import LLMArgs
+from schema.setup import Setup
+from schema.setup import SetupRecord
 
 
 @dataclasses.dataclass
@@ -523,6 +526,181 @@ def parse_benchmark_config() -> argparse.Namespace:
 	parsed_args = parser.parse_args(config_arguments + override_arguments)
 	return parsed_args
 
+
+
+@dataclasses.dataclass
+class PipelineArgs:
+	# Every setting of one pipeline, one sub-args per layer. The setup's settings come from its best setups record,
+	# the rest from the pipeline config
+	# The setup the pipeline serves
+	setup: Setup
+	# The query layer: its query_types is empty for original or holds the setup's one query type
+	query_args: QueryArgs
+	# The folder of the query LLM cache
+	query_path: str
+	# The chunks of the setup's chunk type, and the document list they are loaded for
+	chunking_args: ChunkingArgs
+	chunk_path: str
+	documents_path: str
+	input_hash: str
+	# The setup's indexes, in the order of index_paths: an IndexArgs for FAISS and BM25, None for Qdrant
+	index_args_list: list[IndexArgs | None]
+	# The setup's Qdrant collection settings, or None when it has no Qdrant collection
+	vectordb_args: VectorDbArgs | None
+	index_paths: list[str]
+	# The retrieval layer: its retrieval_types holds the setup's one retrieval type
+	retrieval_args: RetrievalArgs
+	# The folder of the retrieved results
+	retrieved_path: str
+	# The context, prompt and answer layers, None until they are built
+	context_args: None
+	prompt_args: None
+	answer_args: None
+
+
+def make_pipeline_args(parsed_args: argparse.Namespace, setup_record: SetupRecord) -> PipelineArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_pipeline_config(); setup_record, the best setup to
+	serve, from the best setups file.
+	Output: the PipelineArgs of that setup.
+	What it does: builds each sub-args from the setup record, which holds every setting that made the setup's results,
+	and from the pipeline config, which holds the rest: the query LLM timeout, the Ollama and Qdrant servers and the
+	output folder.
+	"""
+	setup = setup_record.setup
+
+	# 1. The query layer: the query LLM settings from the record, and the setup's one query type, none for original
+	query_llm_args = LLMArgs(
+		llm_model=setup_record.query_llm_model,
+		max_tokens=setup_record.query_llm_max_tokens,
+		timeout_seconds=parsed_args.query_llm_timeout_seconds
+	)
+	ollama_providers = ["ollama", "ollama_chat"]
+	query_llm_provider = setup_record.query_llm_model.split("/", 1)[0]
+	ollama_api_base = None
+	if query_llm_provider in ollama_providers:
+		ollama_api_base = parsed_args.ollama_api_base
+	query_types = []
+	if setup.query_type != "original":
+		query_types.append(setup.query_type)
+	# The pipeline serves one question at a time, so the val and test split is not used
+	query_args = QueryArgs(
+		query_llm_args=query_llm_args,
+		n_multi_qus=setup_record.n_multi_qus,
+		query_types=query_types,
+		query_split=False,
+		val_queries_size=0,
+		test_queries_size=0,
+		ollama_api_base=ollama_api_base,
+		ollama_context_length=setup_record.ollama_context_length
+	)
+
+	# 2. The chunks of the setup's chunk type
+	chunking_args = ChunkingArgs(
+		model_name=setup_record.embedding_model,
+		chunk_type=setup.chunk_type,
+		min_chunk_size=setup_record.min_chunk_size,
+		max_chunk_size=setup_record.max_chunk_size,
+		fixed_chunk_overlap=setup_record.fixed_chunk_overlap,
+		semantic_threshold=setup_record.semantic_threshold
+	)
+
+	# 3. The setup's indexes, in the order of index_paths. Hybrid's index_type is the dense and BM25 index types
+	# joined with "+"
+	index_types = setup.index_type.split("+")
+	index_args_list = []
+	vectordb_args = None
+	all_index_settings = {}
+	for index_position in range(len(index_types)):
+		index_type = index_types[index_position]
+		index_settings = setup_record.index_settings[index_position]
+		for setting_name in index_settings:
+			all_index_settings[setting_name] = index_settings[setting_name]
+		if index_type == "qdrant":
+			index_args_list.append(None)
+			vectordb_args = VectorDbArgs(
+				chunking_args=chunking_args,
+				vectordb_type=index_type,
+				qdrant_url=parsed_args.qdrant_url,
+				qdrant_batch_size=parsed_args.qdrant_batch_size,
+				input_hash=setup_record.input_hash
+			)
+		else:
+			index_args_list.append(make_manifest_index_args(chunking_args, index_type, index_settings, setup_record.input_hash))
+
+	# 4. The retrieval layer: the setup's one retrieval type and reranking, and the retrieval settings from the record
+	retrieval_args = RetrievalArgs(
+		index_args=make_manifest_index_args(chunking_args, "", all_index_settings, setup_record.input_hash),
+		retrieval_types=[setup.retrieval_type],
+		top_k=setup_record.top_k,
+		reranking=setup.reranking,
+		rerank_top_k=setup_record.rerank_top_k
+	)
+
+	pipeline_args = PipelineArgs(
+		setup=setup,
+		query_args=query_args,
+		query_path=os.path.join(parsed_args.output_path, "queries"),
+		chunking_args=chunking_args,
+		chunk_path=setup_record.chunk_path,
+		documents_path=setup_record.documents_path,
+		input_hash=setup_record.input_hash,
+		index_args_list=index_args_list,
+		vectordb_args=vectordb_args,
+		index_paths=list(setup_record.index_paths),
+		retrieval_args=retrieval_args,
+		retrieved_path=os.path.join(parsed_args.output_path, setup_record.dataset_name, "retrieved"),
+		context_args=None,
+		prompt_args=None,
+		answer_args=None
+	)
+	return pipeline_args
+
+
+def parse_pipeline_config() -> argparse.Namespace:
+	"""
+	Input: --config, the YAML pipeline config, and any override flags as --{section}.{key} value.
+	Output: an argparse.Namespace with every pipeline setting, e.g. args.best_setups_path.
+	What it does: reads each section's settings from the file as --{section}.{key} flags, then the override flags, so an
+	override replaces the file's value, and parses them all.
+	"""
+	# 1. Get the config file path. The other command line flags are overrides
+	config_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+	config_parser.add_argument("--config", type=str, required=True, help="YAML config file, e.g. config/pipeline_config.yaml")
+	config_args, override_arguments = config_parser.parse_known_args()
+
+	with open(config_args.config, encoding="utf-8") as config_file:
+		config = yaml.safe_load(config_file)
+
+	# 2. Turn each setting of the file into its flag
+	config_arguments = []
+	for section in config:
+		section_settings = config[section]
+		if not isinstance(section_settings, dict):
+			raise ValueError(f"{section} in {config_args.config} must be a section holding settings.")
+		for key in section_settings:
+			config_arguments.append(f"--{section}.{key}")
+			config_arguments.append(str(section_settings[key]))
+
+	# 3. Parse the file's flags and then the overrides, so an override replaces the file's value
+	parser = argparse.ArgumentParser(description="Pipeline parameters", allow_abbrev=False)
+	parser.add_argument("--inputs.best_setups_path", dest="best_setups_path", type=str, required=True,
+		help="The best setups file the benchmark saved")
+	parser.add_argument("--inputs.setup_rank", dest="setup_rank", type=int, required=True,
+		help="Which setup of the best setups file to serve: 1 for the best")
+	parser.add_argument("--inputs.output_path", dest="output_path", type=str, required=True,
+		help="Root output folder; the query LLM cache is in its queries/ folder, the retrieved results in {dataset}/retrieved/")
+	parser.add_argument("--query_llm.timeout_seconds", dest="query_llm_timeout_seconds", type=int, required=True,
+		help="Seconds before one call of the query LLM times out")
+	parser.add_argument("--ollama.api_base", dest="ollama_api_base", type=str, required=True,
+		help="URL of the local Ollama server, used only when the setup's query LLM is an Ollama model")
+	parser.add_argument("--qdrant.url", dest="qdrant_url", type=str, required=True,
+		help="URL of the Qdrant server that holds the build's collections")
+	parser.add_argument("--qdrant.batch_size", dest="qdrant_batch_size", type=int, required=True,
+		help="Number of points per Qdrant request, required by the vector DB settings")
+
+	parsed_args = parser.parse_args(config_arguments + override_arguments)
+	return parsed_args
 
 def parse_indexing_args(parser: argparse.ArgumentParser) -> None:
 	"""

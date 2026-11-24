@@ -9,11 +9,13 @@ import os
 import pytest
 
 from common import paths
+from common.args import QueryArgs
 from evaluation.setup_ranking import load_best_setups
 from evaluation.setup_ranking import rank_setups
 from evaluation.setup_ranking import save_best_setups
 from schema.manifest import BuildManifest
 from schema.manifest import ChunkEntry
+from schema.llm import LLMArgs
 from schema.manifest import IndexEntry
 from schema.retrieved import Retrieved
 from schema.retrieved_eval import Eval
@@ -150,6 +152,28 @@ def make_manifest():
     )
 
 
+def make_query_args():
+    """
+    Input: none.
+    Output: a QueryArgs with an Ollama query LLM.
+    What it does: builds the query settings the best setups are saved with.
+    """
+    return QueryArgs(
+        query_llm_args=LLMArgs("ollama_chat/llama3.1:8b", 100, 30), n_multi_qus=3, query_types=["rewritten"],
+        query_split=False, val_queries_size=1, test_queries_size=1, ollama_api_base="http://ollama-test:11434",
+        ollama_context_length=32768,
+    )
+
+
+def save_test_best_setups(best_setups, output_path):
+    """
+    Input: best_setups, best first; output_path.
+    Output: their SetupRecords.
+    What it does: saves the best setups with the test manifest, top_k 20, rerank_top_k 5 and the test query settings.
+    """
+    return save_best_setups(best_setups, make_manifest(), 20, 5, make_query_args(), output_path, "testevalhash", "testbenchmarkhash")
+
+
 def make_any_setup(retrieval_type, index_type):
     """
     Input: retrieval_type; index_type.
@@ -173,7 +197,7 @@ def test_save_best_setups_finds_each_index_location(tmp_path):
         make_any_setup("hybrid", "faiss_hnsw+bm25"),
     ]
 
-    setup_records = save_best_setups(best_setups, make_manifest(), str(tmp_path), "testevalhash", "testbenchmarkhash")
+    setup_records = save_test_best_setups(best_setups, str(tmp_path))
 
     assert setup_records[0].index_paths == ("out/indexes/faiss_hnsw_test",)
     assert setup_records[1].index_paths == ("out/indexes/bm25_test",)
@@ -184,13 +208,35 @@ def test_save_best_setups_finds_each_index_location(tmp_path):
     assert setup_records[3].setup == best_setups[3]
 
 
+def test_save_best_setups_holds_every_setting_that_made_the_results(tmp_path):
+    """
+    Input: a hybrid setup saved with the test manifest, retrieval and query settings.
+    Output: its SetupRecord.
+    What it does: checks the build, chunk, index, retrieval and query LLM settings are in the record, with the index
+    settings in the order of index_paths.
+    """
+    setup_record = save_test_best_setups([make_any_setup("hybrid", "faiss_hnsw+bm25")], str(tmp_path))[0]
+
+    assert setup_record.dataset_name == "dataset"
+    assert setup_record.embedding_model == "fake-model"
+    assert setup_record.input_hash == "testinputhash"
+    assert setup_record.documents_path == "out/documents"
+    assert (setup_record.min_chunk_size, setup_record.max_chunk_size, setup_record.fixed_chunk_overlap, setup_record.semantic_threshold) == (2, 6, 2, 0.5)
+    assert setup_record.index_settings == ({"hnsw_m": 4, "hnsw_ef_construction": 8}, {"bm25_k1": 1.5, "bm25_b": 0.75, "bm25_tokenizer": "whitespace"})
+    assert (setup_record.top_k, setup_record.rerank_top_k) == (20, 5)
+    assert setup_record.query_llm_model == "ollama_chat/llama3.1:8b"
+    assert setup_record.query_llm_max_tokens == 100
+    assert setup_record.n_multi_qus == 3
+    assert setup_record.ollama_context_length == 32768
+
+
 def test_save_best_setups_names_the_file_by_the_three_hashes(tmp_path):
     """
     Input: one best setup, the manifest and an eval dataset and benchmark hash.
     Output: the saved file.
     What it does: checks the file is best_setups/best_setups_{build_hash}_{eval_dataset_hash}_{benchmark_hash}.json.
     """
-    save_best_setups([make_any_setup("dense", "qdrant")], make_manifest(), str(tmp_path), "testevalhash", "testbenchmarkhash")
+    save_test_best_setups([make_any_setup("dense", "qdrant")], str(tmp_path))
 
     expected_file = os.path.join(str(tmp_path), "best_setups", "best_setups_testbuildhash_testevalhash_testbenchmarkhash.json")
     assert paths.get_best_setups_path(str(tmp_path), "testbuildhash", "testevalhash", "testbenchmarkhash") == expected_file
@@ -206,8 +252,8 @@ def test_save_then_load_best_setups_gives_the_same_records_in_order(tmp_path):
     output_path = str(tmp_path)
     best_setups = [make_any_setup("hybrid", "faiss_hnsw+bm25"), make_any_setup("dense", "qdrant")]
 
-    saved_records = save_best_setups(best_setups, make_manifest(), output_path, "testevalhash", "testbenchmarkhash")
-    loaded_records = load_best_setups(output_path, "testbuildhash", "testevalhash", "testbenchmarkhash")
+    saved_records = save_test_best_setups(best_setups, output_path)
+    loaded_records = load_best_setups(paths.get_best_setups_path(output_path, "testbuildhash", "testevalhash", "testbenchmarkhash"))
 
     assert loaded_records == saved_records
     assert isinstance(loaded_records[0], SetupRecord)
@@ -221,4 +267,4 @@ def test_load_best_setups_raises_when_nothing_is_saved(tmp_path):
     What it does: checks serving is told to run the benchmark first instead of getting no setups.
     """
     with pytest.raises(FileNotFoundError, match="benchmark"):
-        load_best_setups(str(tmp_path), "testbuildhash", "testevalhash", "testbenchmarkhash")
+        load_best_setups(os.path.join(str(tmp_path), "missing.json"))

@@ -48,7 +48,7 @@ class RetrievalEvaluation:
 		for eval_sample in eval_samples:
 			self.eval_samples_by_id[eval_sample.id] = eval_sample
 
-	def compute_retrieved_evals(self, retrieved_items: list[Retrieved], chunks: dict[str, Document]) -> list[RetrievedEval]:
+	def compute_retrieved_evaluation(self, retrieved_items: list[Retrieved], chunks: dict[str, Document]) -> list[RetrievedEval]:
 		"""
 		Input: retrieved_items, the results to score; chunks, a dict of chunk_id to Document of their chunk type.
 		Output: one RetrievedEval per Retrieved, in the same order.

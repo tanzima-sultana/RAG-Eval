@@ -320,16 +320,11 @@ def make_query_hashed_args(query_args: QueryArgs) -> dict:
 # ------ Retrieval
 def get_retrieved_file_path(retrieved_path: str, retrieval_args: RetrievalArgs, query_type: str, index_type: str, query_texts: list[str], original_qus: str) -> str:
 	"""
-	Input: retrieved_path, the folder the retrieved files are saved in, used as given; retrieval_args, the retrieval
-	settings of one setup, with its one retrieval type; query_type, the query type searched with; index_type, the
-	setup's index type, e.g. faiss_flatip, bm25 or qdrant+bm25; query_texts, the texts searched; original_qus, the
-	original question text, which the cross-encoder scores against.
+	Input: retrieved_path, the folder of the retrieved files; retrieval_args, the setup's retrieval settings; query_type;
+	index_type; query_texts, the texts searched; original_qus, the original question.
 	Output: {retrieved_path}/{hash}.json
-	What it does: builds the file of one setup's result for one query, named by the first 12 hex characters of the
-	SHA-256 of the content it is made from, as JSON with sorted keys: the searched texts and the query type, the
-	retrieval type and top_k, the chunk settings, the index settings, the input hash and the index type; with reranking
-	also the original question, rerank_top_k and the cross-encoder model. The query type is in it because the saved
-	result holds it in its setup.
+	What it does: names the file by a hash of what the result is made from: the texts, the setup and its own index
+	settings, plus the original question and rerank settings when reranking.
 	"""
 	index_args = retrieval_args.index_args
 	chunking_args = index_args.chunking_args

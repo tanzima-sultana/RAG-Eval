@@ -115,7 +115,7 @@ src/
                         context.py
                         prompt.py
                         answer.py
-                        rag_pipeline.py               # RagPipeline(setup): retrieve(q), answer(q)
+                        pipeline.py               
 
         evaluation/                       # computes scores
                 eval_dataset.py                 # the saved questions the benchmark is scored against

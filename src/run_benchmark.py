@@ -100,9 +100,9 @@ def run_benchmark(args) -> None:
 	print("\n\nQuery split")
 	val_queries, test_queries = query_transformation.split_queries(queries)
 
-	# Scores of every plain and reranked result, of every chunk type
-	# retrieval_evaluation = RetrievalEvaluation(eval_samples)
-	# retrieved_evals = []
+	# Scores of every result, of every chunk type
+	retrieval_evaluation = RetrievalEvaluation(eval_samples)
+	retrieved_evals = []
 
 	# The query settings of each query type searched, one Retrieval each: no extra query type for original, then one
 	# for each extra query type the query layer made. The retrieved files of every setup are saved in one folder
@@ -131,20 +131,20 @@ def run_benchmark(args) -> None:
 			for setting_name in index_entry.index_settings:
 				chunk_type_index_settings[setting_name] = index_entry.index_settings[setting_name]
 
-		# The retrieval settings of each retrieval type of this chunk type, one Retrieval each. Every result of this chunk
-		# type is collected in retrieved_items
+		# The retrieval settings of this chunk type. Each setup gets a copy with its one retrieval type and only the index
+		# settings of the indexes it searches, so its retrieved files are named by what made them. Every result of this
+		# chunk type is collected in retrieved_items
 		chunk_type_index_args = make_manifest_index_args(chunking_args, "", chunk_type_index_settings, manifest.input_hash)
 		retrieval_args = make_retrieval_args(args, chunk_type_index_args)
-		dense_retrieval_args = dataclasses.replace(retrieval_args, retrieval_types=[DENSE_RETRIEVAL])
-		bm25_retrieval_args = dataclasses.replace(retrieval_args, retrieval_types=[BM25_RETRIEVAL])
-		hybrid_retrieval_args = dataclasses.replace(retrieval_args, retrieval_types=[HYBRID_RETRIEVAL])
 		retrieved_items = []
 
 		# 7. The BM25 index of this chunk type, loaded once and kept for BM25 and hybrid retrieval
 		bm25_index = None
+		bm25_index_settings = {}
 		for index_entry in manifest.index_entries:
 			if index_entry.chunk_type != chunk_type or index_entry.index_type != BM25_INDEX:
 				continue
+			bm25_index_settings = index_entry.index_settings
 			print(f"\n\nIndexing : {BM25_INDEX}")
 			index_args = make_manifest_index_args(chunking_args, BM25_INDEX, chunk_type_index_settings, manifest.input_hash)
 
@@ -158,6 +158,11 @@ def run_benchmark(args) -> None:
 		if bm25_index is not None and BM25_RETRIEVAL in retrieval_args.retrieval_types:
 			print(f"\n\nRetrieval : {BM25_RETRIEVAL} {BM25_INDEX}")
 			s8 = time.time()
+			bm25_retrieval_args = dataclasses.replace(
+				retrieval_args,
+				retrieval_types=[BM25_RETRIEVAL],
+				index_args=make_manifest_index_args(chunking_args, "", bm25_index_settings, manifest.input_hash)
+			)
 			for search_query_args in search_query_args_list:
 				if search_query_args.query_types == [HYDE_QUERY]:
 					continue
@@ -192,6 +197,11 @@ def run_benchmark(args) -> None:
 			if DENSE_RETRIEVAL in retrieval_args.retrieval_types:
 				print(f"\n\nRetrieval : {DENSE_RETRIEVAL} {index_type}")
 				s10 = time.time()
+				dense_retrieval_args = dataclasses.replace(
+					retrieval_args,
+					retrieval_types=[DENSE_RETRIEVAL],
+					index_args=make_manifest_index_args(chunking_args, "", index_entry.index_settings, manifest.input_hash)
+				)
 				for search_query_args in search_query_args_list:
 					retrieval = Retrieval(dense_retrieval_args, search_query_args, faiss_index, vectordb_index, None, retrieved_path)
 					for query in val_queries:
@@ -203,6 +213,17 @@ def run_benchmark(args) -> None:
 			if bm25_index is not None and HYBRID_RETRIEVAL in retrieval_args.retrieval_types:
 				print(f"\n\nRetrieval : {HYBRID_RETRIEVAL} {index_type}+{BM25_INDEX}")
 				s11 = time.time()
+				# Hybrid searches this dense index and the BM25 index, so it gets the settings of both
+				hybrid_index_settings = {}
+				for setting_name in index_entry.index_settings:
+					hybrid_index_settings[setting_name] = index_entry.index_settings[setting_name]
+				for setting_name in bm25_index_settings:
+					hybrid_index_settings[setting_name] = bm25_index_settings[setting_name]
+				hybrid_retrieval_args = dataclasses.replace(
+					retrieval_args,
+					retrieval_types=[HYBRID_RETRIEVAL],
+					index_args=make_manifest_index_args(chunking_args, "", hybrid_index_settings, manifest.input_hash)
+				)
 				for search_query_args in search_query_args_list:
 					if search_query_args.query_types == [HYDE_QUERY]:
 						continue
@@ -214,24 +235,27 @@ def run_benchmark(args) -> None:
 
 		print(f"\nRetrieved : {len(retrieved_items)}")
 
-		# 11. Retrieval evaluation of the plain and reranked results, while this chunk type's chunks are loaded
-		# print("\n\nRetrieval evaluation")
-		# s13 = time.time()
-		# chunk_type_retrieved_evals = retrieval_evaluation.compute_retrieved_evals(retrieved_items, chunks)
-		# retrieved_evals.extend(chunk_type_retrieved_evals)
-		# e13 = time.time() - s13
-		# print("\nRetrieval evaluation time : ", e13)
+		# 11. Retrieval evaluation of this chunk type's results, while its chunks are loaded
+		print("\n\nRetrieval evaluation")
+		s13 = time.time()
+		chunk_type_retrieved_evals = retrieval_evaluation.compute_retrieved_evaluation(retrieved_items, chunks)
+		retrieved_evals.extend(chunk_type_retrieved_evals)
+		e13 = time.time() - s13
+		print("\nRetrieval evaluation time : ", e13)
 
-	# print(f"\n\nRetrieved evals : {len(retrieved_evals)}")
+	print(f"\n\nRetrieved evals : {len(retrieved_evals)}")
 
-	# 12. Rank every setup, plain and reranked together, keep the best n_top_setups and save them, named by the build,
-	# eval dataset and benchmark hashes
-	# print("\n\nSetup ranking")
-	# best_setups = rank_setups(retrieved_evals, args.n_top_setups)
-	# print(f"Best setups : {len(best_setups)}")
-	# ollama_args = make_ollama_args(args)
-	# benchmark_hash = paths.get_benchmark_hash(make_benchmark_args(args, query_args), ollama_args)
-	# save_best_setups(best_setups, manifest, output_path, eval_dataset_metadata.eval_dataset_hash, benchmark_hash)
+	# 12. Rank every setup, keep the best n_top_setups and save them with every setting that made their results, named
+	# by the build, eval dataset and benchmark hashes
+	print("\n\nSetup ranking")
+	best_setups = rank_setups(retrieved_evals, args.n_top_setups)
+	print(f"Best setups : {len(best_setups)}")
+	ollama_args = make_ollama_args(args)
+	benchmark_hash = paths.get_benchmark_hash(make_benchmark_args(args, query_args), ollama_args)
+	save_best_setups(
+		best_setups, manifest, args.top_k, args.rerank_top_k, query_args, output_path,
+		eval_dataset_metadata.eval_dataset_hash, benchmark_hash
+	)
 
 
 if __name__ == "__main__":

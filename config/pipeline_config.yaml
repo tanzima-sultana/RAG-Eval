@@ -1,0 +1,21 @@
+# The settings of the pipeline that do not depend on the setup. Every setting that made the setup's results is read
+# from its record in the best setups file
+
+# 1. Which best setup to serve, and where the outputs are
+inputs:
+  best_setups_path: outputs/pdfa-eng-wds/best_setups/best_setups.json   # The best setups file the benchmark saved; set it to the file the benchmark prints
+  setup_rank: 1                                                         # Which setup of the file to serve: 1 for the best
+  output_path: outputs/                                                 # Root output folder; the query LLM cache is in its queries/ folder, the retrieved results in {dataset}/retrieved/
+
+# 2. The query LLM call settings that do not change its replies
+query_llm:
+  timeout_seconds: 180        # Seconds before one call times out
+
+# 3. Ollama server, used only when the setup's query LLM is an Ollama model
+ollama:
+  api_base: http://localhost:11434
+
+# 4. Qdrant server, where the build's Qdrant collections are
+qdrant:
+  url: http://localhost:6333
+  batch_size: 256

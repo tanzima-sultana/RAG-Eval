@@ -75,7 +75,7 @@ def make_chunks():
 PASSAGES = ["Alpha beta gamma delta epsilon", "one two three four five"]
 
 
-def test_compute_retrieved_evals_keeps_the_order_and_the_retrieved():
+def test_compute_retrieved_evaluation_keeps_the_order_and_the_retrieved():
     """
     Input: two results.
     Output: their RetrievedEvals.
@@ -84,7 +84,7 @@ def test_compute_retrieved_evals_keeps_the_order_and_the_retrieved():
     first = make_retrieved(["doc1_0"])
     second = make_retrieved(["doc2_0"])
 
-    retrieved_evals = RetrievalEvaluation([make_eval_sample(["doc1"], PASSAGES)]).compute_retrieved_evals([first, second], make_chunks())
+    retrieved_evals = RetrievalEvaluation([make_eval_sample(["doc1"], PASSAGES)]).compute_retrieved_evaluation([first, second], make_chunks())
 
     assert len(retrieved_evals) == 2
     assert retrieved_evals[0].retrieved is first
@@ -97,7 +97,7 @@ def test_a_miss_scores_zero_at_both_levels():
     Output: its RetrievedEval.
     What it does: checks every score is 0 at both levels.
     """
-    retrieved_evals = RetrievalEvaluation([make_eval_sample(["doc1"], PASSAGES)]).compute_retrieved_evals(
+    retrieved_evals = RetrievalEvaluation([make_eval_sample(["doc1"], PASSAGES)]).compute_retrieved_evaluation(
         [make_retrieved(["doc2_0"])], make_chunks()
     )
 
@@ -116,7 +116,7 @@ def test_chunk_eval_needs_the_eval_sample_doc_and_a_passage_overlap():
     Output: its chunk level Eval.
     What it does: checks the other doc and the non-matching chunk are not relevant, so the first hit is at rank 3.
     """
-    retrieved_evals = RetrievalEvaluation([make_eval_sample(["doc1"], PASSAGES)]).compute_retrieved_evals(
+    retrieved_evals = RetrievalEvaluation([make_eval_sample(["doc1"], PASSAGES)]).compute_retrieved_evaluation(
         [make_retrieved(["doc2_0", "doc1_2", "doc1_0"])], make_chunks()
     )
 
@@ -137,7 +137,7 @@ def test_chunk_eval_recall_counts_each_passage_found():
     Output: its chunk level Eval.
     What it does: checks both passages are found and a perfect order gives nDCG 1.
     """
-    retrieved_evals = RetrievalEvaluation([make_eval_sample(["doc1"], PASSAGES)]).compute_retrieved_evals(
+    retrieved_evals = RetrievalEvaluation([make_eval_sample(["doc1"], PASSAGES)]).compute_retrieved_evaluation(
         [make_retrieved(["doc1_0", "doc1_1"])], make_chunks()
     )
 
@@ -155,7 +155,7 @@ def test_doc_eval_counts_every_chunk_of_an_eval_sample_doc():
     Output: its doc level Eval.
     What it does: checks a chunk of an EvalSample doc is relevant whatever its text, and recall is the share of EvalSample docs found.
     """
-    retrieved_evals = RetrievalEvaluation([make_eval_sample(["doc1", "doc3"], PASSAGES)]).compute_retrieved_evals(
+    retrieved_evals = RetrievalEvaluation([make_eval_sample(["doc1", "doc3"], PASSAGES)]).compute_retrieved_evaluation(
         [make_retrieved(["doc2_0", "doc1_2", "doc1_0"])], make_chunks()
     )
 
@@ -176,7 +176,7 @@ def test_a_reranked_result_is_scored_at_rerank_top_k():
     """
     retrieved = make_retrieved(["doc1_0", "doc1_2"], top_k=4, reranking=True, rerank_top_k=2)
 
-    retrieved_evals = RetrievalEvaluation([make_eval_sample(["doc1"], PASSAGES)]).compute_retrieved_evals([retrieved], make_chunks())
+    retrieved_evals = RetrievalEvaluation([make_eval_sample(["doc1"], PASSAGES)]).compute_retrieved_evaluation([retrieved], make_chunks())
 
     assert retrieved_evals[0].chunk_eval.precision == pytest.approx(1.0 / 2)
     assert retrieved_evals[0].doc_eval.precision == pytest.approx(2.0 / 2)

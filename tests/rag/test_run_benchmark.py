@@ -268,9 +268,9 @@ def use_fake_benchmark_steps(monkeypatch):
             """
             return None
 
-        def compute_retrieved_evals(self, retrieved_items, chunks):
+        def compute_retrieved_evaluation(self, retrieved_items, chunks):
             """
-            Input: the arguments of compute_retrieved_evals.
+            Input: the arguments of compute_retrieved_evaluation.
             Output: an empty list.
             What it does: nothing.
             """
@@ -284,7 +284,7 @@ def use_fake_benchmark_steps(monkeypatch):
         """
         return []
 
-    def fake_save_best_setups(best_setups, manifest, output_path, eval_dataset_hash, benchmark_hash):
+    def fake_save_best_setups(best_setups, manifest, top_k, rerank_top_k, query_args, output_path, eval_dataset_hash, benchmark_hash):
         """
         Input: the arguments of save_best_setups.
         Output: an empty list.
