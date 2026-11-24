@@ -47,36 +47,43 @@ class Retrieval:
 		if len(query_args.query_types) == 1:
 			self.query_type = query_args.query_types[0]
 
-		# 3. The dense index record given, FAISS or Qdrant, and its index type
+		# 3. The dense index record given, FAISS or Qdrant, its index type and path
 		dense_vector_store = None
 		dense_index_type = None
+		dense_index_path = None
 		if faiss_index is not None:
 			dense_vector_store = faiss_index.vector_store
 			dense_index_type = faiss_index.index_type
+			dense_index_path = faiss_index.index_path
 		if vectordb_index is not None:
 			dense_vector_store = vectordb_index.vector_store
 			dense_index_type = vectordb_index.vectordb_type
+			dense_index_path = vectordb_index.collection_name
 
-		# 4. The LangChain retriever of this retrieval type, each returning top_k chunks. The BM25 retriever is a copy
-		# with its own k, so the shared index is not changed
+		# 4. The LangChain retriever of this retrieval type, each returning top_k chunks, and the paths of the indexes it
+		# searches, which name its retrieved files. The BM25 retriever is a copy with its own k, so the shared index is
+		# not changed
 		top_k = retrieval_args.top_k
 		if self.retrieval_type == constants.DENSE_RETRIEVAL:
 			self.retriever = dense_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": top_k})
 			self.index_type = dense_index_type
+			self.index_paths = [dense_index_path]
 		elif self.retrieval_type == constants.BM25_RETRIEVAL:
 			self.retriever = bm25_index.retriever.model_copy(update={"k": top_k})
 			self.index_type = constants.BM25_INDEX
+			self.index_paths = [bm25_index.index_path]
 		else:
 			dense_retriever = dense_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": top_k})
 			bm25_retriever = bm25_index.retriever.model_copy(update={"k": top_k})
 			# Reciprocal rank fusion with LangChain's default equal weights and constant, one chunk kept once
 			self.retriever = EnsembleRetriever(retrievers=[dense_retriever, bm25_retriever], id_key="chunk_id")
 			self.index_type = f"{dense_index_type}+{constants.BM25_INDEX}"
+			self.index_paths = [dense_index_path, bm25_index.index_path]
 
 		# 5. The cross-encoder reranker, only with reranking
 		self.reranker = None
 		if retrieval_args.reranking:
-			cross_encoder = HuggingFaceCrossEncoder(model_name=constants.CROSS_ENCODER_MODEL)
+			cross_encoder = HuggingFaceCrossEncoder(model_name=retrieval_args.cross_encoder_model)
 			self.reranker = CrossEncoderReranker(model=cross_encoder, top_n=retrieval_args.rerank_top_k)
 
 	def validate(self) -> None:
@@ -198,7 +205,7 @@ class Retrieval:
 
 		# 3. Load the saved result of this content
 		retrieved_file = paths.get_retrieved_file_path(
-			self.retrieved_path, retrieval_args, query_type, self.index_type, query_texts, original_qus
+			self.retrieved_path, retrieval_args, query_type, self.index_type, self.index_paths, query_texts, original_qus
 		)
 		retrieved = load_retrieved_entry(retrieved_file)
 		if retrieved is not None:
@@ -221,7 +228,7 @@ class Retrieval:
 
 		# 6. The result of this setup, saved and reported
 		setup = Setup(
-			chunk_type=retrieval_args.index_args.chunking_args.chunk_type,
+			chunk_type=retrieval_args.chunk_type,
 			index_type=self.index_type,
 			query_type=query_type,
 			retrieval_type=self.retrieval_type,

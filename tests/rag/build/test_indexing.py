@@ -307,3 +307,53 @@ def test_bm25_index_raises_for_no_chunks(patched_embeddings, make_index_args, tm
     """
     with pytest.raises(ValueError, match="chunks is empty"):
         Indexing(make_index_args(index_type="bm25")).compute_index({}, {}, str(tmp_path))
+
+
+# ---------- load_index_from_path ----------
+
+
+@pytest.mark.parametrize("index_type", ["faiss_flatip", "faiss_ivf", "faiss_hnsw"])
+def test_load_index_from_path_loads_a_saved_faiss_index(patched_embeddings, make_index_args, make_chunks_and_embeddings, tmp_path, index_type):
+    """
+    Input: a FAISS index of 10 chunks built and saved, then loaded straight from its folder.
+    Output: the loaded FaissIndex.
+    What it does: checks the same index type, folder and chunks come back, with the chunk text, without any chunks given.
+    """
+    chunks, embeddings = make_chunks_and_embeddings(10)
+    built_index = Indexing(make_index_args(index_type=index_type)).compute_index(chunks, embeddings, str(tmp_path))
+
+    loaded_index = indexing_module.load_index_from_path(index_type, built_index.index_path, patched_embeddings())
+
+    assert isinstance(loaded_index, FaissIndex)
+    assert loaded_index.index_type == index_type
+    assert loaded_index.index_path == built_index.index_path
+    assert loaded_index.vector_store.index.ntotal == 10
+    assert loaded_index.vector_store.docstore.search("doc0_2").page_content == chunks["doc0_2"].text
+
+
+def test_load_index_from_path_loads_a_saved_bm25_index(patched_embeddings, make_index_args, make_chunks_and_embeddings, tmp_path):
+    """
+    Input: a BM25 index of 10 chunks built and saved, then loaded straight from its folder.
+    Output: the loaded Bm25Index.
+    What it does: checks every chunk comes back, and the index path is the same pickle path the build gives.
+    """
+    chunks, embeddings = make_chunks_and_embeddings(10)
+    index_args = make_index_args(index_type="bm25")
+    built_index = Indexing(index_args).compute_index(chunks, embeddings, str(tmp_path))
+
+    loaded_index = indexing_module.load_index_from_path("bm25", paths.get_bm25_index_path(str(tmp_path), index_args), patched_embeddings())
+
+    assert isinstance(loaded_index, Bm25Index)
+    assert len(loaded_index.retriever.docs) == 10
+    assert loaded_index.index_path == built_index.index_path
+
+
+@pytest.mark.parametrize("index_type", ["faiss_flatip", "bm25"])
+def test_load_index_from_path_raises_when_nothing_is_saved(patched_embeddings, tmp_path, index_type):
+    """
+    Input: an empty folder.
+    Output: FileNotFoundError.
+    What it does: checks serving is told to run the build first.
+    """
+    with pytest.raises(FileNotFoundError, match="build"):
+        indexing_module.load_index_from_path(index_type, str(tmp_path), patched_embeddings())

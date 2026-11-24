@@ -4,10 +4,14 @@ import os
 
 from common import paths
 from common.args import QueryArgs
+from common.args import RetrievalArgs
 from schema.manifest import BuildManifest
 from schema.retrieved_eval import RetrievedEval
 from schema.retrieved_eval import SetupScore
 from schema.setup import Setup
+from schema.setup import SetupArtifacts
+from schema.setup import SetupLineage
+from schema.setup import SetupParams
 from schema.setup import SetupRecord
 
 
@@ -80,60 +84,57 @@ def rank_setups(retrieved_evals: list[RetrievedEval], n_top_setups: int) -> list
 	return best_setups
 
 
-def save_best_setups(best_setups: list[Setup], manifest: BuildManifest, top_k: int, rerank_top_k: int, query_args: QueryArgs, output_path: str, eval_dataset_hash: str, benchmark_hash: str) -> list[SetupRecord]:
+def save_best_setups(best_setups: list[Setup], manifest: BuildManifest, manifest_path: str, retrieval_args: RetrievalArgs, query_args: QueryArgs, output_path: str, eval_dataset_hash: str, benchmark_hash: str) -> list[SetupRecord]:
 	"""
-	Input: best_setups, best first; manifest, the build manifest, which says where each index and chunk folder is and
-	the settings they were built with; top_k and rerank_top_k, the retrieval settings the setups were scored with;
-	query_args, the query settings that wrote the query texts; output_path, the dataset's output folder;
-	eval_dataset_hash, from the eval dataset metadata; benchmark_hash, from get_benchmark_hash.
+	Input: best_setups, best first; manifest, the build manifest, which says where each index is; manifest_path, its
+	file; retrieval_args, the retrieval settings the setups were scored with; query_args, the query settings that
+	wrote the query texts; output_path, the dataset's output folder; eval_dataset_hash, from the eval dataset metadata;
+	benchmark_hash, from get_benchmark_hash.
 	Output: one SetupRecord per setup, in the same order.
-	What it does: takes each setup's chunk folder and chunk settings, and each of its index locations and index
-	settings, from the manifest, adds the build, retrieval and query settings, and saves the records as JSON through a
+	What it does: builds each record grouped by kind: the artifacts to load (the index paths from the manifest and the
+	embedding model), the params that decide its results, flat, and its lineage. Saves the records as JSON through a
 	temporary file to best_setups_{build_hash}_{eval_dataset_hash}_{benchmark_hash}.json.
 	"""
 	setup_records = []
 	for setup in best_setups:
-		# 1. The chunk entry of the setup's chunk type: its folder and chunk settings
-		setup_chunk_entry = None
-		for chunk_entry in manifest.chunk_entries:
-			if chunk_entry.chunk_type == setup.chunk_type:
-				setup_chunk_entry = chunk_entry
-		if setup_chunk_entry is None:
-			raise ValueError(f"The build manifest has no {setup.chunk_type} chunks.")
-
-		# 2. Each index of the setup: its location and settings. Hybrid's index_type is the dense and BM25 index types
-		# joined with "+", so it gets two, in that order
+		# 1. Each index of the setup. Hybrid's index_type is the dense and BM25 index types joined with "+", so it gets
+		# two paths, in that order
 		index_paths = []
-		index_settings = []
 		for index_type in setup.index_type.split("+"):
-			setup_index_entry = None
+			index_location = None
 			for index_entry in manifest.index_entries:
 				if index_entry.chunk_type == setup.chunk_type and index_entry.index_type == index_type:
-					setup_index_entry = index_entry
-			if setup_index_entry is None:
+					index_location = index_entry.location
+			if index_location is None:
 				raise ValueError(f"The build manifest has no {setup.chunk_type} {index_type} index.")
-			index_paths.append(setup_index_entry.location)
-			index_settings.append(setup_index_entry.index_settings)
+			index_paths.append(index_location)
 
+		# 2. The record, grouped by kind
 		setup_records.append(SetupRecord(
-			setup=setup,
-			index_paths=tuple(index_paths),
-			chunk_path=setup_chunk_entry.chunk_path,
-			dataset_name=manifest.dataset_name,
-			embedding_model=manifest.embedding_model,
-			input_hash=manifest.input_hash,
-			documents_path=manifest.documents_path,
-			min_chunk_size=setup_chunk_entry.min_chunk_size,
-			max_chunk_size=setup_chunk_entry.max_chunk_size,
-			fixed_chunk_overlap=setup_chunk_entry.fixed_chunk_overlap,
-			semantic_threshold=setup_chunk_entry.semantic_threshold,
-			index_settings=tuple(index_settings),
-			top_k=top_k,
-			rerank_top_k=rerank_top_k,
-			query_llm_model=query_args.query_llm_args.llm_model,
-			query_llm_max_tokens=query_args.query_llm_args.max_tokens,
-			n_multi_qus=query_args.n_multi_qus,
-			ollama_context_length=query_args.ollama_context_length
+			artifacts=SetupArtifacts(
+				index_paths=tuple(index_paths),
+				embedding_model=manifest.embedding_model
+			),
+			params=SetupParams(
+				chunk_type=setup.chunk_type,
+				index_type=setup.index_type,
+				query_type=setup.query_type,
+				retrieval_type=setup.retrieval_type,
+				reranking=setup.reranking,
+				top_k=retrieval_args.top_k,
+				rerank_top_k=retrieval_args.rerank_top_k,
+				cross_encoder_model=retrieval_args.cross_encoder_model,
+				query_llm_model=query_args.query_llm_args.llm_model,
+				query_llm_max_tokens=query_args.query_llm_args.max_tokens,
+				n_multi_qus=query_args.n_multi_qus,
+				ollama_context_length=query_args.ollama_context_length
+			),
+			lineage=SetupLineage(
+				manifest_path=manifest_path,
+				build_hash=manifest.build_hash,
+				eval_dataset_hash=eval_dataset_hash,
+				benchmark_hash=benchmark_hash
+			)
 		))
 
 	best_setups_file = paths.get_best_setups_path(output_path, manifest.build_hash, eval_dataset_hash, benchmark_hash)
@@ -153,7 +154,8 @@ def load_best_setups(best_setups_file: str) -> list[SetupRecord]:
 	"""
 	Input: best_setups_file, the best setups JSON the benchmark saved.
 	Output: the saved SetupRecord list, best first.
-	What it does: reads the best setups JSON, and raises FileNotFoundError if the benchmark has not saved it.
+	What it does: reads the best setups JSON, one object per section, and raises FileNotFoundError if the benchmark has
+	not saved it.
 	"""
 	if not os.path.exists(best_setups_file):
 		raise FileNotFoundError(f"No saved best setups at {best_setups_file}. Run scripts/benchmark.sh first.")
@@ -163,24 +165,13 @@ def load_best_setups(best_setups_file: str) -> list[SetupRecord]:
 
 	setup_records = []
 	for setup_record_dict in setup_record_dicts:
+		artifacts_dict = setup_record_dict["artifacts"]
 		setup_records.append(SetupRecord(
-			setup=Setup(**setup_record_dict["setup"]),
-			index_paths=tuple(setup_record_dict["index_paths"]),
-			chunk_path=setup_record_dict["chunk_path"],
-			dataset_name=setup_record_dict["dataset_name"],
-			embedding_model=setup_record_dict["embedding_model"],
-			input_hash=setup_record_dict["input_hash"],
-			documents_path=setup_record_dict["documents_path"],
-			min_chunk_size=setup_record_dict["min_chunk_size"],
-			max_chunk_size=setup_record_dict["max_chunk_size"],
-			fixed_chunk_overlap=setup_record_dict["fixed_chunk_overlap"],
-			semantic_threshold=setup_record_dict["semantic_threshold"],
-			index_settings=tuple(setup_record_dict["index_settings"]),
-			top_k=setup_record_dict["top_k"],
-			rerank_top_k=setup_record_dict["rerank_top_k"],
-			query_llm_model=setup_record_dict["query_llm_model"],
-			query_llm_max_tokens=setup_record_dict["query_llm_max_tokens"],
-			n_multi_qus=setup_record_dict["n_multi_qus"],
-			ollama_context_length=setup_record_dict["ollama_context_length"]
+			artifacts=SetupArtifacts(
+				index_paths=tuple(artifacts_dict["index_paths"]),
+				embedding_model=artifacts_dict["embedding_model"]
+			),
+			params=SetupParams(**setup_record_dict["params"]),
+			lineage=SetupLineage(**setup_record_dict["lineage"])
 		))
 	return setup_records

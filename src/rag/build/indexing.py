@@ -108,6 +108,40 @@ def load_bm25_index(bm25_index_path: str, chunk_ids: list[str]) -> BM25Retriever
 	return saved_retriever
 
 
+
+def load_index_from_path(index_type: str, index_folder: str, embedding_model: HuggingFaceEmbeddings) -> FaissIndex | Bm25Index:
+	"""
+	Input: index_type, faiss_flatip, faiss_ivf, faiss_hnsw or bm25; index_folder, the index folder the build saved;
+	embedding_model, the embedding model the index was built with, which embeds the query for FAISS.
+	Output: a FaissIndex or a Bm25Index.
+	What it does: loads the saved index straight from its folder, for serving: a FAISS index with LangChain's
+	FAISS.load_local, a BM25 index from its pickle. It does not check which chunks it holds, and raises
+	FileNotFoundError if the files are not there.
+	"""
+	if index_type == constants.BM25_INDEX:
+		retriever_file_path = os.path.join(index_folder, "bm25_retriever.pkl")
+		if not os.path.exists(retriever_file_path):
+			raise FileNotFoundError(f"No saved BM25 index at {retriever_file_path}. Run scripts/build.sh first.")
+		# The file was written by this code, so reading it with pickle is safe here
+		with open(retriever_file_path, "rb") as f:
+			retriever = pickle.load(f)
+		print(f"BM25 index loaded : {index_folder}")
+		return Bm25Index(retriever=retriever, index_path=retriever_file_path)
+
+	index_file_path = os.path.join(index_folder, "index.faiss")
+	docstore_file_path = os.path.join(index_folder, "index.pkl")
+	if not os.path.exists(index_file_path) or not os.path.exists(docstore_file_path):
+		raise FileNotFoundError(f"No saved {index_type} index in {index_folder}. Run scripts/build.sh first.")
+	# index.pkl is read with pickle. It was written by this code, so allow_dangerous_deserialization is safe here
+	vector_store = FAISS.load_local(index_folder, embedding_model, allow_dangerous_deserialization=True)
+	print(f"{index_type} index loaded : {index_folder}")
+	return FaissIndex(
+		index_type=index_type,
+		vector_store=vector_store,
+		index_path=index_folder,
+		dimension=vector_store.index.d
+	)
+
 class Indexing:
 	def __init__(self, index_args: IndexArgs):
 		"""

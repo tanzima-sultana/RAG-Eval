@@ -16,6 +16,7 @@ from common.args import make_manifest_chunking_args
 from common.args import make_manifest_index_args
 from common.args import make_ollama_args
 from common.args import make_query_args
+from common.args import make_pipeline_args
 from common.args import make_retrieval_args
 from common.args import make_vectordb_args
 from evaluation.eval_dataset.cache import load_eval_dataset
@@ -27,6 +28,7 @@ from rag.build.indexing import Indexing
 from rag.build.indexing_vectordb import IndexingVectorDb
 from rag.build.ingestion import load_documents
 from rag.build.manifest import load_build_manifest_from_path
+from rag.serving.pipeline import Pipeline
 from rag.serving.query.query import QueryTransformation
 from rag.serving.retrieval.retrieval import Retrieval
 from schema.eval_dataset_metadata import EvalDatasetMetadata
@@ -131,20 +133,19 @@ def run_benchmark(args) -> None:
 			for setting_name in index_entry.index_settings:
 				chunk_type_index_settings[setting_name] = index_entry.index_settings[setting_name]
 
-		# The retrieval settings of this chunk type. Each setup gets a copy with its one retrieval type and only the index
-		# settings of the indexes it searches, so its retrieved files are named by what made them. Every result of this
-		# chunk type is collected in retrieved_items
-		chunk_type_index_args = make_manifest_index_args(chunking_args, "", chunk_type_index_settings, manifest.input_hash)
-		retrieval_args = make_retrieval_args(args, chunk_type_index_args)
+		# The retrieval settings of this chunk type. Each setup gets a copy with its one retrieval type. Every result of
+		# this chunk type is collected in retrieved_items
+		retrieval_args = make_retrieval_args(args, chunk_type)
+		dense_retrieval_args = dataclasses.replace(retrieval_args, retrieval_types=[DENSE_RETRIEVAL])
+		bm25_retrieval_args = dataclasses.replace(retrieval_args, retrieval_types=[BM25_RETRIEVAL])
+		hybrid_retrieval_args = dataclasses.replace(retrieval_args, retrieval_types=[HYBRID_RETRIEVAL])
 		retrieved_items = []
 
 		# 7. The BM25 index of this chunk type, loaded once and kept for BM25 and hybrid retrieval
 		bm25_index = None
-		bm25_index_settings = {}
 		for index_entry in manifest.index_entries:
 			if index_entry.chunk_type != chunk_type or index_entry.index_type != BM25_INDEX:
 				continue
-			bm25_index_settings = index_entry.index_settings
 			print(f"\n\nIndexing : {BM25_INDEX}")
 			index_args = make_manifest_index_args(chunking_args, BM25_INDEX, chunk_type_index_settings, manifest.input_hash)
 
@@ -158,11 +159,6 @@ def run_benchmark(args) -> None:
 		if bm25_index is not None and BM25_RETRIEVAL in retrieval_args.retrieval_types:
 			print(f"\n\nRetrieval : {BM25_RETRIEVAL} {BM25_INDEX}")
 			s8 = time.time()
-			bm25_retrieval_args = dataclasses.replace(
-				retrieval_args,
-				retrieval_types=[BM25_RETRIEVAL],
-				index_args=make_manifest_index_args(chunking_args, "", bm25_index_settings, manifest.input_hash)
-			)
 			for search_query_args in search_query_args_list:
 				if search_query_args.query_types == [HYDE_QUERY]:
 					continue
@@ -197,11 +193,6 @@ def run_benchmark(args) -> None:
 			if DENSE_RETRIEVAL in retrieval_args.retrieval_types:
 				print(f"\n\nRetrieval : {DENSE_RETRIEVAL} {index_type}")
 				s10 = time.time()
-				dense_retrieval_args = dataclasses.replace(
-					retrieval_args,
-					retrieval_types=[DENSE_RETRIEVAL],
-					index_args=make_manifest_index_args(chunking_args, "", index_entry.index_settings, manifest.input_hash)
-				)
 				for search_query_args in search_query_args_list:
 					retrieval = Retrieval(dense_retrieval_args, search_query_args, faiss_index, vectordb_index, None, retrieved_path)
 					for query in val_queries:
@@ -213,17 +204,6 @@ def run_benchmark(args) -> None:
 			if bm25_index is not None and HYBRID_RETRIEVAL in retrieval_args.retrieval_types:
 				print(f"\n\nRetrieval : {HYBRID_RETRIEVAL} {index_type}+{BM25_INDEX}")
 				s11 = time.time()
-				# Hybrid searches this dense index and the BM25 index, so it gets the settings of both
-				hybrid_index_settings = {}
-				for setting_name in index_entry.index_settings:
-					hybrid_index_settings[setting_name] = index_entry.index_settings[setting_name]
-				for setting_name in bm25_index_settings:
-					hybrid_index_settings[setting_name] = bm25_index_settings[setting_name]
-				hybrid_retrieval_args = dataclasses.replace(
-					retrieval_args,
-					retrieval_types=[HYBRID_RETRIEVAL],
-					index_args=make_manifest_index_args(chunking_args, "", hybrid_index_settings, manifest.input_hash)
-				)
 				for search_query_args in search_query_args_list:
 					if search_query_args.query_types == [HYDE_QUERY]:
 						continue
@@ -252,10 +232,33 @@ def run_benchmark(args) -> None:
 	print(f"Best setups : {len(best_setups)}")
 	ollama_args = make_ollama_args(args)
 	benchmark_hash = paths.get_benchmark_hash(make_benchmark_args(args, query_args), ollama_args)
-	save_best_setups(
-		best_setups, manifest, args.top_k, args.rerank_top_k, query_args, output_path,
+	setup_records = save_best_setups(
+		best_setups, manifest, args.manifest_path, make_retrieval_args(args, ""), query_args, output_path,
 		eval_dataset_metadata.eval_dataset_hash, benchmark_hash
 	)
+
+	# 13. The pipeline of the best setup the config names, run on every test query. It loads the setup's indexes by
+	# path and reuses the query and retrieved caches
+	print("\n\nPipeline")
+	s14 = time.time()
+	if args.setup_rank < 1 or args.setup_rank > len(setup_records):
+		raise ValueError(f"setup_rank ({args.setup_rank}) must be between 1 and the number of best setups ({len(setup_records)}).")
+	setup_record = setup_records[args.setup_rank - 1]
+	pipeline_args = make_pipeline_args(
+		setup_record, query_path, retrieved_path, args.query_llm_timeout_seconds, args.ollama_api_base, args.qdrant_url
+	)
+	pipeline = Pipeline(pipeline_args)
+
+	eval_samples_by_id = {}
+	for eval_sample in eval_samples:
+		eval_samples_by_id[eval_sample.id] = eval_sample
+	pipeline_results = []
+	for test_query in test_queries:
+		eval_sample = eval_samples_by_id[test_query.id]
+		pipeline_results.append(pipeline.invoke(eval_sample.id, eval_sample.qus))
+	e14 = time.time() - s14
+	print(f"Pipeline results : {len(pipeline_results)}")
+	print("\nPipeline time : ", e14)
 
 
 if __name__ == "__main__":

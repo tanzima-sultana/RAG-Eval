@@ -29,9 +29,14 @@ retrieval:
   top_k: 20                                # Chunks each retriever returns for a query
   reranking: false                         # true to rerank the top_k chunks with the cross-encoder, false not to
   rerank_top_k: 5                          # Chunks kept after the cross-encoder reranks the top_k chunks
+  cross_encoder_model: cross-encoder/ms-marco-MiniLM-L-6-v2   # Cross-encoder that reranks, used only with reranking
   n_top_setups: 3                          # Best setups by retrieval eval
 
-# 6. Qdrant server, where the build's Qdrant collections are
+# 6. The pipeline the benchmark runs on the test queries
+pipeline:
+  setup_rank: 1                            # Which best setup to run: 1 for the best
+
+# 7. Qdrant server, where the build's Qdrant collections are
 qdrant:
   url: http://localhost:6333
   batch_size: 256

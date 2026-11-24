@@ -12,7 +12,6 @@ from common.args import OllamaArgs
 from common.args import QueryArgs
 from common.args import BenchmarkArgs
 from common.args import RetrievalArgs
-from common.constants import CROSS_ENCODER_MODEL
 from common.constants import FAISS_FLATIP_INDEX
 from common.constants import FAISS_IVF_INDEX
 from common.constants import FAISS_HNSW_INDEX
@@ -224,6 +223,7 @@ def get_benchmark_hash(benchmark_args: BenchmarkArgs, ollama_args: OllamaArgs) -
 	hashed_args["top_k"] = benchmark_args.top_k
 	hashed_args["reranking"] = benchmark_args.reranking
 	hashed_args["rerank_top_k"] = benchmark_args.rerank_top_k
+	hashed_args["cross_encoder_model"] = benchmark_args.cross_encoder_model
 	hashed_args["n_top_setups"] = benchmark_args.n_top_setups
 
 	ollama_providers = ["ollama", "ollama_chat"]
@@ -318,42 +318,29 @@ def make_query_hashed_args(query_args: QueryArgs) -> dict:
 
 
 # ------ Retrieval
-def get_retrieved_file_path(retrieved_path: str, retrieval_args: RetrievalArgs, query_type: str, index_type: str, query_texts: list[str], original_qus: str) -> str:
+def get_retrieved_file_path(retrieved_path: str, retrieval_args: RetrievalArgs, query_type: str, index_type: str, index_paths: list[str], query_texts: list[str], original_qus: str) -> str:
 	"""
 	Input: retrieved_path, the folder of the retrieved files; retrieval_args, the setup's retrieval settings; query_type;
-	index_type; query_texts, the texts searched; original_qus, the original question.
+	index_type; index_paths, the paths of the indexes searched; query_texts, the texts searched; original_qus, the
+	original question.
 	Output: {retrieved_path}/{hash}.json
-	What it does: names the file by a hash of what the result is made from: the texts, the setup and its own index
-	settings, plus the original question and rerank settings when reranking.
+	What it does: names the file by a hash of what the result is made from: the texts, the setup and the indexes it
+	searched, plus the original question and rerank settings when reranking. An index path is named by a hash of the
+	chunk and index settings it was built with, so it stands for them.
 	"""
-	index_args = retrieval_args.index_args
-	chunking_args = index_args.chunking_args
-
 	hashed_args = {}
 	hashed_args["query_texts"] = query_texts
 	hashed_args["query_type"] = query_type
 	hashed_args["retrieval_type"] = retrieval_args.retrieval_types[0]
 	hashed_args["top_k"] = retrieval_args.top_k
-	hashed_args["model_name"] = chunking_args.model_name
-	hashed_args["chunk_type"] = chunking_args.chunk_type
-	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
-	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
-	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
-	hashed_args["semantic_threshold"] = chunking_args.semantic_threshold
-	hashed_args["ivf_nlist"] = index_args.ivf_nlist
-	hashed_args["hnsw_m"] = index_args.hnsw_m
-	hashed_args["hnsw_ef_construction"] = index_args.hnsw_ef_construction
-	hashed_args["bm25_k1"] = index_args.bm25_k1
-	hashed_args["bm25_b"] = index_args.bm25_b
-	hashed_args["bm25_tokenizer"] = index_args.bm25_tokenizer
-	hashed_args["input_hash"] = index_args.input_hash
 	hashed_args["index_type"] = index_type
+	hashed_args["index_paths"] = index_paths
 	hashed_args["reranking"] = retrieval_args.reranking
 
 	if retrieval_args.reranking:
 		hashed_args["original_qus"] = original_qus
 		hashed_args["rerank_top_k"] = retrieval_args.rerank_top_k
-		hashed_args["cross_encoder_model"] = CROSS_ENCODER_MODEL
+		hashed_args["cross_encoder_model"] = retrieval_args.cross_encoder_model
 
 	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
 	retrieved_hash = hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]

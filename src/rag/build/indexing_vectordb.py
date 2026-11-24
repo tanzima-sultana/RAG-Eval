@@ -46,6 +46,43 @@ def qdrant_collection_holds_chunks(qdrant_client: QdrantClient, collection_name:
 	return True
 
 
+
+def load_vectordb_from_path(collection_name: str, embedding_model: HuggingFaceEmbeddings, qdrant_url: str) -> VectorDb:
+	"""
+	Input: collection_name, the Qdrant collection the build filled; embedding_model, the embedding model it was built
+	with, which embeds the query; qdrant_url, the Qdrant server.
+	Output: a VectorDb holding a LangChain QdrantVectorStore.
+	What it does: connects to the collection straight from its name, for serving, the same way the build wraps it. It
+	does not check which chunks it holds, and raises if the server is not reachable or the collection does not exist.
+	"""
+	# 1. Connect to the server. QdrantClient does not connect until the first request, so one is made here
+	qdrant_client = QdrantClient(url=qdrant_url)
+	try:
+		qdrant_client.get_collections()
+	except Exception as error:
+		raise ConnectionError(
+			f"Qdrant server is not reachable at {qdrant_url}. Start it with the qdrant-docker skill."
+		) from error
+
+	if not qdrant_client.collection_exists(collection_name):
+		raise FileNotFoundError(f"No Qdrant collection {collection_name}. Run scripts/build.sh first.")
+
+	# 2. Wrap the collection in a LangChain QdrantVectorStore
+	vector_store = QdrantVectorStore(
+		client=qdrant_client,
+		collection_name=collection_name,
+		embedding=embedding_model,
+		distance=Distance.COSINE
+	)
+	dimension = qdrant_client.get_collection(collection_name).config.params.vectors.size
+	print(f"Qdrant collection loaded : {collection_name}")
+	return VectorDb(
+		vectordb_type=constants.QDRANT_INDEX,
+		vector_store=vector_store,
+		collection_name=collection_name,
+		dimension=dimension
+	)
+
 class IndexingVectorDb:
 	def __init__(self, vectordb_args: VectorDbArgs):
 		"""

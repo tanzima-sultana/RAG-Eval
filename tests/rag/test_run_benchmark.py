@@ -36,7 +36,8 @@ def make_benchmark_parsed_args(tmp_path, manifest_path, eval_dataset_metadata_pa
         query_llm_model="ollama_chat/llama3.1:8b", n_multi_qus=3, query_types=[], query_split="false",
         val_queries_size=1, test_queries_size=1, query_llm_max_tokens=100, query_llm_timeout_seconds=30,
         ollama_api_base="http://ollama-test:11434", ollama_context_length=32768,
-        retrieval_types=["dense", "bm25", "hybrid"], top_k=3, reranking="false", rerank_top_k=2, n_top_setups=1,
+        retrieval_types=["dense", "bm25", "hybrid"], top_k=3, reranking="false", rerank_top_k=2,
+        cross_encoder_model="fake-cross-encoder", n_top_setups=1, setup_rank=1,
         qdrant_url="http://qdrant-test:6333", qdrant_batch_size=3,
     )
 
@@ -109,6 +110,8 @@ class BenchmarkRecord:
         self.loaded_indexes = []
         self.loaded_vectordbs = []
         self.saved_best_setups = []
+        self.pipeline_args = []
+        self.pipeline_questions = []
 
 
 def use_fake_benchmark_steps(monkeypatch):
@@ -154,11 +157,11 @@ def use_fake_benchmark_steps(monkeypatch):
         def query(self, question_id, question):
             """
             Input: the arguments of query, one question id and its question.
-            Output: one placeholder query.
+            Output: one placeholder query holding the question id, as a Query does.
             What it does: records the question id and question.
             """
             record.transformed_questions.append((question_id, question))
-            return "query"
+            return types.SimpleNamespace(id=question_id)
 
         def split_queries(self, queries):
             """
@@ -284,14 +287,46 @@ def use_fake_benchmark_steps(monkeypatch):
         """
         return []
 
-    def fake_save_best_setups(best_setups, manifest, top_k, rerank_top_k, query_args, output_path, eval_dataset_hash, benchmark_hash):
+    def fake_save_best_setups(best_setups, manifest, manifest_path, retrieval_args, query_args, output_path, eval_dataset_hash, benchmark_hash):
         """
         Input: the arguments of save_best_setups.
-        Output: an empty list.
-        What it does: records the build, eval dataset and benchmark hashes and the output folder.
+        Output: one placeholder setup record.
+        What it does: records the build, eval dataset and benchmark hashes, the output folder, the manifest file and
+        the retrieval settings saved with the setups.
         """
-        record.saved_best_setups.append((manifest.build_hash, eval_dataset_hash, benchmark_hash, output_path))
-        return []
+        record.saved_best_setups.append((manifest.build_hash, eval_dataset_hash, benchmark_hash, output_path, manifest_path, retrieval_args))
+        return ["setup record"]
+
+    def fake_make_pipeline_args(setup_record, query_path, retrieved_path, query_llm_timeout_seconds, ollama_api_base, qdrant_url):
+        """
+        Input: the arguments of make_pipeline_args.
+        Output: a placeholder pipeline args.
+        What it does: records the setup record, the cache folders and the servers.
+        """
+        record.pipeline_args.append((setup_record, query_path, retrieved_path, ollama_api_base, qdrant_url))
+        return "pipeline args"
+
+    class FakePipeline:
+        """
+        Stand-in for Pipeline: records each question it is asked.
+        """
+
+        def __init__(self, pipeline_args):
+            """
+            Input: pipeline_args.
+            Output: nothing.
+            What it does: nothing; the fake keeps no state.
+            """
+            return None
+
+        def invoke(self, qus_id, qus):
+            """
+            Input: the arguments of invoke, one question id and its question.
+            Output: a placeholder result and no answer.
+            What it does: records the question id and question.
+            """
+            record.pipeline_questions.append((qus_id, qus))
+            return "retrieved", None
 
     monkeypatch.setattr(run_benchmark_module, "load_documents", fake_load_documents)
     monkeypatch.setattr(run_benchmark_module, "load_eval_dataset", fake_load_eval_dataset)
@@ -303,6 +338,8 @@ def use_fake_benchmark_steps(monkeypatch):
     monkeypatch.setattr(run_benchmark_module, "RetrievalEvaluation", FakeRetrievalEvaluation)
     monkeypatch.setattr(run_benchmark_module, "rank_setups", fake_rank_setups)
     monkeypatch.setattr(run_benchmark_module, "save_best_setups", fake_save_best_setups)
+    monkeypatch.setattr(run_benchmark_module, "make_pipeline_args", fake_make_pipeline_args)
+    monkeypatch.setattr(run_benchmark_module, "Pipeline", FakePipeline)
     return record
 
 
@@ -373,11 +410,21 @@ def test_run_benchmark_loads_every_chunk_type_and_index_the_manifest_lists(tmp_p
         assert vectordb_args.qdrant_url == "http://qdrant-test:6333"
     assert loaded_collections == [("fixed", "qdrant_fixed"), ("sentence", "qdrant_sentence")]
 
-    build_hash, eval_dataset_hash, benchmark_hash, output_path = record.saved_best_setups[0]
+    build_hash, eval_dataset_hash, benchmark_hash, output_path, manifest_path, retrieval_args = record.saved_best_setups[0]
     assert build_hash == "testbuildhash"
     assert eval_dataset_hash == "testevalhash"
     assert len(benchmark_hash) == 12
     assert output_path == os.path.join(str(tmp_path), "dataset")
+    assert manifest_path == args.manifest_path
+    assert retrieval_args.cross_encoder_model == "fake-cross-encoder"
+
+    # The pipeline of the configured best setup runs every test query, with the benchmark's cache folders
+    setup_record, query_path, retrieved_path, ollama_api_base, qdrant_url = record.pipeline_args[0]
+    assert setup_record == "setup record"
+    assert query_path == os.path.join(str(tmp_path), "queries")
+    assert retrieved_path == os.path.join(str(tmp_path), "dataset") + "/retrieved/"
+    assert qdrant_url == "http://qdrant-test:6333"
+    assert record.pipeline_questions == [("eval_qna_0", "What is X?")]
 
 
 # ---------- get_benchmark_hash ----------
@@ -395,6 +442,7 @@ def make_benchmark_args(**overrides):
     field_values["top_k"] = 3
     field_values["reranking"] = False
     field_values["rerank_top_k"] = 2
+    field_values["cross_encoder_model"] = "fake-cross-encoder"
     field_values["n_top_setups"] = 1
     for field_name in overrides:
         field_values[field_name] = overrides[field_name]
@@ -436,6 +484,7 @@ def make_ollama_args(context_length=32768):
     {"top_k": 5},
     {"reranking": True},
     {"rerank_top_k": 1},
+    {"cross_encoder_model": "other-cross-encoder"},
     {"n_top_setups": 2},
 ])
 def test_benchmark_hash_is_12_hex_characters_and_changes_with_any_arg(overrides):

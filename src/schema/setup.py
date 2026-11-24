@@ -18,33 +18,46 @@ class Setup:
 
 
 @dataclasses.dataclass(frozen=True)
-class SetupRecord:
-	# One best setup as the benchmark saves it: where its build outputs are and every setting that made its results,
-	# so the pipeline rebuilds it exactly and only loads what the build saved
-	setup: Setup
+class SetupArtifacts:
+	# What the pipeline loads for one best setup
 	# Where the setup's index is: a folder for FAISS and BM25, the collection name for Qdrant. Hybrid has two, the
 	# dense one first and then BM25
 	index_paths: tuple[str, ...]
-	# The setup's chunk folder
-	chunk_path: str
-	# The build the setup was made from: its dataset, embedding model, input files and document list folder
-	dataset_name: str
+	# The embedding model the indexes were built with, which embeds the query
 	embedding_model: str
-	input_hash: str
-	documents_path: str
-	# The chunk settings of the setup's chunk type
-	min_chunk_size: int
-	max_chunk_size: int
-	fixed_chunk_overlap: int
-	semantic_threshold: float
-	# The settings of each index, in the order of index_paths. Empty for faiss_flatip and qdrant
-	index_settings: tuple[dict, ...]
-	# The retrieval settings the setup was scored with
+
+
+@dataclasses.dataclass(frozen=True)
+class SetupParams:
+	# Every setting that decides one best setup's results, flat
+	chunk_type: str
+	index_type: str
+	query_type: str
+	retrieval_type: str
+	reranking: bool
 	top_k: int
 	rerank_top_k: int
-	# The query LLM settings that wrote the query texts the setup was scored with. ollama_context_length is None
-	# when the query LLM is not an Ollama model
+	cross_encoder_model: str
+	# The query LLM settings that write the query texts. ollama_context_length is None when the query LLM is not an
+	# Ollama model
 	query_llm_model: str
 	query_llm_max_tokens: int
 	n_multi_qus: int
 	ollama_context_length: int | None
+
+
+@dataclasses.dataclass(frozen=True)
+class SetupLineage:
+	# Where one best setup came from: the build manifest and the hashes of the build, eval dataset and benchmark
+	manifest_path: str
+	build_hash: str
+	eval_dataset_hash: str
+	benchmark_hash: str
+
+
+@dataclasses.dataclass(frozen=True)
+class SetupRecord:
+	# One best setup as the benchmark saves it, grouped by kind: what to load, how to run it and where it came from
+	artifacts: SetupArtifacts
+	params: SetupParams
+	lineage: SetupLineage

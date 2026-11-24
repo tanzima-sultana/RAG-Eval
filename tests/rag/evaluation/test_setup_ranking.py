@@ -10,6 +10,7 @@ import pytest
 
 from common import paths
 from common.args import QueryArgs
+from common.args import RetrievalArgs
 from evaluation.setup_ranking import load_best_setups
 from evaluation.setup_ranking import rank_setups
 from evaluation.setup_ranking import save_best_setups
@@ -165,13 +166,28 @@ def make_query_args():
     )
 
 
+def make_retrieval_args():
+    """
+    Input: none.
+    Output: a RetrievalArgs with top_k 20, rerank_top_k 5 and a test cross-encoder.
+    What it does: builds the retrieval settings the best setups are saved with.
+    """
+    return RetrievalArgs(
+        chunk_type="", retrieval_types=["dense"], top_k=20, reranking=False, rerank_top_k=5,
+        cross_encoder_model="fake-cross-encoder",
+    )
+
+
 def save_test_best_setups(best_setups, output_path):
     """
     Input: best_setups, best first; output_path.
     Output: their SetupRecords.
-    What it does: saves the best setups with the test manifest, top_k 20, rerank_top_k 5 and the test query settings.
+    What it does: saves the best setups with the test manifest, retrieval settings and query settings.
     """
-    return save_best_setups(best_setups, make_manifest(), 20, 5, make_query_args(), output_path, "testevalhash", "testbenchmarkhash")
+    return save_best_setups(
+        best_setups, make_manifest(), "out/build/manifest_test.json", make_retrieval_args(), make_query_args(),
+        output_path, "testevalhash", "testbenchmarkhash",
+    )
 
 
 def make_any_setup(retrieval_type, index_type):
@@ -187,8 +203,8 @@ def test_save_best_setups_finds_each_index_location(tmp_path):
     """
     Input: a FAISS, a BM25, a Qdrant and a hybrid setup.
     Output: their SetupRecords.
-    What it does: checks each index location and the chunk folder come from the manifest, and that hybrid has the
-    dense and then the BM25 location.
+    What it does: checks each index location comes from the manifest, and that hybrid has the dense and then the BM25
+    location.
     """
     best_setups = [
         make_any_setup("dense", "faiss_hnsw"),
@@ -199,35 +215,28 @@ def test_save_best_setups_finds_each_index_location(tmp_path):
 
     setup_records = save_test_best_setups(best_setups, str(tmp_path))
 
-    assert setup_records[0].index_paths == ("out/indexes/faiss_hnsw_test",)
-    assert setup_records[1].index_paths == ("out/indexes/bm25_test",)
-    assert setup_records[2].index_paths == ("qdrant_test",)
-    assert setup_records[3].index_paths == ("out/indexes/faiss_hnsw_test", "out/indexes/bm25_test")
-    for setup_record in setup_records:
-        assert setup_record.chunk_path == "out/chunks/chunks_test"
-    assert setup_records[3].setup == best_setups[3]
+    assert setup_records[0].artifacts.index_paths == ("out/indexes/faiss_hnsw_test",)
+    assert setup_records[1].artifacts.index_paths == ("out/indexes/bm25_test",)
+    assert setup_records[2].artifacts.index_paths == ("qdrant_test",)
+    assert setup_records[3].artifacts.index_paths == ("out/indexes/faiss_hnsw_test", "out/indexes/bm25_test")
 
 
-def test_save_best_setups_holds_every_setting_that_made_the_results(tmp_path):
+def test_save_best_setups_groups_the_record_into_artifacts_params_and_lineage(tmp_path):
     """
     Input: a hybrid setup saved with the test manifest, retrieval and query settings.
     Output: its SetupRecord.
-    What it does: checks the build, chunk, index, retrieval and query LLM settings are in the record, with the index
-    settings in the order of index_paths.
+    What it does: checks the artifacts to load, the flat params that decide the results, with the setup's own fields,
+    and the lineage.
     """
     setup_record = save_test_best_setups([make_any_setup("hybrid", "faiss_hnsw+bm25")], str(tmp_path))[0]
 
-    assert setup_record.dataset_name == "dataset"
-    assert setup_record.embedding_model == "fake-model"
-    assert setup_record.input_hash == "testinputhash"
-    assert setup_record.documents_path == "out/documents"
-    assert (setup_record.min_chunk_size, setup_record.max_chunk_size, setup_record.fixed_chunk_overlap, setup_record.semantic_threshold) == (2, 6, 2, 0.5)
-    assert setup_record.index_settings == ({"hnsw_m": 4, "hnsw_ef_construction": 8}, {"bm25_k1": 1.5, "bm25_b": 0.75, "bm25_tokenizer": "whitespace"})
-    assert (setup_record.top_k, setup_record.rerank_top_k) == (20, 5)
-    assert setup_record.query_llm_model == "ollama_chat/llama3.1:8b"
-    assert setup_record.query_llm_max_tokens == 100
-    assert setup_record.n_multi_qus == 3
-    assert setup_record.ollama_context_length == 32768
+    assert setup_record.artifacts.embedding_model == "fake-model"
+    params = setup_record.params
+    assert (params.chunk_type, params.index_type, params.query_type, params.retrieval_type, params.reranking) == ("sentence", "faiss_hnsw+bm25", "original", "hybrid", False)
+    assert (params.top_k, params.rerank_top_k, params.cross_encoder_model) == (20, 5, "fake-cross-encoder")
+    assert (params.query_llm_model, params.query_llm_max_tokens, params.n_multi_qus, params.ollama_context_length) == ("ollama_chat/llama3.1:8b", 100, 3, 32768)
+    lineage = setup_record.lineage
+    assert (lineage.manifest_path, lineage.build_hash, lineage.eval_dataset_hash, lineage.benchmark_hash) == ("out/build/manifest_test.json", "testbuildhash", "testevalhash", "testbenchmarkhash")
 
 
 def test_save_best_setups_names_the_file_by_the_three_hashes(tmp_path):
@@ -257,7 +266,7 @@ def test_save_then_load_best_setups_gives_the_same_records_in_order(tmp_path):
 
     assert loaded_records == saved_records
     assert isinstance(loaded_records[0], SetupRecord)
-    assert isinstance(loaded_records[0].index_paths, tuple)
+    assert isinstance(loaded_records[0].artifacts.index_paths, tuple)
 
 
 def test_load_best_setups_raises_when_nothing_is_saved(tmp_path):

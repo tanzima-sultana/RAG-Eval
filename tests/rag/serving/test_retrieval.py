@@ -80,7 +80,8 @@ class KeywordEmbeddings(Embeddings):
 class FakeCrossEncoder(BaseCrossEncoder):
     """
     Stand-in for LangChain's HuggingFaceCrossEncoder: a (question, chunk text) pair scores the number at the end of
-    the chunk text. Every scored question is recorded in scored_questions.
+    the chunk text. Every scored question is recorded in scored_questions, and the model name it was built with in
+    model_name.
     """
 
     scored_questions = []
@@ -89,9 +90,9 @@ class FakeCrossEncoder(BaseCrossEncoder):
         """
         Input: model_name, as the real class takes it.
         Output: nothing.
-        What it does: nothing; the fake needs no model.
+        What it does: stores the model name; the fake needs no model.
         """
-        return None
+        self.model_name = model_name
 
     def score(self, text_pairs):
         """
@@ -137,7 +138,7 @@ def make_faiss_index():
     What it does: builds the tiny FAISS index.
     """
     vector_store = FAISS.from_documents(make_langchain_documents(), KeywordEmbeddings())
-    return FaissIndex(index_type="faiss_flatip", vector_store=vector_store, index_path="unused", dimension=len(VOCABULARY))
+    return FaissIndex(index_type="faiss_flatip", vector_store=vector_store, index_path="indexes/faiss_flatip_test", dimension=len(VOCABULARY))
 
 
 def make_vectordb_index():
@@ -147,7 +148,7 @@ def make_vectordb_index():
     What it does: builds a tiny vector DB record without a Qdrant server.
     """
     vector_store = FAISS.from_documents(make_langchain_documents(), KeywordEmbeddings())
-    return VectorDb(vectordb_type="qdrant", vector_store=vector_store, collection_name="unused", dimension=len(VOCABULARY))
+    return VectorDb(vectordb_type="qdrant", vector_store=vector_store, collection_name="qdrant_test", dimension=len(VOCABULARY))
 
 
 def lowercase_split(text):
@@ -166,29 +167,30 @@ def make_bm25_index():
     What it does: builds the tiny BM25 index, lowercased and split on whitespace as the build does.
     """
     retriever = BM25Retriever.from_documents(make_langchain_documents(), preprocess_func=lowercase_split)
-    return Bm25Index(retriever=retriever, index_path="unused")
+    return Bm25Index(retriever=retriever, index_path="indexes/bm25_test/bm25_retriever.pkl")
 
 
 @pytest.fixture
-def make_retrieval_args(make_index_args):
+def make_retrieval_args():
     """
-    Input: the make_index_args fixture.
+    Input: none.
     Output: a function that builds a RetrievalArgs.
-    What it does: returns a builder with small defaults (dense, top_k 3, rerank_top_k 2, no reranking) where any field
-    can be overridden.
+    What it does: returns a builder with small defaults (fixed chunks, dense, top_k 3, rerank_top_k 2, no reranking)
+    where any field can be overridden.
     """
     def build_retrieval_args(**overrides):
         """
         Input: any RetrievalArgs field as a keyword argument.
         Output: a RetrievalArgs with the defaults plus the overrides.
-        What it does: fills in defaults for every field not overridden. The index type is empty, as in the run.
+        What it does: fills in defaults for every field not overridden.
         """
         field_values = {}
-        field_values["index_args"] = make_index_args(index_type="")
+        field_values["chunk_type"] = "fixed"
         field_values["retrieval_types"] = ["dense"]
         field_values["top_k"] = 3
         field_values["reranking"] = False
         field_values["rerank_top_k"] = 2
+        field_values["cross_encoder_model"] = "fake-cross-encoder"
         for field_name in overrides:
             field_values[field_name] = overrides[field_name]
         return RetrievalArgs(**field_values)
@@ -329,7 +331,8 @@ def test_constructor_builds_the_reranker_only_with_reranking(make_retrieval_args
     """
     Input: the same dense setup with reranking off and on.
     Output: the reranker of each.
-    What it does: checks the cross-encoder reranker is built only with reranking, with rerank_top_k as its top_n.
+    What it does: checks the cross-encoder reranker is built only with reranking, with the configured model and
+    rerank_top_k as its top_n.
     """
     plain_retrieval = Retrieval(make_retrieval_args(), make_query_args(), make_faiss_index(), None, None, str(tmp_path))
     reranked_retrieval = Retrieval(make_retrieval_args(reranking=True), make_query_args(), make_faiss_index(), None, None, str(tmp_path))
@@ -337,6 +340,7 @@ def test_constructor_builds_the_reranker_only_with_reranking(make_retrieval_args
     assert plain_retrieval.reranker is None
     assert reranked_retrieval.reranker.top_n == 2
     assert isinstance(reranked_retrieval.reranker.model, FakeCrossEncoder)
+    assert reranked_retrieval.reranker.model.model_name == "fake-cross-encoder"
 
 
 # ---------- retrieve: retrieval type, index type and query type ----------
@@ -515,15 +519,18 @@ def test_load_retrieved_entry_gives_none_when_the_file_is_missing(tmp_path):
 # ---------- get_retrieved_file_path ----------
 
 
-def get_retrieved_file_name(retrieval_args, query_type="original", index_type="faiss_flatip", query_texts=None, original_qus="apple"):
+def get_retrieved_file_name(retrieval_args, query_type="original", index_type="faiss_flatip", index_paths=None, query_texts=None, original_qus="apple"):
     """
-    Input: the arguments of get_retrieved_file_path, with defaults; query_texts defaults to ["apple"].
+    Input: the arguments of get_retrieved_file_path, with defaults; index_paths defaults to one FAISS folder and
+    query_texts to ["apple"].
     Output: the file name of that content.
     What it does: builds the retrieved file path under "out" and keeps only its name.
     """
+    if index_paths is None:
+        index_paths = ["indexes/faiss_flatip_test"]
     if query_texts is None:
         query_texts = ["apple"]
-    return os.path.basename(paths.get_retrieved_file_path("out", retrieval_args, query_type, index_type, query_texts, original_qus))
+    return os.path.basename(paths.get_retrieved_file_path("out", retrieval_args, query_type, index_type, index_paths, query_texts, original_qus))
 
 
 def test_get_retrieved_file_path_is_a_12_character_hash_in_the_given_folder(make_retrieval_args):
@@ -533,8 +540,8 @@ def test_get_retrieved_file_path_is_a_12_character_hash_in_the_given_folder(make
     What it does: checks the file is {hash}.json directly in the given folder, with a 12 hex character hash, the same
     for the same content.
     """
-    retrieved_file = paths.get_retrieved_file_path("out", make_retrieval_args(), "original", "faiss_flatip", ["apple"], "apple")
-    same_retrieved_file = paths.get_retrieved_file_path("out", make_retrieval_args(), "original", "faiss_flatip", ["apple"], "apple")
+    retrieved_file = paths.get_retrieved_file_path("out", make_retrieval_args(), "original", "faiss_flatip", ["indexes/faiss_flatip_test"], ["apple"], "apple")
+    same_retrieved_file = paths.get_retrieved_file_path("out", make_retrieval_args(), "original", "faiss_flatip", ["indexes/faiss_flatip_test"], ["apple"], "apple")
 
     file_name = os.path.basename(retrieved_file)
     assert os.path.dirname(retrieved_file) == "out"
@@ -543,10 +550,10 @@ def test_get_retrieved_file_path_is_a_12_character_hash_in_the_given_folder(make
     assert retrieved_file == same_retrieved_file
 
 
-def test_get_retrieved_file_path_changes_with_each_hashed_content(make_retrieval_args, make_index_args, make_chunking_args):
+def test_get_retrieved_file_path_changes_with_each_hashed_content(make_retrieval_args):
     """
     Input: the default content, and the same with one part changed: the searched texts, the query type, the retrieval
-    type, top_k, reranking, the index type, the input hash, a chunk setting or an index setting.
+    type, top_k, reranking, the index type or the index paths searched.
     Output: the file names.
     What it does: checks each changed part gives a different file.
     """
@@ -559,22 +566,22 @@ def test_get_retrieved_file_path_changes_with_each_hashed_content(make_retrieval
         get_retrieved_file_name(make_retrieval_args(top_k=5)),
         get_retrieved_file_name(make_retrieval_args(reranking=True)),
         get_retrieved_file_name(make_retrieval_args(), index_type="qdrant"),
-        get_retrieved_file_name(make_retrieval_args(index_args=make_index_args(index_type="", input_hash="otherinputhash"))),
-        get_retrieved_file_name(make_retrieval_args(index_args=make_index_args(index_type="", chunking_args=make_chunking_args(max_chunk_size=8)))),
-        get_retrieved_file_name(make_retrieval_args(index_args=make_index_args(index_type="", hnsw_m=8))),
+        get_retrieved_file_name(make_retrieval_args(), index_paths=["indexes/faiss_flatip_other"]),
     ]
 
     for changed_name in changed_names:
         assert changed_name != default_name
 
 
-def test_get_retrieved_file_path_uses_the_original_question_and_rerank_top_k_only_with_reranking(make_retrieval_args):
+def test_get_retrieved_file_path_uses_the_rerank_settings_only_with_reranking(make_retrieval_args):
     """
-    Input: another original question and rerank_top_k, with reranking off and on.
+    Input: another original question, rerank_top_k and cross-encoder model, with reranking off and on.
     Output: the file names.
-    What it does: checks they change the file only of a reranked result, since only the cross-encoder reads them.
+    What it does: checks they change the file only of a reranked result, since only the cross-encoder uses them.
     """
     assert get_retrieved_file_name(make_retrieval_args(), original_qus="banana") == get_retrieved_file_name(make_retrieval_args())
     assert get_retrieved_file_name(make_retrieval_args(rerank_top_k=1)) == get_retrieved_file_name(make_retrieval_args())
+    assert get_retrieved_file_name(make_retrieval_args(cross_encoder_model="other")) == get_retrieved_file_name(make_retrieval_args())
     assert get_retrieved_file_name(make_retrieval_args(reranking=True), original_qus="banana") != get_retrieved_file_name(make_retrieval_args(reranking=True))
     assert get_retrieved_file_name(make_retrieval_args(reranking=True, rerank_top_k=1)) != get_retrieved_file_name(make_retrieval_args(reranking=True))
+    assert get_retrieved_file_name(make_retrieval_args(reranking=True, cross_encoder_model="other")) != get_retrieved_file_name(make_retrieval_args(reranking=True))
