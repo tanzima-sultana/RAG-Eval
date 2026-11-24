@@ -27,7 +27,7 @@ from rag.build.indexing import Indexing
 from rag.build.indexing_vectordb import IndexingVectorDb
 from rag.build.ingestion import load_documents
 from rag.build.manifest import load_build_manifest_from_path
-from rag.serving.query.query_transformation import QueryTransformation
+from rag.serving.query.query import QueryTransformation
 from rag.serving.retrieval.retrieval import Retrieval
 from schema.eval_dataset_metadata import EvalDatasetMetadata
 

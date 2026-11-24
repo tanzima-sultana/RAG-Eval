@@ -1,7 +1,7 @@
 """
 test_query_transformation.py
 
-Tests for rag.serving.query (query_transformation, single_query and cache). No LLM is called: the query LLM is replaced with a fake that answers
+Tests for rag.serving.query (query, single_query and cache). No LLM is called: the query LLM is replaced with a fake that answers
 by prompt, and HuggingFaceEmbeddings with the fake from conftest. Each query type of each question is saved as its own file in tmp_path.
 """
 
@@ -21,8 +21,8 @@ from common.constants import HYDE_QUERY
 from common.constants import MULTI_QUERY
 from common.constants import ORIGINAL_QUERY
 from common.constants import REWRITTEN_QUERY
-from rag.serving.query import query_transformation as query_transformation_module
-from rag.serving.query.query_transformation import QueryTransformation
+from rag.serving.query import query as query_transformation_module
+from rag.serving.query.query import QueryTransformation
 from rag.serving.query.cache import QueryLLMCache
 from rag.serving.query.single_query import transform_single_query
 from schema.llm import LLMArgs

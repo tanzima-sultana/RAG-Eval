@@ -103,11 +103,18 @@ src/
                         indexing_vectordb.py
 
                 serving/
-                        query_transformation.py
-                        retrieval.py
-                        context_creation.py
-                        prompt_construction.py
-                        answer_generation.py
+						query/
+							query.py
+							single_query.py
+							query_prompts.py
+							cache.py
+                        retrieval/
+							retrieval.py
+							single_retrieval.py
+							cache.py
+                        context.py
+                        prompt.py
+                        answer.py
                         rag_pipeline.py               # RagPipeline(setup): retrieve(q), answer(q)
 
         evaluation/                       # computes scores
