@@ -12,7 +12,7 @@ from evaluation.eval_dataset.cache import load_eval_dataset
 from evaluation.eval_dataset.cache import save_eval_dataset
 from evaluation.eval_dataset.cache import save_eval_dataset_metadata
 from evaluation.eval_dataset.eval_sample import generate_eval_dataset
-from schema.document import File
+from schema.file import File
 from schema.eval_dataset_metadata import EvalDatasetMetadata
 from schema.eval_sample import EvalSample
 

@@ -21,7 +21,7 @@ from common.args import EvalDatasetArgs
 from evaluation.eval_dataset.knowledge_graph import apply_transforms_dropping_failed_nodes
 from evaluation.eval_dataset.knowledge_graph import check_reply_finished
 from llm_provider.llm_provider import LLMProvider
-from schema.document import File
+from schema.file import File
 from schema.eval_sample import EvalSample
 
 

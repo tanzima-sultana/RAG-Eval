@@ -23,7 +23,7 @@ from evaluation.eval_dataset.eval_dataset import EvalDataset
 from evaluation.eval_dataset.eval_sample import generate_eval_dataset
 from evaluation.eval_dataset.knowledge_graph import ReplyDidNotFinishError
 from evaluation.eval_dataset.knowledge_graph import check_reply_finished
-from rag.build.ingestion import save_documents
+from rag.build.ingestion.cache import save_documents
 from schema.llm import LLMArgs
 from schema.eval_sample import EvalSample
 
