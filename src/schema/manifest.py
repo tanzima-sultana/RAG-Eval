@@ -11,7 +11,6 @@ class ChunkEntry:
 	min_chunk_size: int
 	max_chunk_size: int
 	fixed_chunk_overlap: int
-	semantic_threshold: float
 	# The folder of the saved chunks, one file per document
 	chunk_path: str
 	# The folder of the saved embeddings, one file per document
@@ -26,9 +25,11 @@ class IndexEntry:
 	chunk_type: str
 	# faiss_flatip, faiss_ivf, faiss_hnsw, bm25 or qdrant
 	index_type: str
-	# The settings of this index type: ivf_nlist, hnsw_m and hnsw_ef_construction, or bm25_k1, bm25_b and
+	# The settings of this index type: ivf_nlist_multiplier, hnsw_m and hnsw_ef_construction, or bm25_k1, bm25_b and
 	# bm25_tokenizer. Empty for faiss_flatip and qdrant
 	index_settings: dict
+	# The settings the build worked out while building: {"nlist": ...} for faiss_ivf, empty for the other index types
+	built_settings: dict
 	# Where the index is: a folder for FAISS and BM25, the collection name for Qdrant
 	location: str
 	# The vectors or chunks the index holds

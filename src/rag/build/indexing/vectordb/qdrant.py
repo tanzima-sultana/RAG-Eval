@@ -10,7 +10,7 @@ from common import paths
 from common.args import ChunkingArgs
 from common.args import EmbedderArgs
 from common.args import VectorDbArgs
-from rag.build.embedding import make_embedding_model
+from rag.build.embedding.embedding import make_embedding_model
 from schema.chunk import Chunk
 from schema.embed import Embedded
 from schema.vectordb import VectorDb

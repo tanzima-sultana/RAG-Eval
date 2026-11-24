@@ -28,7 +28,7 @@ def get_index_settings(index_args: IndexArgs) -> dict:
 	"""
 	index_settings = {}
 	if index_args.index_type == constants.FAISS_IVF_INDEX:
-		index_settings["ivf_nlist"] = index_args.ivf_nlist
+		index_settings["ivf_nlist_multiplier"] = index_args.ivf_nlist_multiplier
 	elif index_args.index_type == constants.FAISS_HNSW_INDEX:
 		index_settings["hnsw_m"] = index_args.hnsw_m
 		index_settings["hnsw_ef_construction"] = index_args.hnsw_ef_construction
@@ -72,7 +72,6 @@ def make_chunk_entry(chunking_args: ChunkingArgs, chunk_path: str, embedding_pat
 		min_chunk_size=chunking_args.min_chunk_size,
 		max_chunk_size=chunking_args.max_chunk_size,
 		fixed_chunk_overlap=chunking_args.fixed_chunk_overlap,
-		semantic_threshold=chunking_args.semantic_threshold,
 		chunk_path=chunk_path,
 		embedding_path=embedding_path,
 		chunk_count=chunk_count
@@ -84,17 +83,23 @@ def make_index_entry(chunking_args: ChunkingArgs, index_args: IndexArgs, index: 
 	Input: chunking_args, the chunking settings of the chunks the index holds; index_args, the settings of one FAISS or
 	BM25 index; index, the index the build returned; count, the vectors or chunks it holds.
 	Output: the IndexEntry of the index.
-	What it does: records the index type and its settings with its folder. A BM25 index_path is its pickle file, so
-	its folder is taken.
+	What it does: records the index type, its settings and the settings the build worked out with its folder. A BM25
+	index_path is its pickle file, so its folder is taken. For faiss_ivf, the nlist the build computed is read from the
+	built FAISS index.
 	"""
 	index_folder = index.index_path
 	if index_args.index_type == constants.BM25_INDEX:
 		index_folder = os.path.dirname(index.index_path)
 
+	built_settings = {}
+	if index_args.index_type == constants.FAISS_IVF_INDEX:
+		built_settings["nlist"] = index.vector_store.index.nlist
+
 	return IndexEntry(
 		chunk_type=chunking_args.chunk_type,
 		index_type=index_args.index_type,
 		index_settings=get_index_settings(index_args),
+		built_settings=built_settings,
 		location=index_folder,
 		count=count
 	)
@@ -111,6 +116,7 @@ def make_vectordb_entry(chunking_args: ChunkingArgs, vectordb_args: VectorDbArgs
 		chunk_type=chunking_args.chunk_type,
 		index_type=vectordb_args.vectordb_type,
 		index_settings={},
+		built_settings={},
 		location=collection_name,
 		count=count
 	)
@@ -122,7 +128,7 @@ def save_build_manifest(manifest: BuildManifest, output_path: str, parsed_args: 
 	hash of the input files.
 	Output: nothing.
 	What it does: stamps the build time and saves the manifest as JSON through a temporary file, to
-	build/manifest_{build hash}.json.
+	build/manifest_{dataset_name}_{dataset_size}_{build hash}.json.
 	"""
 	manifest.built_at = datetime.datetime.now().isoformat(timespec="seconds")
 
@@ -139,7 +145,7 @@ def load_build_manifest(output_path: str, parsed_args: argparse.Namespace, input
 	Input: output_path, the dataset's output folder; parsed_args, the parsed build args; input_hash, the hash of the
 	input files.
 	Output: the saved BuildManifest.
-	What it does: reads build/manifest_{build hash}.json, and raises FileNotFoundError if the build has not saved one.
+	What it does: reads build/manifest_{dataset_name}_{dataset_size}_{build hash}.json, and raises FileNotFoundError if the build has not saved one.
 	"""
 	manifest_file = paths.get_build_manifest_path(output_path, parsed_args, input_hash)
 	return load_build_manifest_from_path(manifest_file)
@@ -147,7 +153,7 @@ def load_build_manifest(output_path: str, parsed_args: argparse.Namespace, input
 
 def load_build_manifest_from_path(manifest_file: str) -> BuildManifest:
 	"""
-	Input: manifest_file, the path of a saved manifest_{build hash}.json.
+	Input: manifest_file, the path of a saved manifest_{dataset_name}_{dataset_size}_{build hash}.json.
 	Output: the saved BuildManifest.
 	What it does: reads the manifest file, and raises FileNotFoundError if it does not exist.
 	"""
@@ -176,7 +182,7 @@ def is_build_complete(output_path: str, parsed_args: argparse.Namespace, input_h
 	input files.
 	Output: True if a build with exactly these args and input files finished and every output it lists is still
 	there, else False.
-	What it does: looks for build/manifest_{build hash}.json and checks the documents, every chunk and embedding
+	What it does: looks for build/manifest_{dataset_name}_{dataset_size}_{build hash}.json and checks the documents, every chunk and embedding
 	folder, every FAISS and BM25 folder and, only if the manifest has Qdrant entries, every Qdrant collection. Prints
 	the first missing item. Raises ConnectionError if the Qdrant server is needed and not reachable.
 	"""
@@ -246,8 +252,8 @@ def find_chunk_entry(manifest: BuildManifest, embedder_args: EmbedderArgs, chunk
 	for chunk_entry in manifest.chunk_entries:
 		if chunk_entry.chunk_type != chunking_args.chunk_type:
 			continue
-		built_settings = (chunk_entry.min_chunk_size, chunk_entry.max_chunk_size, chunk_entry.fixed_chunk_overlap, chunk_entry.semantic_threshold)
-		wanted_settings = (chunking_args.min_chunk_size, chunking_args.max_chunk_size, chunking_args.fixed_chunk_overlap, chunking_args.semantic_threshold)
+		built_settings = (chunk_entry.min_chunk_size, chunk_entry.max_chunk_size, chunk_entry.fixed_chunk_overlap)
+		wanted_settings = (chunking_args.min_chunk_size, chunking_args.max_chunk_size, chunking_args.fixed_chunk_overlap)
 		if built_settings != wanted_settings:
 			raise ValueError(
 				f"The build made {chunking_args.chunk_type} chunks with settings {built_settings}, not {wanted_settings}. "

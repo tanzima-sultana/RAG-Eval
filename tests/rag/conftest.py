@@ -11,12 +11,13 @@ import sentence_transformers
 from langchain_core.embeddings import Embeddings
 
 from common.args import ChunkingArgs
+from common.args import EmbedderArgs
 from common.args import IndexArgs
 from common.args import VectorDbArgs
-from schema.chunk import Document
-from schema.document import File
-from schema.document import DocumentType
-from schema.document import Metadata
+from schema.chunk import Chunk
+from schema.file import File
+from schema.file import FileType
+from schema.file import Metadata
 from schema.embed import Embedded
 
 DIMENSION = 4
@@ -148,6 +149,31 @@ def fake_huggingface_embeddings():
 
 
 @pytest.fixture
+def make_embedder_args():
+    """
+    Input: none.
+    Output: a function that builds an EmbedderArgs.
+    What it does: returns a builder with fake-model defaults where any field can be overridden by keyword.
+    """
+    def build_embedder_args(**overrides):
+        """
+        Input: any EmbedderArgs field as a keyword argument.
+        Output: an EmbedderArgs with the defaults plus the overrides.
+        What it does: fills in defaults for every field not overridden.
+        """
+        field_values = {}
+        field_values["embedding_provider"] = "huggingface"
+        field_values["model_name"] = "fake-model"
+        field_values["batch_size"] = 256
+        field_values["normalize_embeddings"] = True
+        for field_name in overrides:
+            field_values[field_name] = overrides[field_name]
+        return EmbedderArgs(**field_values)
+
+    return build_embedder_args
+
+
+@pytest.fixture
 def make_chunking_args():
     """
     Input: none.
@@ -161,12 +187,10 @@ def make_chunking_args():
         What it does: fills in defaults for every field not overridden.
         """
         field_values = {}
-        field_values["model_name"] = "fake-model"
         field_values["chunk_type"] = "fixed"
         field_values["min_chunk_size"] = 2
         field_values["max_chunk_size"] = 6
         field_values["fixed_chunk_overlap"] = 2
-        field_values["semantic_threshold"] = 0.5
         for field_name in overrides:
             field_values[field_name] = overrides[field_name]
         return ChunkingArgs(**field_values)
@@ -175,11 +199,11 @@ def make_chunking_args():
 
 
 @pytest.fixture
-def make_index_args(make_chunking_args):
+def make_index_args():
     """
-    Input: the make_chunking_args fixture.
+    Input: none.
     Output: a function that builds an IndexArgs.
-    What it does: returns a builder with small defaults (ivf_nlist 2, hnsw_m 4) where any field can be overridden.
+    What it does: returns a builder with small defaults (ivf_nlist_multiplier 1.0, hnsw_m 4) where any field can be overridden.
     """
     def build_index_args(**overrides):
         """
@@ -188,9 +212,8 @@ def make_index_args(make_chunking_args):
         What it does: fills in defaults for every field not overridden.
         """
         field_values = {}
-        field_values["chunking_args"] = make_chunking_args()
         field_values["index_type"] = "faiss_flatip"
-        field_values["ivf_nlist"] = 2
+        field_values["ivf_nlist_multiplier"] = 1.0
         field_values["hnsw_m"] = 4
         field_values["hnsw_ef_construction"] = 8
         field_values["bm25_k1"] = 1.5
@@ -205,9 +228,9 @@ def make_index_args(make_chunking_args):
 
 
 @pytest.fixture
-def make_vectordb_args(make_chunking_args):
+def make_vectordb_args():
     """
-    Input: the make_chunking_args fixture.
+    Input: none.
     Output: a function that builds a VectorDbArgs.
     What it does: returns a builder with small defaults (batch size 3) where any field can be overridden.
     """
@@ -218,7 +241,6 @@ def make_vectordb_args(make_chunking_args):
         What it does: fills in defaults for every field not overridden.
         """
         field_values = {}
-        field_values["chunking_args"] = make_chunking_args()
         field_values["vectordb_type"] = "qdrant"
         field_values["qdrant_url"] = "http://localhost:6333"
         field_values["qdrant_batch_size"] = 3
@@ -244,7 +266,7 @@ def make_document():
         What it does: builds the File with placeholder metadata.
         """
         metadata = Metadata(source="file.pdf", file_size_bytes=1, content_hash="hash")
-        return File(id=doc_id, type=DocumentType.PDF, text=text, metadata=metadata)
+        return File(id=doc_id, type=FileType.PDF, text=text, metadata=metadata)
 
     return build_document
 
@@ -268,7 +290,7 @@ def make_chunks_and_embeddings():
         for chunk_index in range(chunk_count):
             doc_index = chunk_index % doc_count
             chunk_id = f"doc{doc_index}_{chunk_index}"
-            chunks[chunk_id] = Document(chunk_id, f"word{chunk_index} shared", 2, "fixed")
+            chunks[chunk_id] = Chunk(chunk_id, f"word{chunk_index} shared", 2, "fixed")
 
             vector = random_generator.normal(size=DIMENSION).astype(np.float32)
             vector = vector / np.linalg.norm(vector)

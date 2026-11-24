@@ -1,7 +1,7 @@
 """
 test_embedding.py
 
-Tests for rag.build.embedding. HuggingFaceEmbeddings is replaced with a fake that embeds a text by its length,
+Tests for rag.build.embedding (embedding.py and cache.py). HuggingFaceEmbeddings is replaced with a fake that embeds a text by its length,
 so no model is downloaded.
 """
 
@@ -12,11 +12,12 @@ import pytest
 
 from common import paths
 from common.args import EmbeddingArgs
-from rag.build import embedding as embedding_module
-from rag.build.embedding import Embedding
-from rag.build.embedding import load_embeddings
-from rag.build.embedding import save_embeddings
-from schema.chunk import Document
+from rag.build.embedding import embedding as embedding_module
+from rag.build.embedding.cache import load_embeddings
+from rag.build.embedding.cache import save_embeddings
+from rag.build.embedding.embedding import Embedding
+from rag.build.embedding.embedding import make_embedding_model
+from schema.chunk import Chunk
 from schema.embed import Embedded
 
 
@@ -34,7 +35,7 @@ def patched_embeddings(monkeypatch, fake_huggingface_embeddings):
 def make_chunks(chunk_texts_by_doc_id):
     """
     Input: chunk_texts_by_doc_id, a dict of doc_id to that document's chunk texts.
-    Output: a dict of chunk_id to Document, with ids "{doc_id}_{n}".
+    Output: a dict of chunk_id to Chunk, with ids "{doc_id}_{n}".
     What it does: builds the chunks Embedding takes.
     """
     chunks = {}
@@ -42,7 +43,7 @@ def make_chunks(chunk_texts_by_doc_id):
         chunk_texts = chunk_texts_by_doc_id[doc_id]
         for chunk_index in range(len(chunk_texts)):
             chunk_id = f"{doc_id}_{chunk_index}"
-            chunks[chunk_id] = Document(chunk_id, chunk_texts[chunk_index], 1, "fixed")
+            chunks[chunk_id] = Chunk(chunk_id, chunk_texts[chunk_index], 1, "fixed")
     return chunks
 
 
@@ -72,13 +73,13 @@ def test_save_and_load_embeddings_round_trip(tmp_path):
 # ---------- compute_embeddings ----------
 
 
-def test_compute_embeddings_embeds_every_chunk_and_saves_one_file_per_document(patched_embeddings, make_chunking_args, tmp_path):
+def test_compute_embeddings_embeds_every_chunk_and_saves_one_file_per_document(patched_embeddings, make_embedder_args, make_chunking_args, tmp_path):
     """
     Input: two documents' chunks.
     Output: the embeddings and the files in the embedding folder.
     What it does: checks each chunk gets its own vector, marked normalized, and one file is saved per document.
     """
-    embedding_args = EmbeddingArgs(chunking_args=make_chunking_args())
+    embedding_args = EmbeddingArgs(embedder_args=make_embedder_args(), chunking_args=make_chunking_args())
     chunks = make_chunks({"d1": ["a", "bbb"], "d2": ["cc"]})
 
     embeddings = Embedding(embedding_args).compute_embeddings(chunks, str(tmp_path))
@@ -87,17 +88,17 @@ def test_compute_embeddings_embeds_every_chunk_and_saves_one_file_per_document(p
     assert embeddings["d1_1"].embeddings[0] == 3.0
     assert embeddings["d2_0"].embeddings[0] == 2.0
     assert embeddings["d1_0"].normalized is True
-    embedding_path = paths.get_embedding_path(str(tmp_path), embedding_args)
+    embedding_path = paths.get_embedding_path(str(tmp_path), embedding_args.embedder_args, embedding_args.chunking_args)
     assert sorted(os.listdir(embedding_path)) == ["d1.npz", "d2.npz"]
 
 
-def test_compute_embeddings_sends_all_chunks_in_one_call(patched_embeddings, make_chunking_args, tmp_path):
+def test_compute_embeddings_sends_all_chunks_in_one_call(patched_embeddings, make_embedder_args, make_chunking_args, tmp_path):
     """
     Input: two documents' chunks.
     Output: the embed_documents calls.
     What it does: checks every chunk is embedded in a single embed_documents call.
     """
-    embedding_args = EmbeddingArgs(chunking_args=make_chunking_args())
+    embedding_args = EmbeddingArgs(embedder_args=make_embedder_args(), chunking_args=make_chunking_args())
     chunks = make_chunks({"d1": ["a", "bbb"], "d2": ["cc"]})
 
     Embedding(embedding_args).compute_embeddings(chunks, str(tmp_path))
@@ -105,13 +106,13 @@ def test_compute_embeddings_sends_all_chunks_in_one_call(patched_embeddings, mak
     assert patched_embeddings.embed_documents_calls == [["a", "bbb", "cc"]]
 
 
-def test_compute_embeddings_loads_everything_from_cache_on_second_run(patched_embeddings, make_chunking_args, tmp_path, capsys):
+def test_compute_embeddings_loads_everything_from_cache_on_second_run(patched_embeddings, make_embedder_args, make_chunking_args, tmp_path, capsys):
     """
     Input: the same chunks embedded twice.
     Output: the second run's embeddings, the embed calls and what it printed.
     What it does: checks the second run embeds nothing and returns the same vectors.
     """
-    embedding_args = EmbeddingArgs(chunking_args=make_chunking_args())
+    embedding_args = EmbeddingArgs(embedder_args=make_embedder_args(), chunking_args=make_chunking_args())
     chunks = make_chunks({"d1": ["a", "bbb"], "d2": ["cc"]})
 
     first_embeddings = Embedding(embedding_args).compute_embeddings(chunks, str(tmp_path))
@@ -125,13 +126,13 @@ def test_compute_embeddings_loads_everything_from_cache_on_second_run(patched_em
         assert np.array_equal(second_embeddings[chunk_id].embeddings, first_embeddings[chunk_id].embeddings)
 
 
-def test_compute_embeddings_only_embeds_documents_not_cached(patched_embeddings, make_chunking_args, tmp_path, capsys):
+def test_compute_embeddings_only_embeds_documents_not_cached(patched_embeddings, make_embedder_args, make_chunking_args, tmp_path, capsys):
     """
     Input: one document embedded, then that document and a new one embedded.
     Output: the embed calls, the embeddings and what it printed.
     What it does: checks only the new document's chunks are embedded and both are returned.
     """
-    embedding_args = EmbeddingArgs(chunking_args=make_chunking_args())
+    embedding_args = EmbeddingArgs(embedder_args=make_embedder_args(), chunking_args=make_chunking_args())
     Embedding(embedding_args).compute_embeddings(make_chunks({"d1": ["a", "bbb"]}), str(tmp_path))
     patched_embeddings.embed_documents_calls = []
     capsys.readouterr()
@@ -141,3 +142,30 @@ def test_compute_embeddings_only_embeds_documents_not_cached(patched_embeddings,
     assert patched_embeddings.embed_documents_calls == [["cc"]]
     assert sorted(embeddings.keys()) == ["d1_0", "d1_1", "d2_0"]
     assert "Embeddings : 3 (2 from cache, 1 new)" in capsys.readouterr().out
+
+
+def test_compute_embeddings_marks_vectors_not_normalized_when_normalize_embeddings_is_false(patched_embeddings, make_embedder_args, make_chunking_args, tmp_path):
+    """
+    Input: one document's chunks, with normalize_embeddings False in the embedder args.
+    Output: the embeddings.
+    What it does: checks each Embedded records normalized as False, following the embedder args.
+    """
+    embedding_args = EmbeddingArgs(embedder_args=make_embedder_args(normalize_embeddings=False), chunking_args=make_chunking_args())
+
+    embeddings = Embedding(embedding_args).compute_embeddings(make_chunks({"d1": ["a", "bbb"]}), str(tmp_path))
+
+    for chunk_id in embeddings:
+        assert embeddings[chunk_id].normalized is False
+
+
+# ---------- make_embedding_model ----------
+
+
+def test_make_embedding_model_raises_for_unknown_provider(make_embedder_args):
+    """
+    Input: EmbedderArgs with embedding_provider "unknown".
+    Output: ValueError.
+    What it does: checks the factory rejects a provider it does not support and names the provider.
+    """
+    with pytest.raises(ValueError, match="unknown"):
+        make_embedding_model(make_embedder_args(embedding_provider="unknown"))

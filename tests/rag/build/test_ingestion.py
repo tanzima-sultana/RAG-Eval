@@ -1,7 +1,7 @@
 """
 test_ingestion.py
 
-Tests for rag.build.ingestion. PyPDFium2Loader is replaced with a fake that reads each file as plain text,
+Tests for rag.build.ingestion.ingestion. PyPDFium2Loader is replaced with a fake that reads each file as plain text,
 so the test files do not need to be real PDFs.
 """
 
@@ -13,12 +13,16 @@ import pytest
 from langchain_core.documents import Document as LangchainDocument
 
 from common.args import IngestionArgs
-from rag.build import ingestion as ingestion_module
-from rag.build.ingestion import compute_input_hash
-from rag.build.ingestion import convert_langchain_document
-from rag.build.ingestion import ingestion
-from rag.build.ingestion import list_input_files
-from rag.build.ingestion import validate
+from common.paths import get_output_path
+from rag.build.ingestion import ingestion as ingestion_module
+from rag.build.ingestion.cache import load_documents
+from rag.build.ingestion.cache import load_saved_documents
+from rag.build.ingestion.cache import save_documents
+from rag.build.ingestion.ingestion import compute_input_hash
+from rag.build.ingestion.ingestion import convert_langchain_document
+from rag.build.ingestion.ingestion import ingestion
+from rag.build.ingestion.ingestion import list_input_files
+from rag.build.ingestion.ingestion import validate
 
 
 class FakePyPDFium2Loader:
@@ -96,6 +100,15 @@ def make_ingestion_args(input_path, output_path, **overrides):
     return IngestionArgs(**field_values)
 
 
+def get_dataset_output_path(ingestion_args):
+    """
+    Input: ingestion_args.
+    Output: the dataset's output folder, {output_path}/{dataset_name}, the folder ingestion takes.
+    What it does: builds the folder the same way run_build does.
+    """
+    return get_output_path(ingestion_args.output_path, ingestion_args.dataset_name)
+
+
 def get_documents_path(output_path):
     """
     Input: output_path, the root output folder.
@@ -169,7 +182,7 @@ def test_ingestion_reads_only_document_type_files_up_to_dataset_size(tmp_path, f
     input_path = make_input_folder(tmp_path, {"c.pdf": "text c", "a.pdf": "text a", "b.pdf": "text b", "d.txt": "text d"})
     ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=2)
 
-    documents = ingestion(ingestion_args, compute_input_hash(ingestion_args))
+    documents = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
 
     loaded_file_names = []
     for loaded_file in FakePyPDFium2Loader.loaded_files:
@@ -191,7 +204,7 @@ def test_ingestion_skips_empty_and_failed_files(tmp_path, fake_loader, capsys):
     input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "  \n ", "c.pdf": "FAIL"})
     ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"))
 
-    documents = ingestion(ingestion_args, compute_input_hash(ingestion_args))
+    documents = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
 
     assert len(documents) == 1
     assert "Files read : 3, loaded : 1, failed : 1, empty : 1" in capsys.readouterr().out
@@ -208,7 +221,7 @@ def test_ingestion_saves_documents_and_doc_ids(tmp_path, fake_loader):
     ingestion_args = make_ingestion_args(input_path, output_path, dataset_size=2)
     input_hash = compute_input_hash(ingestion_args)
 
-    documents = ingestion(ingestion_args, input_hash)
+    documents = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
 
     documents_path = get_documents_path(output_path)
     expected_file_names = [f"doc_ids_{input_hash}.json"]
@@ -230,12 +243,10 @@ def test_ingestion_loads_from_cache_on_second_run(tmp_path, fake_loader, capsys)
     input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "text b"})
     ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=2)
 
-    input_hash = compute_input_hash(ingestion_args)
-
-    first_documents = ingestion(ingestion_args, input_hash)
+    first_documents = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
     FakePyPDFium2Loader.loaded_files = []
     capsys.readouterr()
-    second_documents = ingestion(ingestion_args, input_hash)
+    second_documents = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
 
     assert second_documents == first_documents
     assert FakePyPDFium2Loader.loaded_files == []
@@ -253,8 +264,8 @@ def test_ingestion_input_sets_share_document_files(tmp_path, fake_loader):
     one_file_args = make_ingestion_args(input_path, output_path, dataset_size=1)
     two_file_args = make_ingestion_args(input_path, output_path, dataset_size=2)
 
-    ingestion(one_file_args, compute_input_hash(one_file_args))
-    documents = ingestion(two_file_args, compute_input_hash(two_file_args))
+    ingestion(one_file_args, get_dataset_output_path(one_file_args))
+    documents = ingestion(two_file_args, get_dataset_output_path(two_file_args))
 
     expected_file_names = [f"doc_ids_{compute_input_hash(one_file_args)}.json", f"doc_ids_{compute_input_hash(two_file_args)}.json"]
     for doc_id in documents:
@@ -266,20 +277,89 @@ def test_ingestion_reads_the_files_again_when_an_input_file_changes(tmp_path, fa
     """
     Input: two pdf files ingested, then one file edited.
     Output: the documents and the loaded files.
-    What it does: checks the new input hash misses the cache, so the files are read again and the edited file gets
-    a new document.
+    What it does: checks the input hash ingestion computes changes, so the cache is missed, the files are read again
+    and the edited file gets a new document.
     """
     input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "text b"})
     ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=2)
-    first_documents = ingestion(ingestion_args, compute_input_hash(ingestion_args))
+    first_documents = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
 
     with open(os.path.join(input_path, "b.pdf"), "w", encoding="utf-8") as f:
         f.write("text b edited")
     FakePyPDFium2Loader.loaded_files = []
-    second_documents = ingestion(ingestion_args, compute_input_hash(ingestion_args))
+    second_documents = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
 
     assert len(FakePyPDFium2Loader.loaded_files) == 2
     assert second_documents != first_documents
+
+
+def test_ingestion_raises_for_invalid_settings_before_reading(tmp_path, fake_loader):
+    """
+    Input: ingestion args with document_type "docx".
+    Output: ValueError, and the loaded files.
+    What it does: checks ingestion validates its own args first, so no file is read.
+    """
+    input_path = make_input_folder(tmp_path, {"a.pdf": "text a"})
+    ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), document_type="docx")
+
+    with pytest.raises(ValueError, match="document_type"):
+        ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
+    assert FakePyPDFium2Loader.loaded_files == []
+
+
+# ---------- cache: save_documents / load_documents / load_saved_documents ----------
+
+
+def make_saved_documents(make_document):
+    """
+    Input: the make_document fixture.
+    Output: a dict of doc_id to File with two documents.
+    What it does: builds the documents the cache tests save.
+    """
+    documents = {}
+    documents["d1"] = make_document("d1", "text one")
+    documents["d2"] = make_document("d2", "text two")
+    return documents
+
+
+def test_save_and_load_documents_round_trip(tmp_path, make_document):
+    """
+    Input: two documents saved under one input hash and loaded back.
+    Output: the loaded documents.
+    What it does: checks the documents come back the same, and an unknown input hash gives None.
+    """
+    documents = make_saved_documents(make_document)
+
+    save_documents(str(tmp_path), documents, "inputhash")
+
+    assert load_documents(str(tmp_path), "inputhash") == documents
+    assert load_documents(str(tmp_path), "otherhash") is None
+
+
+def test_load_saved_documents_loads_every_saved_document(tmp_path, make_document, capsys):
+    """
+    Input: two documents saved under one input hash.
+    Output: the loaded documents and what was printed.
+    What it does: checks load_saved_documents returns every saved document. The input hash is passed in the
+    dataset_size argument, because load_saved_documents passes that argument on to load_documents as the input hash.
+    """
+    documents = make_saved_documents(make_document)
+    save_documents(str(tmp_path), documents, "inputhash")
+
+    loaded_documents = load_saved_documents(str(tmp_path), "inputhash")
+
+    assert loaded_documents == documents
+    assert "Documents : 2 (all from cache)" in capsys.readouterr().out
+
+
+def test_load_saved_documents_raises_when_not_saved(tmp_path):
+    """
+    Input: an empty documents folder.
+    Output: FileNotFoundError.
+    What it does: checks load_saved_documents raises when nothing is saved under that input hash.
+    """
+    with pytest.raises(FileNotFoundError):
+        load_saved_documents(str(tmp_path), "inputhash")
 
 
 # ---------- list_input_files / compute_input_hash ----------

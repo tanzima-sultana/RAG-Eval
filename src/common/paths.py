@@ -52,7 +52,6 @@ def get_chunk_path(output_path: str, embedder_args: EmbedderArgs, chunking_args:
 	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
 	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
 	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
-	hashed_args["semantic_threshold"] = chunking_args.semantic_threshold
 
 	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
 	chunk_hash = hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
@@ -74,7 +73,6 @@ def get_embedding_path(output_path: str, embedder_args: EmbedderArgs, chunking_a
 	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
 	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
 	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
-	hashed_args["semantic_threshold"] = chunking_args.semantic_threshold
 
 	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
 	embedding_hash = hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
@@ -87,7 +85,7 @@ def get_faiss_index_path(output_path: str, embedder_args: EmbedderArgs, chunking
 	Input: output_path, the dataset's output folder; embedder_args; chunking_args; index_args.
 	Output: {output_path}/indexes/{index_type}_{hash}
 	What it does: builds the folder that holds one FAISS index. The hash is the first 12 hex characters of the SHA-256
-	of the index type, the embedding provider, the model name, the chunk args, the index type's settings (ivf_nlist,
+	of the index type, the embedding provider, the model name, the chunk args, the index type's settings (ivf_nlist_multiplier,
 	or hnsw_m and hnsw_ef_construction) and the input hash, as JSON with sorted keys.
 	"""
 	hashed_args = {}
@@ -99,12 +97,11 @@ def get_faiss_index_path(output_path: str, embedder_args: EmbedderArgs, chunking
 	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
 	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
 	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
-	hashed_args["semantic_threshold"] = chunking_args.semantic_threshold
 
 	if index_args.index_type == FAISS_FLATIP_INDEX:
 		pass
 	elif index_args.index_type == FAISS_IVF_INDEX:
-		hashed_args["ivf_nlist"] = index_args.ivf_nlist
+		hashed_args["ivf_nlist_multiplier"] = index_args.ivf_nlist_multiplier
 	elif index_args.index_type == FAISS_HNSW_INDEX:
 		hashed_args["hnsw_m"] = index_args.hnsw_m
 		hashed_args["hnsw_ef_construction"] = index_args.hnsw_ef_construction
@@ -132,7 +129,6 @@ def get_bm25_index_path(output_path: str, embedder_args: EmbedderArgs, chunking_
 	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
 	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
 	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
-	hashed_args["semantic_threshold"] = chunking_args.semantic_threshold
 	hashed_args["bm25_k1"] = index_args.bm25_k1
 	hashed_args["bm25_b"] = index_args.bm25_b
 	hashed_args["bm25_tokenizer"] = index_args.bm25_tokenizer
@@ -167,7 +163,6 @@ def get_qdrant_collection_name(output_path: str, embedder_args: EmbedderArgs, ch
 	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
 	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
 	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
-	hashed_args["semantic_threshold"] = chunking_args.semantic_threshold
 
 	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
 	collection_hash = hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
@@ -195,12 +190,13 @@ def get_build_manifest_path(output_path: str, parsed_args: argparse.Namespace, i
 	"""
 	Input: output_path, the dataset's output folder; parsed_args, the parsed build args; input_hash, the hash of the
 	input files.
-	Output: {output_path}/build/manifest_{hash}.json
-	What it does: builds the file the build saves its manifest to, named by the hash of all the build args and the
-	input hash.
+	Output: {output_path}/build/manifest_{dataset_name}_{dataset_size}_{hash}.json
+	What it does: builds the file the build saves its manifest to, named by the dataset name and size, so it is
+	readable without opening it, and the hash of all the build args and the input hash.
 	"""
 	build_hash = get_build_hash(parsed_args, input_hash)
-	return os.path.join(output_path, "build", f"manifest_{build_hash}.json")
+	manifest_file_name = f"manifest_{parsed_args.dataset_name}_{parsed_args.dataset_size}_{build_hash}.json"
+	return os.path.join(output_path, "build", manifest_file_name)
 
 
 # ------ Setup ranking

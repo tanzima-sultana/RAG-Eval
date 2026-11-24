@@ -64,21 +64,20 @@ class ChunkingArgs:
 	min_chunk_size: int
 	max_chunk_size: int
 	fixed_chunk_overlap: int
-	semantic_threshold: float
 
 
-def make_chunking_args(parsed_args: argparse.Namespace, chunk_type: str) -> ChunkingArgs:
+def make_chunking_args(parsed_args: argparse.Namespace, chunk_type: str, fixed_chunk_overlap: int) -> ChunkingArgs:
 	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args(); chunk_type, one of chunk_types.
-	Output: a ChunkingArgs holding the chunking settings for that chunk type.
-	What it does: copies each chunking setting and chunk_type into the matching ChunkingArgs field.
+	Input: parsed_args, the argparse.Namespace returned by parse_args(); chunk_type, one of chunk_types;
+	fixed_chunk_overlap, one of the fixed_chunk_overlap list.
+	Output: a ChunkingArgs holding the chunking settings for that chunk type and overlap.
+	What it does: copies each chunking setting, chunk_type and fixed_chunk_overlap into the matching ChunkingArgs field.
 	"""
 	chunking_args = ChunkingArgs(
 		chunk_type=chunk_type,
 		min_chunk_size=parsed_args.min_chunk_size,
 		max_chunk_size=parsed_args.max_chunk_size,
-		fixed_chunk_overlap=parsed_args.fixed_chunk_overlap,
-		semantic_threshold=parsed_args.semantic_threshold
+		fixed_chunk_overlap=fixed_chunk_overlap
 	)
 	return chunking_args
 
@@ -105,7 +104,8 @@ def make_embedding_args(embedder_args: EmbedderArgs, chunking_args: ChunkingArgs
 @dataclasses.dataclass
 class IndexArgs:
 	index_type: str
-	ivf_nlist: int
+	# nlist of the FAISS IVF index = ivf_nlist_multiplier * sqrt(number of chunks), capped at number of chunks // 39
+	ivf_nlist_multiplier: float
 	hnsw_m: int
 	hnsw_ef_construction: int
 	bm25_k1: float
@@ -115,16 +115,18 @@ class IndexArgs:
 	input_hash: str
 
 
-def make_index_args(parsed_args: argparse.Namespace, index_type: str, input_hash: str) -> IndexArgs:
+def make_index_args(parsed_args: argparse.Namespace, index_type: str, input_hash: str, ivf_nlist_multiplier: float | None) -> IndexArgs:
 	"""
 	Input: parsed_args, the argparse.Namespace returned by parse_args(); index_type, one of index_types; input_hash,
-	the hash of the input files.
+	the hash of the input files; ivf_nlist_multiplier, one of the ivf_nlist_multiplier list for faiss_ivf, None for
+	the other index types.
 	Output: an IndexArgs holding the indexing settings for that index type.
-	What it does: copies index_type, each indexing setting and input_hash into the matching IndexArgs field.
+	What it does: copies index_type, ivf_nlist_multiplier, each other indexing setting and input_hash into the
+	matching IndexArgs field.
 	"""
 	index_args = IndexArgs(
 		index_type=index_type,
-		ivf_nlist=parsed_args.ivf_nlist,
+		ivf_nlist_multiplier=ivf_nlist_multiplier,
 		hnsw_m=parsed_args.hnsw_m,
 		hnsw_ef_construction=parsed_args.hnsw_ef_construction,
 		bm25_k1=parsed_args.bm25_k1,
@@ -702,11 +704,12 @@ def parse_indexing_args(parser: argparse.ArgumentParser) -> None:
 	# Each index type's settings are in its own block of the config and are needed only when that type is built, so
 	# they are optional and None when the block is not given
 	parser.add_argument(
-		"--faiss_ivf.ivf_nlist",
-		dest="ivf_nlist",
-		type=int,
+		"--faiss_ivf.ivf_nlist_multiplier",
+		dest="ivf_nlist_multiplier",
+		type=float,
+		nargs="+",
 		default=None,
-		help="Number of clusters of the FAISS IVF index")
+		help="One or more multipliers; each builds a FAISS IVF index with nlist = multiplier * sqrt(chunks), capped at chunks // 39")
 	parser.add_argument(
 		"--faiss_hnsw.hnsw_m",
 		dest="hnsw_m",
@@ -793,13 +796,9 @@ def parse_chunking_args(parser: argparse.ArgumentParser) -> None:
 	parser.add_argument(
 		"--fixed_chunk_overlap",
 		type=int,
+		nargs="+",
 		required=True,
-		help="Overlap between consecutive fixed-size chunks")
-	parser.add_argument(
-		"--semantic_threshold",
-		type=float,
-		required=True,
-		help="Similarity threshold used by semantic chunking")
+		help="Overlaps between consecutive token windows, one or more, each built for every chunk type")
 
 
 def parse_ingestion_args(parser: argparse.ArgumentParser) -> None:
@@ -857,11 +856,17 @@ def parse_args() -> argparse.Namespace:
 		if isinstance(value, dict):
 			for setting_key in value:
 				setting_value = value[setting_key]
-				# A nested block, e.g. faiss_ivf: {ivf_nlist: 256}, gives one flag per setting: --faiss_ivf.ivf_nlist 256
+				# A nested block, e.g. faiss_hnsw: {hnsw_m: 32}, gives one flag per setting: --faiss_hnsw.hnsw_m 32. A list
+				# in it is passed as one flag followed by its values, e.g. --faiss_ivf.ivf_nlist_multiplier 4 8 16
 				if isinstance(setting_value, dict):
 					for block_setting_key in setting_value:
+						block_setting_value = setting_value[block_setting_key]
 						config_arguments.append(f"--{setting_key}.{block_setting_key}")
-						config_arguments.append(str(setting_value[block_setting_key]))
+						if isinstance(block_setting_value, list):
+							for item in block_setting_value:
+								config_arguments.append(str(item))
+						else:
+							config_arguments.append(str(block_setting_value))
 					continue
 				config_arguments.append("--" + setting_key)
 				# A list is passed as one flag followed by its values, e.g. --chunk_types fixed sentence
