@@ -1,5 +1,7 @@
 import dataclasses
 
+from common.args import EmbedderArgs
+
 
 @dataclasses.dataclass
 class ChunkEntry:
@@ -44,8 +46,8 @@ class BuildManifest:
 	dataset_size: int
 	# The folder of the saved documents
 	documents_path: str
-	# The model the chunks were embedded with
-	embedding_model: str
+	# The embedder the chunks were made and embedded with: provider, model name, batch size and normalize_embeddings
+	embedder: EmbedderArgs
 	# When the build finished, in ISO format
 	built_at: str
 	chunk_entries: list[ChunkEntry]

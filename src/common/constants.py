@@ -1,3 +1,8 @@
+# 2. Embedder
+
+# Embedding providers
+HUGGINGFACE_EMBEDDING="huggingface"
+
 # 2. Chunking
 
 # Chunking frameworks: "" uses the built-in chunkers

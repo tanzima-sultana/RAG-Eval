@@ -33,8 +33,33 @@ def make_ingestion_args(parsed_args: argparse.Namespace) -> IngestionArgs:
 
 
 @dataclasses.dataclass
-class ChunkingArgs:
+class EmbedderArgs:
+	# The one embedding model chunking, embedding, indexing and the vector DB share
+	# huggingface
+	embedding_provider: str
 	model_name: str
+	batch_size: int
+	normalize_embeddings: bool
+
+
+def make_embedder_args(parsed_args: argparse.Namespace) -> EmbedderArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args().
+	Output: an EmbedderArgs holding the embedder settings.
+	What it does: copies each embedder setting into the matching EmbedderArgs field. normalize_embeddings is "true" or
+	"false" on the command line, and becomes a bool.
+	"""
+	embedder_args = EmbedderArgs(
+		embedding_provider=parsed_args.embedding_provider,
+		model_name=parsed_args.model_name,
+		batch_size=parsed_args.batch_size,
+		normalize_embeddings=parsed_args.normalize_embeddings == "true"
+	)
+	return embedder_args
+
+
+@dataclasses.dataclass
+class ChunkingArgs:
 	chunk_type: str
 	min_chunk_size: int
 	max_chunk_size: int
@@ -49,7 +74,6 @@ def make_chunking_args(parsed_args: argparse.Namespace, chunk_type: str) -> Chun
 	What it does: copies each chunking setting and chunk_type into the matching ChunkingArgs field.
 	"""
 	chunking_args = ChunkingArgs(
-		model_name=parsed_args.model_name,
 		chunk_type=chunk_type,
 		min_chunk_size=parsed_args.min_chunk_size,
 		max_chunk_size=parsed_args.max_chunk_size,
@@ -61,16 +85,18 @@ def make_chunking_args(parsed_args: argparse.Namespace, chunk_type: str) -> Chun
 
 @dataclasses.dataclass
 class EmbeddingArgs:
+	embedder_args: EmbedderArgs
 	chunking_args: ChunkingArgs
 
 
-def make_embedding_args(chunking_args: ChunkingArgs) -> EmbeddingArgs:
+def make_embedding_args(embedder_args: EmbedderArgs, chunking_args: ChunkingArgs) -> EmbeddingArgs:
 	"""
-	Input: chunking_args, the chunking settings of one chunk type.
+	Input: embedder_args, the shared embedder settings; chunking_args, the chunking settings of one chunk type.
 	Output: an EmbeddingArgs holding them.
-	What it does: wraps chunking_args into an EmbeddingArgs.
+	What it does: holds embedder_args and chunking_args in one EmbeddingArgs.
 	"""
 	embedding_args = EmbeddingArgs(
+		embedder_args=embedder_args,
 		chunking_args=chunking_args
 	)
 	return embedding_args
@@ -78,7 +104,6 @@ def make_embedding_args(chunking_args: ChunkingArgs) -> EmbeddingArgs:
 
 @dataclasses.dataclass
 class IndexArgs:
-	chunking_args: ChunkingArgs
 	index_type: str
 	ivf_nlist: int
 	hnsw_m: int
@@ -90,15 +115,14 @@ class IndexArgs:
 	input_hash: str
 
 
-def make_index_args(parsed_args: argparse.Namespace, chunking_args: ChunkingArgs, index_type: str, input_hash: str) -> IndexArgs:
+def make_index_args(parsed_args: argparse.Namespace, index_type: str, input_hash: str) -> IndexArgs:
 	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args(); chunking_args, the chunking settings of one
-	chunk type; index_type, one of index_types; input_hash, the hash of the input files.
+	Input: parsed_args, the argparse.Namespace returned by parse_args(); index_type, one of index_types; input_hash,
+	the hash of the input files.
 	Output: an IndexArgs holding the indexing settings for that index type.
-	What it does: copies chunking_args, index_type, each indexing setting and input_hash into the matching IndexArgs field.
+	What it does: copies index_type, each indexing setting and input_hash into the matching IndexArgs field.
 	"""
 	index_args = IndexArgs(
-		chunking_args=chunking_args,
 		index_type=index_type,
 		ivf_nlist=parsed_args.ivf_nlist,
 		hnsw_m=parsed_args.hnsw_m,
@@ -113,7 +137,6 @@ def make_index_args(parsed_args: argparse.Namespace, chunking_args: ChunkingArgs
 
 @dataclasses.dataclass
 class VectorDbArgs:
-	chunking_args: ChunkingArgs
 	vectordb_type: str
 	qdrant_url: str
 	qdrant_batch_size: int
@@ -121,15 +144,14 @@ class VectorDbArgs:
 	input_hash: str
 
 
-def make_vectordb_args(parsed_args: argparse.Namespace, chunking_args: ChunkingArgs, vectordb_type: str, input_hash: str) -> VectorDbArgs:
+def make_vectordb_args(parsed_args: argparse.Namespace, vectordb_type: str, input_hash: str) -> VectorDbArgs:
 	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args(); chunking_args, the chunking settings of one
-	chunk type; vectordb_type, one of vectordb_types; input_hash, the hash of the input files.
+	Input: parsed_args, the argparse.Namespace returned by parse_args(); vectordb_type, one of vectordb_types;
+	input_hash, the hash of the input files.
 	Output: a VectorDbArgs holding the vector DB settings for that vector DB type.
-	What it does: copies chunking_args, vectordb_type, each vector DB setting and input_hash into the matching VectorDbArgs field.
+	What it does: copies vectordb_type, each vector DB setting and input_hash into the matching VectorDbArgs field.
 	"""
 	vectordb_args = VectorDbArgs(
-		chunking_args=chunking_args,
 		vectordb_type=vectordb_type,
 		qdrant_url=parsed_args.qdrant_url,
 		qdrant_batch_size=parsed_args.qdrant_batch_size,
@@ -717,17 +739,41 @@ def parse_indexing_args(parser: argparse.ArgumentParser) -> None:
 		help="Tokenizer used by BM25: whitespace")
 
 
+def parse_embedder_args(parser: argparse.ArgumentParser) -> None:
+	"""
+	Input: parser, the argument parser of the build.
+	Output: nothing.
+	What it does: adds the embedder arguments to parser.
+	"""
+	parser.add_argument(
+		"--embedding_provider",
+		type=str,
+		required=True,
+		help="Embedding provider: huggingface")
+	parser.add_argument(
+		"--model_name",
+		type=str,
+		required=True,
+		help="Embedding model shared by chunking, embedding, indexing and the vector DB")
+	parser.add_argument(
+		"--batch_size",
+		type=int,
+		required=True,
+		help="Number of texts embedded per batch")
+	parser.add_argument(
+		"--normalize_embeddings",
+		type=str.lower,
+		required=True,
+		choices=["true", "false"],
+		help="true to normalize each vector to length 1, false not to")
+
+
 def parse_chunking_args(parser: argparse.ArgumentParser) -> None:
 	"""
 	Input: parser, the argument parser of main.py.
 	Output: nothing.
 	What it does: adds the chunking arguments to parser.
 	"""
-	parser.add_argument(
-		"--model_name",
-		type=str,
-		required=True,
-		help="SentenceTransformer model used for token counts and semantic embeddings")
 	parser.add_argument(
 		"--chunk_types",
 		type=str,
@@ -794,7 +840,7 @@ def parse_args() -> argparse.Namespace:
 	Input: none. Reads --config and any override flags from the command line.
 	Output: an argparse.Namespace with one attribute per build setting.
 	What it does: reads the build config file, turns each setting into its flag and parses the build sections:
-	ingestion, chunking, indexing and vectordb. Flags given after --config override the file.
+	ingestion, embedder, chunking, indexing and vectordb. Flags given after --config override the file.
 	"""
 	# 1. Get the config file path. The other command line flags are overrides
 	config_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
@@ -831,6 +877,7 @@ def parse_args() -> argparse.Namespace:
 	# 3. Parse the file's flags and then the overrides, so an override replaces the file's value
 	parser = argparse.ArgumentParser(description="Build parameters", allow_abbrev=False)
 	parse_ingestion_args(parser)
+	parse_embedder_args(parser)
 	parse_chunking_args(parser)
 	parse_indexing_args(parser)
 	parse_vectordb_args(parser)

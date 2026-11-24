@@ -4,19 +4,21 @@ import shutil
 
 import faiss
 import numpy as np
-import torch
 
 from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain_community.retrievers import BM25Retriever
 from langchain_community.vectorstores import FAISS
 from langchain_community.vectorstores.utils import DistanceStrategy
 from langchain_core.documents import Document as LangchainDocument
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_core.embeddings import Embeddings
 
 from common import constants
 from common import paths
+from common.args import ChunkingArgs
+from common.args import EmbedderArgs
 from common.args import IndexArgs
-from schema.chunk import Document
+from rag.build.embedding import make_embedding_model
+from schema.chunk import Chunk
 from schema.embed import Embedded
 from schema.index import FaissIndex
 from schema.index import Bm25Index
@@ -48,7 +50,7 @@ def save_faiss_index(faiss_index_path: str, vector_store: FAISS) -> None:
 	os.rmdir(temporary_folder_path)
 
 
-def load_faiss_index(faiss_index_path: str, chunk_ids: list[str], embedding_model: HuggingFaceEmbeddings) -> FAISS | None:
+def load_faiss_index(faiss_index_path: str, chunk_ids: list[str], embedding_model: Embeddings) -> FAISS | None:
 	"""
 	Input: faiss_index_path, the FAISS index folder; chunk_ids, the chunk ids the index must hold; embedding_model.
 	Output: the saved LangChain FAISS vector store, or None if there is none or it holds different chunk ids.
@@ -109,7 +111,7 @@ def load_bm25_index(bm25_index_path: str, chunk_ids: list[str]) -> BM25Retriever
 
 
 
-def load_index_from_path(index_type: str, index_folder: str, embedding_model: HuggingFaceEmbeddings) -> FaissIndex | Bm25Index:
+def load_index_from_path(index_type: str, index_folder: str, embedding_model: Embeddings) -> FaissIndex | Bm25Index:
 	"""
 	Input: index_type, faiss_flatip, faiss_ivf, faiss_hnsw or bm25; index_folder, the index folder the build saved;
 	embedding_model, the embedding model the index was built with, which embeds the query for FAISS.
@@ -143,32 +145,37 @@ def load_index_from_path(index_type: str, index_folder: str, embedding_model: Hu
 	)
 
 class Indexing:
-	def __init__(self, index_args: IndexArgs):
+	def __init__(self, embedder_args: EmbedderArgs, chunking_args: ChunkingArgs, index_args: IndexArgs):
 		"""
-		Input: index_args, the indexing settings for one index type.
+		Input: embedder_args, the shared embedder settings; chunking_args, the chunking settings of the chunks the index
+		holds; index_args, the indexing settings for one index type.
 		Output: nothing.
-		What it does: stores index_args, validates them and loads LangChain's HuggingFaceEmbeddings, which the FAISS
-		vector store uses to embed queries.
+		What it does: stores the three args, validates them and loads the embedding model of the embedder's provider,
+		which the FAISS vector store uses to embed queries.
 		"""
+		self.embedder_args = embedder_args
+		self.chunking_args = chunking_args
 		self.index_args = index_args
 		self.validate()
 
-		# Normalized like the embedding layer, so a query vector matches the chunk vectors
-		device = "cuda" if torch.cuda.is_available() else "cpu"
-		self.embedding_model = HuggingFaceEmbeddings(
-			model_name=self.index_args.chunking_args.model_name,
-			model_kwargs={"device": device},
-			encode_kwargs={"batch_size": 256, "normalize_embeddings": True}
-		)
+		# The same embedder as the embedding layer, so a query vector matches the chunk vectors
+		self.embedding_model = make_embedding_model(self.embedder_args)
 
 	def validate(self) -> None:
 		"""
 		Input: none.
 		Output: nothing.
-		What it does: raises ValueError if the index type is not supported, or if a setting of this index type is missing
-		or not valid. Only the settings of index_args.index_type are checked: faiss_flatip has none.
+		What it does: raises ValueError if the embedding provider or the index type is not supported, or if a setting of
+		this index type is missing or not valid. Only the settings of index_args.index_type are checked: faiss_flatip
+		has none.
 		"""
 		index_args = self.index_args
+
+		if self.embedder_args.embedding_provider != constants.HUGGINGFACE_EMBEDDING:
+			raise ValueError(
+				f"embedding_provider ({self.embedder_args.embedding_provider}) is not supported. Use "
+				f"\"{constants.HUGGINGFACE_EMBEDDING}\"."
+			)
 
 		supported_index_types = [
 			constants.FAISS_FLATIP_INDEX,
@@ -207,9 +214,9 @@ class Indexing:
 			if index_args.bm25_tokenizer != "whitespace":
 				raise ValueError(f"bm25_tokenizer ({index_args.bm25_tokenizer}) is not supported. Use \"whitespace\".")
 
-	def load_saved_index(self, chunks: dict[str, Document], index_folder: str) -> FaissIndex | Bm25Index:
+	def load_saved_index(self, chunks: dict[str, Chunk], index_folder: str) -> FaissIndex | Bm25Index:
 		"""
-		Input: chunks, a dict of chunk_id to Document, the chunks the index must hold; index_folder, the index folder from
+		Input: chunks, a dict of chunk_id to Chunk, the chunks the index must hold; index_folder, the index folder from
 		the build manifest.
 		Output: a FaissIndex or a Bm25Index.
 		What it does: loads the index the build saved, and raises FileNotFoundError if it is not saved or holds
@@ -242,9 +249,9 @@ class Indexing:
 			dimension=vector_store.index.d
 		)
 
-	def compute_index(self, chunks: dict[str, Document], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex | Bm25Index:
+	def compute_index(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex | Bm25Index:
 		"""
-		Input: chunks, a dict of chunk_id to Document; embeddings, a dict of chunk_id to Embedded; output_path, the
+		Input: chunks, a dict of chunk_id to Chunk; embeddings, a dict of chunk_id to Embedded; output_path, the
 		dataset's output folder.
 		Output: a FaissIndex or a Bm25Index.
 		What it does: calls the indexing method of the index type.
@@ -261,7 +268,7 @@ class Indexing:
 
 		return index
 
-	def faiss_flatip_indexing(self, chunks: dict[str, Document], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex:
+	def faiss_flatip_indexing(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex:
 		"""
 		Input: chunks; embeddings; output_path, the dataset's output folder.
 		Output: a FaissIndex holding an exact inner product (IndexFlatIP) vector store.
@@ -280,7 +287,7 @@ class Indexing:
 		dimension = vectors.shape[1]
 
 		# 2. Load the saved index if it holds exactly the same chunks
-		faiss_index_path = paths.get_faiss_index_path(output_path, self.index_args)
+		faiss_index_path = paths.get_faiss_index_path(output_path, self.embedder_args, self.chunking_args, self.index_args)
 		print(f"Index folder : {faiss_index_path}")
 		vector_store = load_faiss_index(faiss_index_path, chunk_ids, self.embedding_model)
 		if vector_store is not None:
@@ -302,7 +309,7 @@ class Indexing:
 			dimension=dimension
 		)
 
-	def faiss_ivf_indexing(self, chunks: dict[str, Document], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex:
+	def faiss_ivf_indexing(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex:
 		"""
 		Input: chunks; embeddings; output_path, the dataset's output folder.
 		Output: a FaissIndex holding an IVF (IndexIVFFlat) vector store with ivf_nlist clusters.
@@ -328,7 +335,7 @@ class Indexing:
 		dimension = vectors.shape[1]
 
 		# 2. Load the saved index if it holds exactly the same chunks
-		faiss_index_path = paths.get_faiss_index_path(output_path, self.index_args)
+		faiss_index_path = paths.get_faiss_index_path(output_path, self.embedder_args, self.chunking_args, self.index_args)
 		print(f"Index folder : {faiss_index_path}")
 		vector_store = load_faiss_index(faiss_index_path, chunk_ids, self.embedding_model)
 		if vector_store is not None:
@@ -353,7 +360,7 @@ class Indexing:
 			dimension=dimension
 		)
 
-	def faiss_hnsw_indexing(self, chunks: dict[str, Document], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex:
+	def faiss_hnsw_indexing(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex:
 		"""
 		Input: chunks; embeddings; output_path, the dataset's output folder.
 		Output: a FaissIndex holding an HNSW (IndexHNSWFlat) vector store.
@@ -372,7 +379,7 @@ class Indexing:
 		dimension = vectors.shape[1]
 
 		# 2. Load the saved index if it holds exactly the same chunks
-		faiss_index_path = paths.get_faiss_index_path(output_path, self.index_args)
+		faiss_index_path = paths.get_faiss_index_path(output_path, self.embedder_args, self.chunking_args, self.index_args)
 		print(f"Index folder : {faiss_index_path}")
 		vector_store = load_faiss_index(faiss_index_path, chunk_ids, self.embedding_model)
 		if vector_store is not None:
@@ -396,7 +403,7 @@ class Indexing:
 			dimension=dimension
 		)
 
-	def wrap_faiss_index(self, faiss_index: faiss.Index, chunk_ids: list[str], chunks: dict[str, Document]) -> FAISS:
+	def wrap_faiss_index(self, faiss_index: faiss.Index, chunk_ids: list[str], chunks: dict[str, Chunk]) -> FAISS:
 		"""
 		Input: faiss_index, a built FAISS index; chunk_ids, the chunk id at each FAISS position; chunks.
 		Output: a LangChain FAISS vector store around faiss_index.
@@ -422,9 +429,9 @@ class Indexing:
 		)
 		return vector_store
 
-	def bm25_indexing(self, chunks: dict[str, Document], output_path: str) -> Bm25Index:
+	def bm25_indexing(self, chunks: dict[str, Chunk], output_path: str) -> Bm25Index:
 		"""
-		Input: chunks, a dict of chunk_id to Document; output_path, the dataset's output folder.
+		Input: chunks, a dict of chunk_id to Chunk; output_path, the dataset's output folder.
 		Output: a Bm25Index holding a LangChain BM25Retriever.
 		What it does: loads the saved retriever if it holds the same chunks, otherwise builds and saves a new one.
 		"""
@@ -441,7 +448,7 @@ class Indexing:
 			chunk_metadatas.append({"chunk_id": chunk_id})
 
 		# 2. Load the saved retriever if it holds exactly the same chunks
-		bm25_index_path = paths.get_bm25_index_path(output_path, self.index_args)
+		bm25_index_path = paths.get_bm25_index_path(output_path, self.embedder_args, self.chunking_args, self.index_args)
 		print(f"Index folder : {bm25_index_path}")
 		retriever = load_bm25_index(bm25_index_path, chunk_ids)
 		if retriever is not None:

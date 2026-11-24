@@ -9,6 +9,7 @@ from qdrant_client import QdrantClient
 from common import constants
 from common import paths
 from common.args import ChunkingArgs
+from common.args import EmbedderArgs
 from common.args import IndexArgs
 from common.args import IngestionArgs
 from common.args import VectorDbArgs
@@ -38,9 +39,9 @@ def get_index_settings(index_args: IndexArgs) -> dict:
 	return index_settings
 
 
-def start_build_manifest(ingestion_args: IngestionArgs, embedding_model: str, parsed_args: argparse.Namespace, input_hash: str) -> BuildManifest:
+def start_build_manifest(ingestion_args: IngestionArgs, embedder_args: EmbedderArgs, parsed_args: argparse.Namespace, input_hash: str) -> BuildManifest:
 	"""
-	Input: ingestion_args; embedding_model, the chunking model name; parsed_args, the parsed build args; input_hash,
+	Input: ingestion_args; embedder_args, the shared embedder settings; parsed_args, the parsed build args; input_hash,
 	the hash of the input files.
 	Output: a BuildManifest with no entries yet.
 	What it does: fills in the build hash, the input hash, the dataset and the documents folder. The build adds an
@@ -53,7 +54,7 @@ def start_build_manifest(ingestion_args: IngestionArgs, embedding_model: str, pa
 		dataset_name=ingestion_args.dataset_name,
 		dataset_size=ingestion_args.dataset_size,
 		documents_path=paths.get_documents_path(output_path),
-		embedding_model=embedding_model,
+		embedder=embedder_args,
 		built_at="",
 		chunk_entries=[],
 		index_entries=[]
@@ -78,10 +79,10 @@ def make_chunk_entry(chunking_args: ChunkingArgs, chunk_path: str, embedding_pat
 	)
 
 
-def make_index_entry(index_args: IndexArgs, index: FaissIndex | Bm25Index, count: int) -> IndexEntry:
+def make_index_entry(chunking_args: ChunkingArgs, index_args: IndexArgs, index: FaissIndex | Bm25Index, count: int) -> IndexEntry:
 	"""
-	Input: index_args, the settings of one FAISS or BM25 index; index, the index the build returned; count, the
-	vectors or chunks it holds.
+	Input: chunking_args, the chunking settings of the chunks the index holds; index_args, the settings of one FAISS or
+	BM25 index; index, the index the build returned; count, the vectors or chunks it holds.
 	Output: the IndexEntry of the index.
 	What it does: records the index type and its settings with its folder. A BM25 index_path is its pickle file, so
 	its folder is taken.
@@ -91,7 +92,7 @@ def make_index_entry(index_args: IndexArgs, index: FaissIndex | Bm25Index, count
 		index_folder = os.path.dirname(index.index_path)
 
 	return IndexEntry(
-		chunk_type=index_args.chunking_args.chunk_type,
+		chunk_type=chunking_args.chunk_type,
 		index_type=index_args.index_type,
 		index_settings=get_index_settings(index_args),
 		location=index_folder,
@@ -99,14 +100,15 @@ def make_index_entry(index_args: IndexArgs, index: FaissIndex | Bm25Index, count
 	)
 
 
-def make_vectordb_entry(vectordb_args: VectorDbArgs, collection_name: str, count: int) -> IndexEntry:
+def make_vectordb_entry(chunking_args: ChunkingArgs, vectordb_args: VectorDbArgs, collection_name: str, count: int) -> IndexEntry:
 	"""
-	Input: vectordb_args; collection_name, the collection the build filled; count, the points it holds.
+	Input: chunking_args, the chunking settings of the chunks the collection holds; vectordb_args; collection_name,
+	the collection the build filled; count, the points it holds.
 	Output: the IndexEntry of the collection.
 	What it does: records the vector DB type with the collection name as its location.
 	"""
 	return IndexEntry(
-		chunk_type=vectordb_args.chunking_args.chunk_type,
+		chunk_type=chunking_args.chunk_type,
 		index_type=vectordb_args.vectordb_type,
 		index_settings={},
 		location=collection_name,
@@ -162,6 +164,7 @@ def load_build_manifest_from_path(manifest_file: str) -> BuildManifest:
 	for index_entry_dict in manifest_dict["index_entries"]:
 		index_entries.append(IndexEntry(**index_entry_dict))
 
+	manifest_dict["embedder"] = EmbedderArgs(**manifest_dict["embedder"])
 	manifest_dict["chunk_entries"] = chunk_entries
 	manifest_dict["index_entries"] = index_entries
 	return BuildManifest(**manifest_dict)
@@ -226,15 +229,17 @@ def is_build_complete(output_path: str, parsed_args: argparse.Namespace, input_h
 	return True
 
 
-def find_chunk_entry(manifest: BuildManifest, chunking_args: ChunkingArgs) -> ChunkEntry:
+def find_chunk_entry(manifest: BuildManifest, embedder_args: EmbedderArgs, chunking_args: ChunkingArgs) -> ChunkEntry:
 	"""
-	Input: manifest; chunking_args, the chunk settings the caller needs.
+	Input: manifest; embedder_args, the embedder settings the caller needs; chunking_args, the chunk settings the
+	caller needs.
 	Output: the ChunkEntry of that chunk type.
-	What it does: finds the entry, and raises ValueError if the build has none or built it with other settings.
+	What it does: finds the entry, and raises ValueError if the build used another embedder, has no entry or built it
+	with other settings.
 	"""
-	if manifest.embedding_model != chunking_args.model_name:
+	if manifest.embedder != embedder_args:
 		raise ValueError(
-			f"The build used embedding model {manifest.embedding_model}, not {chunking_args.model_name}. "
+			f"The build used embedder {manifest.embedder}, not {embedder_args}. "
 			"Run scripts/build.sh with these settings first."
 		)
 

@@ -1,6 +1,4 @@
-import torch
-
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_core.embeddings import Embeddings
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance
@@ -9,8 +7,11 @@ from qdrant_client.models import VectorParams
 
 from common import constants
 from common import paths
+from common.args import ChunkingArgs
+from common.args import EmbedderArgs
 from common.args import VectorDbArgs
-from schema.chunk import Document
+from rag.build.embedding import make_embedding_model
+from schema.chunk import Chunk
 from schema.embed import Embedded
 from schema.vectordb import VectorDb
 
@@ -47,7 +48,7 @@ def qdrant_collection_holds_chunks(qdrant_client: QdrantClient, collection_name:
 
 
 
-def load_vectordb_from_path(collection_name: str, embedding_model: HuggingFaceEmbeddings, qdrant_url: str) -> VectorDb:
+def load_vectordb_from_path(collection_name: str, embedding_model: Embeddings, qdrant_url: str) -> VectorDb:
 	"""
 	Input: collection_name, the Qdrant collection the build filled; embedding_model, the embedding model it was built
 	with, which embeds the query; qdrant_url, the Qdrant server.
@@ -84,31 +85,35 @@ def load_vectordb_from_path(collection_name: str, embedding_model: HuggingFaceEm
 	)
 
 class IndexingVectorDb:
-	def __init__(self, vectordb_args: VectorDbArgs):
+	def __init__(self, embedder_args: EmbedderArgs, chunking_args: ChunkingArgs, vectordb_args: VectorDbArgs):
 		"""
-		Input: vectordb_args, the vector DB settings for one vector DB type.
+		Input: embedder_args, the shared embedder settings; chunking_args, the chunking settings of the chunks the
+		collection holds; vectordb_args, the vector DB settings for one vector DB type.
 		Output: nothing.
-		What it does: stores vectordb_args, validates them and loads LangChain's HuggingFaceEmbeddings, which the
-		vector store uses to embed queries.
+		What it does: stores the three args, validates them and loads the embedding model of the embedder's provider,
+		which the vector store uses to embed queries.
 		"""
+		self.embedder_args = embedder_args
+		self.chunking_args = chunking_args
 		self.vectordb_args = vectordb_args
 		self.validate()
 
-		# Normalized like the embedding layer, so a query vector matches the chunk vectors
-		device = "cuda" if torch.cuda.is_available() else "cpu"
-		self.embedding_model = HuggingFaceEmbeddings(
-			model_name=self.vectordb_args.chunking_args.model_name,
-			model_kwargs={"device": device},
-			encode_kwargs={"batch_size": 256, "normalize_embeddings": True}
-		)
+		# The same embedder as the embedding layer, so a query vector matches the chunk vectors
+		self.embedding_model = make_embedding_model(self.embedder_args)
 
 	def validate(self) -> None:
 		"""
 		Input: none.
 		Output: nothing.
-		What it does: raises ValueError if a vector DB setting is not valid.
+		What it does: raises ValueError if the embedding provider is not supported or a vector DB setting is not valid.
 		"""
 		vectordb_args = self.vectordb_args
+
+		if self.embedder_args.embedding_provider != constants.HUGGINGFACE_EMBEDDING:
+			raise ValueError(
+				f"embedding_provider ({self.embedder_args.embedding_provider}) is not supported. Use "
+				f"\"{constants.HUGGINGFACE_EMBEDDING}\"."
+			)
 
 		if vectordb_args.vectordb_type != constants.QDRANT_INDEX:
 			raise ValueError(
@@ -121,9 +126,9 @@ class IndexingVectorDb:
 		if vectordb_args.qdrant_batch_size <= 0:
 			raise ValueError(f"qdrant_batch_size ({vectordb_args.qdrant_batch_size}) must be greater than 0.")
 
-	def load_saved_vectordb(self, chunks: dict[str, Document], collection_name: str) -> VectorDb:
+	def load_saved_vectordb(self, chunks: dict[str, Chunk], collection_name: str) -> VectorDb:
 		"""
-		Input: chunks, a dict of chunk_id to Document, the chunks the collection must hold; collection_name, from the build
+		Input: chunks, a dict of chunk_id to Chunk, the chunks the collection must hold; collection_name, from the build
 		manifest.
 		Output: a VectorDb holding a LangChain QdrantVectorStore.
 		What it does: connects to the collection the build filled, and raises FileNotFoundError if it does not exist or
@@ -166,9 +171,9 @@ class IndexingVectorDb:
 			dimension=dimension
 		)
 
-	def compute_vectordb(self, chunks: dict[str, Document], embeddings: dict[str, Embedded], output_path: str) -> VectorDb:
+	def compute_vectordb(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> VectorDb:
 		"""
-		Input: chunks, a dict of chunk_id to Document; embeddings, a dict of chunk_id to Embedded; output_path, the
+		Input: chunks, a dict of chunk_id to Chunk; embeddings, a dict of chunk_id to Embedded; output_path, the
 		dataset's output folder.
 		Output: a VectorDb.
 		What it does: calls the indexing method of the vector DB type.
@@ -177,7 +182,7 @@ class IndexingVectorDb:
 		vectordb = self.qdrant_indexing(chunks, embeddings, output_path)
 		return vectordb
 
-	def qdrant_indexing(self, chunks: dict[str, Document], embeddings: dict[str, Embedded], output_path: str) -> VectorDb:
+	def qdrant_indexing(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> VectorDb:
 		"""
 		Input: chunks; embeddings; output_path, the dataset's output folder.
 		Output: a VectorDb holding a LangChain QdrantVectorStore.
@@ -206,7 +211,7 @@ class IndexingVectorDb:
 			) from error
 
 		# 3. Reuse the collection if it holds exactly the same chunks, otherwise rebuild it
-		collection_name = paths.get_qdrant_collection_name(output_path, self.vectordb_args)
+		collection_name = paths.get_qdrant_collection_name(output_path, self.embedder_args, self.chunking_args, self.vectordb_args)
 		print(f"Qdrant collection : {collection_name}")
 		if qdrant_collection_holds_chunks(qdrant_client, collection_name, chunk_ids):
 			print(f"Qdrant collection loaded from cache : {len(chunk_ids)} points")

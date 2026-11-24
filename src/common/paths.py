@@ -4,7 +4,7 @@ import json
 import os
 
 from common.args import ChunkingArgs
-from common.args import EmbeddingArgs
+from common.args import EmbedderArgs
 from common.args import IndexArgs
 from common.args import VectorDbArgs
 from common.args import EvalDatasetArgs
@@ -38,16 +38,17 @@ def get_documents_path(output_path: str) -> str:
 
 
 # ------ Chunking
-def get_chunk_path(output_path: str, chunking_args: ChunkingArgs) -> str:
+def get_chunk_path(output_path: str, embedder_args: EmbedderArgs, chunking_args: ChunkingArgs) -> str:
 	"""
-	Input: output_path, the dataset's output folder; chunking_args.
+	Input: output_path, the dataset's output folder; embedder_args; chunking_args.
 	Output: {output_path}/chunks/chunks_{hash}
 	What it does: builds the folder that holds one chunking run's chunks. The hash is the first 12 hex characters of
-	the SHA-256 of the chunk args, as JSON with sorted keys.
+	the SHA-256 of the embedding provider, the model name and the chunk args, as JSON with sorted keys.
 	"""
 	hashed_args = {}
+	hashed_args["embedding_provider"] = embedder_args.embedding_provider
+	hashed_args["model_name"] = embedder_args.model_name
 	hashed_args["chunk_type"] = chunking_args.chunk_type
-	hashed_args["model_name"] = chunking_args.model_name
 	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
 	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
 	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
@@ -59,17 +60,17 @@ def get_chunk_path(output_path: str, chunking_args: ChunkingArgs) -> str:
 
 
 # ------ Embedding
-def get_embedding_path(output_path: str, embedding_args: EmbeddingArgs) -> str:
+def get_embedding_path(output_path: str, embedder_args: EmbedderArgs, chunking_args: ChunkingArgs) -> str:
 	"""
-	Input: output_path, the dataset's output folder; embedding_args.
+	Input: output_path, the dataset's output folder; embedder_args; chunking_args.
 	Output: {output_path}/embeddings/embeddings_{hash}
 	What it does: builds the folder that holds one chunking run's embeddings. The hash is the first 12 hex characters
-	of the SHA-256 of the chunk args, as JSON with sorted keys.
+	of the SHA-256 of the embedding provider, the model name and the chunk args, as JSON with sorted keys.
 	"""
-	chunking_args = embedding_args.chunking_args
 	hashed_args = {}
+	hashed_args["embedding_provider"] = embedder_args.embedding_provider
+	hashed_args["model_name"] = embedder_args.model_name
 	hashed_args["chunk_type"] = chunking_args.chunk_type
-	hashed_args["model_name"] = chunking_args.model_name
 	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
 	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
 	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
@@ -81,20 +82,20 @@ def get_embedding_path(output_path: str, embedding_args: EmbeddingArgs) -> str:
 
 
 # ------ Indexing
-def get_faiss_index_path(output_path: str, index_args: IndexArgs) -> str:
+def get_faiss_index_path(output_path: str, embedder_args: EmbedderArgs, chunking_args: ChunkingArgs, index_args: IndexArgs) -> str:
 	"""
-	Input: output_path, the dataset's output folder; index_args.
+	Input: output_path, the dataset's output folder; embedder_args; chunking_args; index_args.
 	Output: {output_path}/indexes/{index_type}_{hash}
 	What it does: builds the folder that holds one FAISS index. The hash is the first 12 hex characters of the SHA-256
-	of the index type, the chunk args, the index type's settings (ivf_nlist, or hnsw_m and hnsw_ef_construction) and
-	the input hash, as JSON with sorted keys.
+	of the index type, the embedding provider, the model name, the chunk args, the index type's settings (ivf_nlist,
+	or hnsw_m and hnsw_ef_construction) and the input hash, as JSON with sorted keys.
 	"""
-	chunking_args = index_args.chunking_args
 	hashed_args = {}
 	hashed_args["index_type"] = index_args.index_type
 	hashed_args["input_hash"] = index_args.input_hash
+	hashed_args["embedding_provider"] = embedder_args.embedding_provider
+	hashed_args["model_name"] = embedder_args.model_name
 	hashed_args["chunk_type"] = chunking_args.chunk_type
-	hashed_args["model_name"] = chunking_args.model_name
 	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
 	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
 	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
@@ -115,18 +116,19 @@ def get_faiss_index_path(output_path: str, index_args: IndexArgs) -> str:
 	return os.path.join(output_path, "indexes", f"{index_args.index_type}_{index_hash}")
 
 
-def get_bm25_index_path(output_path: str, index_args: IndexArgs) -> str:
+def get_bm25_index_path(output_path: str, embedder_args: EmbedderArgs, chunking_args: ChunkingArgs, index_args: IndexArgs) -> str:
 	"""
-	Input: output_path, the dataset's output folder; index_args.
+	Input: output_path, the dataset's output folder; embedder_args; chunking_args; index_args.
 	Output: {output_path}/indexes/bm25_{hash}
 	What it does: builds the folder that holds one BM25 index. The hash is the first 12 hex characters of the SHA-256
-	of the chunk args, bm25_k1, bm25_b, bm25_tokenizer and the input hash, as JSON with sorted keys.
+	of the embedding provider, the model name, the chunk args, bm25_k1, bm25_b, bm25_tokenizer and the input hash, as
+	JSON with sorted keys.
 	"""
-	chunking_args = index_args.chunking_args
 	hashed_args = {}
 	hashed_args["input_hash"] = index_args.input_hash
+	hashed_args["embedding_provider"] = embedder_args.embedding_provider
+	hashed_args["model_name"] = embedder_args.model_name
 	hashed_args["chunk_type"] = chunking_args.chunk_type
-	hashed_args["model_name"] = chunking_args.model_name
 	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
 	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
 	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
@@ -141,15 +143,16 @@ def get_bm25_index_path(output_path: str, index_args: IndexArgs) -> str:
 
 
 # ------ Vector DB
-def get_qdrant_collection_name(output_path: str, vectordb_args: VectorDbArgs) -> str:
+def get_qdrant_collection_name(output_path: str, embedder_args: EmbedderArgs, chunking_args: ChunkingArgs, vectordb_args: VectorDbArgs) -> str:
 	"""
-	Input: output_path, the dataset's output folder ({root}/{dataset_name}); vectordb_args.
+	Input: output_path, the dataset's output folder ({root}/{dataset_name}); embedder_args; chunking_args;
+	vectordb_args.
 	Output: qdrant_{hash}
 	What it does: builds the Qdrant collection name. The hash is the first 12 hex characters of the SHA-256 of the
-	root folder name, the dataset name, the chunk args and the input hash, as JSON with sorted keys. The root folder
-	name keeps a temp/ run and an outputs/ run of the same dataset in separate collections.
+	root folder name, the dataset name, the embedding provider, the model name, the chunk args and the input hash, as
+	JSON with sorted keys. The root folder name keeps a temp/ run and an outputs/ run of the same dataset in separate
+	collections.
 	"""
-	chunking_args = vectordb_args.chunking_args
 	normalized_output_path = os.path.normpath(output_path)
 	dataset_name = os.path.basename(normalized_output_path)
 	root_folder_name = os.path.basename(os.path.dirname(normalized_output_path))
@@ -158,8 +161,9 @@ def get_qdrant_collection_name(output_path: str, vectordb_args: VectorDbArgs) ->
 	hashed_args["root_folder_name"] = root_folder_name
 	hashed_args["dataset_name"] = dataset_name
 	hashed_args["input_hash"] = vectordb_args.input_hash
+	hashed_args["embedding_provider"] = embedder_args.embedding_provider
+	hashed_args["model_name"] = embedder_args.model_name
 	hashed_args["chunk_type"] = chunking_args.chunk_type
-	hashed_args["model_name"] = chunking_args.model_name
 	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
 	hashed_args["max_chunk_size"] = chunking_args.max_chunk_size
 	hashed_args["fixed_chunk_overlap"] = chunking_args.fixed_chunk_overlap
@@ -173,8 +177,8 @@ def get_qdrant_collection_name(output_path: str, vectordb_args: VectorDbArgs) ->
 # ------ Build manifest
 def get_build_hash(parsed_args: argparse.Namespace, input_hash: str) -> str:
 	"""
-	Input: parsed_args, the parsed build args: every setting of the ingestion, chunking, indexing and vectordb
-	sections, with any command line overrides; input_hash, the hash of the input files.
+	Input: parsed_args, the parsed build args: every setting of the ingestion, embedder, chunking, indexing and
+	vectordb sections, with any command line overrides; input_hash, the hash of the input files.
 	Output: the first 12 hex characters of the SHA-256 of all the build args and the input hash, as JSON with sorted keys.
 	What it does: hashes every build arg and the input hash, so a change to any of them gives a new build hash.
 	"""

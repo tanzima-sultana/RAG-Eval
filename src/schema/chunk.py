@@ -1,7 +1,7 @@
 import dataclasses
 
 @dataclasses.dataclass
-class Document:
+class Chunk:
 	id: str
 	text: str
 	size: int
