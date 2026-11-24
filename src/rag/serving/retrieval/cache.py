@@ -22,7 +22,6 @@ def save_retrieved_entry(retrieved_file: str, question: str, retrieved: Retrieve
 	entry["top_k"] = retrieved.top_k
 	entry["rerank_top_k"] = retrieved.rerank_top_k
 	entry["chunk_ids"] = retrieved.chunk_ids
-	entry["chunk_scores"] = retrieved.chunk_scores
 	entry["doc_ids"] = retrieved.doc_ids
 
 	with open(retrieved_file + ".tmp", "w", encoding="utf-8") as f:
@@ -48,6 +47,5 @@ def load_retrieved_entry(retrieved_file: str) -> Retrieved | None:
 		top_k=entry["top_k"],
 		rerank_top_k=entry["rerank_top_k"],
 		chunk_ids=entry["chunk_ids"],
-		chunk_scores=entry["chunk_scores"],
 		doc_ids=entry["doc_ids"]
 	)

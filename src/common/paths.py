@@ -16,8 +16,6 @@ from common.constants import CROSS_ENCODER_MODEL
 from common.constants import FAISS_FLATIP_INDEX
 from common.constants import FAISS_IVF_INDEX
 from common.constants import FAISS_HNSW_INDEX
-from common.constants import MULTI_QUERY
-from common.constants import ORIGINAL_QUERY
 
 
 # ------ Dataset
@@ -311,7 +309,6 @@ def make_query_hashed_args(query_args: QueryArgs) -> dict:
 	hashed_args = {}
 	hashed_args["query_llm_model"] = query_args.query_llm_args.llm_model
 	hashed_args["query_llm_max_tokens"] = query_args.query_llm_args.max_tokens
-	hashed_args["embedding_model"] = query_args.embedding_model
 	hashed_args["n_multi_qus"] = query_args.n_multi_qus
 	hashed_args["query_types"] = query_args.query_types
 	hashed_args["query_split"] = query_args.query_split
@@ -320,54 +317,28 @@ def make_query_hashed_args(query_args: QueryArgs) -> dict:
 	return hashed_args
 
 
-def get_query_file_path(query_path: str, query_args: QueryArgs, query_type: str, question: str) -> str:
-	"""
-	Input: query_path, the folder the query files are saved in, used as given; query_args; query_type, one of
-	original, rewritten, multi or hyde; question, one question text.
-	Output: {query_path}/{hash}.json
-	What it does: builds the file of one query type of one question, named by the first 12 hex characters of the
-	SHA-256 of what decides it, as JSON with sorted keys: the query type, the question and the embedding model; for an
-	LLM query type also the query LLM model, its max_tokens and the Ollama context length when it is not None; for
-	multi also n_multi_qus.
-	"""
-	hashed_args = {}
-	hashed_args["query_type"] = query_type
-	hashed_args["question"] = question
-	hashed_args["embedding_model"] = query_args.embedding_model
-
-	if query_type != ORIGINAL_QUERY:
-		hashed_args["query_llm_model"] = query_args.query_llm_args.llm_model
-		hashed_args["query_llm_max_tokens"] = query_args.query_llm_args.max_tokens
-		if query_args.ollama_context_length is not None:
-			hashed_args["ollama_context_length"] = query_args.ollama_context_length
-
-	if query_type == MULTI_QUERY:
-		hashed_args["n_multi_qus"] = query_args.n_multi_qus
-
-	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
-	query_hash = hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
-	return os.path.join(query_path, f"{query_hash}.json")
-
-
 # ------ Retrieval
-def get_retrieved_file_path(retrieved_path: str, retrieval_args: RetrievalArgs, query_args: QueryArgs, query_type: str, question: str, index_type: str | None, retrieval_type: str, reranking: bool) -> str:
+def get_retrieved_file_path(retrieved_path: str, retrieval_args: RetrievalArgs, query_type: str, index_type: str, query_texts: list[str], original_qus: str) -> str:
 	"""
 	Input: retrieved_path, the folder the retrieved files are saved in, used as given; retrieval_args, the retrieval
-	settings of one chunk type; query_args; query_type, the query type searched with; question, the original question
-	text; index_type, the dense index type for dense and hybrid, None for bm25; retrieval_type, dense, bm25 or hybrid;
-	reranking, true for a reranked result.
+	settings of one setup, with its one retrieval type; query_type, the query type searched with; index_type, the
+	setup's index type, e.g. faiss_flatip, bm25 or qdrant+bm25; query_texts, the texts searched; original_qus, the
+	original question text, which the cross-encoder scores against.
 	Output: {retrieved_path}/{hash}.json
-	What it does: builds the file of one setup's result for one question, named by the first 12 hex characters of the
-	SHA-256 of what decides it, as JSON with sorted keys: the query's own file name for this query type and question
-	(from get_query_file_path), the chunk settings, the index settings and input hash, the index type, the retrieval
-	type, top_k and reranking; with reranking also rerank_top_k and the cross-encoder model. It is keyed by the
-	question text, not its id, so any eval set with this question reuses it.
+	What it does: builds the file of one setup's result for one query, named by the first 12 hex characters of the
+	SHA-256 of the content it is made from, as JSON with sorted keys: the searched texts and the query type, the
+	retrieval type and top_k, the chunk settings, the index settings, the input hash and the index type; with reranking
+	also the original question, rerank_top_k and the cross-encoder model. The query type is in it because the saved
+	result holds it in its setup.
 	"""
 	index_args = retrieval_args.index_args
 	chunking_args = index_args.chunking_args
 
 	hashed_args = {}
-	hashed_args["query_file"] = os.path.basename(get_query_file_path("", query_args, query_type, question))
+	hashed_args["query_texts"] = query_texts
+	hashed_args["query_type"] = query_type
+	hashed_args["retrieval_type"] = retrieval_args.retrieval_types[0]
+	hashed_args["top_k"] = retrieval_args.top_k
 	hashed_args["model_name"] = chunking_args.model_name
 	hashed_args["chunk_type"] = chunking_args.chunk_type
 	hashed_args["min_chunk_size"] = chunking_args.min_chunk_size
@@ -382,11 +353,10 @@ def get_retrieved_file_path(retrieved_path: str, retrieval_args: RetrievalArgs, 
 	hashed_args["bm25_tokenizer"] = index_args.bm25_tokenizer
 	hashed_args["input_hash"] = index_args.input_hash
 	hashed_args["index_type"] = index_type
-	hashed_args["retrieval_type"] = retrieval_type
-	hashed_args["top_k"] = retrieval_args.top_k
-	hashed_args["reranking"] = reranking
+	hashed_args["reranking"] = retrieval_args.reranking
 
-	if reranking:
+	if retrieval_args.reranking:
+		hashed_args["original_qus"] = original_qus
 		hashed_args["rerank_top_k"] = retrieval_args.rerank_top_k
 		hashed_args["cross_encoder_model"] = CROSS_ENCODER_MODEL
 

@@ -1,10 +1,6 @@
 import os
 import random
 
-import torch
-
-from langchain_huggingface import HuggingFaceEmbeddings
-
 from common import constants
 from common.args import OllamaArgs
 from common.args import QueryArgs
@@ -20,8 +16,8 @@ class QueryTransformation:
 		Input: query_args, the query transformation settings; query_path, the folder the query LLM cache file
 		(.langchain.db) is saved in, used as given.
 		Output: nothing.
-		What it does: stores both, validates the settings, then loads the embedding model once and builds the query LLM
-		once, so every question reuses them. Original is always made, and query_types holds only the extra types
+		What it does: stores both, validates the settings, then builds the query LLM once, so every question reuses it.
+		Original is always made, and query_types holds only the extra types
 		(rewritten, multi and/or hyde), which all need the query LLM. So the query LLM is built only if query_types is
 		not empty, otherwise it is None. The query LLM gets a LangChain SQLite LLM cache in query_path, so each of its
 		replies is made once and read back on later runs.
@@ -32,15 +28,7 @@ class QueryTransformation:
 		# 1. Validate the settings before anything is loaded
 		self.validate()
 
-		# 2. The embedding model, normalized like the chunk embeddings, so a query vector matches the chunk vectors
-		device = "cuda" if torch.cuda.is_available() else "cpu"
-		self.embedding_model = HuggingFaceEmbeddings(
-			model_name=query_args.embedding_model,
-			model_kwargs={"device": device},
-			encode_kwargs={"batch_size": 256, "normalize_embeddings": True}
-		)
-
-		# 3. The query LLM, only if there is an extra query type, since each of them needs it. LLMProvider validates it,
+		# 2. The query LLM, only if there is an extra query type, since each of them needs it. LLMProvider validates it,
 		# so a paid model needs ALLOW_PAID_API=1
 		self.query_llm_provider = None
 		if len(query_args.query_types) > 0:
@@ -50,7 +38,7 @@ class QueryTransformation:
 			)
 			self.query_llm_provider = LLMProvider(query_args.query_llm_args, ollama_args)
 
-			# 4. The LLM cache of the query LLM only, in query_path. LangChain's key leaves out max_tokens, the Ollama
+			# 3. The LLM cache of the query LLM only, in query_path. LangChain's key leaves out max_tokens, the Ollama
 			# context length and the Ollama URL, so they are added to it
 			os.makedirs(query_path, exist_ok=True)
 			settings_key = (
@@ -67,9 +55,6 @@ class QueryTransformation:
 		What it does: raises ValueError if a query setting is not valid. The query LLM is validated by LLMProvider.
 		"""
 		query_args = self.query_args
-
-		if query_args.embedding_model.strip() == "":
-			raise ValueError("embedding_model is empty. It is the chunking model_name, e.g. all-MiniLM-L6-v2.")
 
 		if query_args.n_multi_qus < 1:
 			raise ValueError(f"n_multi_qus ({query_args.n_multi_qus}) must be at least 1.")
@@ -97,8 +82,8 @@ class QueryTransformation:
 		Input: question_id, the id of one question; question, its text.
 		Output: one Query of this question, with its id, always its original query, and the extra query types in
 		query_types. The other extra query types are None.
-		What it does: makes original and each query type in query_types of the question with the embedding model and
-		query LLM loaded in __init__. Each query LLM call reads the LLM cache first and calls the LLM only when the reply
+		What it does: makes original and each query type in query_types of the question, as texts, with the query LLM
+		built in __init__. Each query LLM call reads the LLM cache first and calls the LLM only when the reply
 		is not saved. Prints the question's multi-query and HyDE I don't know and the query LLM's running cost.
 		"""
 		query_args = self.query_args
@@ -115,7 +100,7 @@ class QueryTransformation:
 			query_types.append(query_type)
 
 		query = transform_single_query(
-			query_args, question_id, question, query_types, self.query_llm_provider, self.embedding_model
+			query_args, question_id, question, query_types, self.query_llm_provider
 		)
 
 		# 3. The question's I don't know, for the requested types. The cost is the running total of every call so far

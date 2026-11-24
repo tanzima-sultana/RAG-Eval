@@ -1,7 +1,3 @@
-import numpy as np
-
-from langchain_huggingface import HuggingFaceEmbeddings
-
 from common import constants
 from common.args import QueryArgs
 from llm_provider.llm_provider import LLMProvider
@@ -50,52 +46,38 @@ def hyde_answer(qus: str, query_llm_provider: LLMProvider) -> str:
 	return hyde_ans_str
 
 
-def transform_single_query(query_args: QueryArgs, query_id: str, qus: str, query_types: list[str], query_llm_provider: LLMProvider | None, embedding_model: HuggingFaceEmbeddings) -> Query:
+def transform_single_query(query_args: QueryArgs, query_id: str, qus: str, query_types: list[str], query_llm_provider: LLMProvider | None) -> Query:
 	"""
 	Input: query_args, the query settings; query_id; qus, one question; query_types, the query types to make, always
 	original and the extra query types of the run; query_llm_provider, the query LLM, None when the run has no extra
-	query type; embedding_model, normalized like the chunk embeddings.
-	Output: the Query of qus, holding only query_types. The other query types are None.
-	What it does: makes each query type of one question and embeds it. Tokens are split the same way as the BM25
-	chunks. The query LLM's replies go through its LLM cache; nothing else is saved.
+	query type.
+	Output: the Query of qus, holding only query_types, as texts. The other query types are None.
+	What it does: makes the text of each query type of one question. The retriever embeds and tokenizes the texts
+	itself. The query LLM's replies go through its LLM cache; nothing else is saved.
 	"""
 	# 1. Original: the question as it is
 	original_qus = None
 	if constants.ORIGINAL_QUERY in query_types:
-		original_vector = embedding_model.embed_documents([qus])[0]
-		original_qus = Qus(qus=qus, tokens=qus.lower().split(), embeddings=np.array(original_vector, dtype=np.float32))
+		original_qus = Qus(qus=qus)
 
 	# 2. Rewritten: the question rewritten by the query LLM
 	rewritten_qus = None
 	if constants.REWRITTEN_QUERY in query_types:
 		rewritten_qus_str = query_llm_provider.generate("", REWRITE_PROMPT.format(qus=qus)).text.strip()
-		rewritten_vector = embedding_model.embed_documents([rewritten_qus_str])[0]
-		rewritten_qus = Qus(
-			qus=rewritten_qus_str,
-			tokens=rewritten_qus_str.lower().split(),
-			embeddings=np.array(rewritten_vector, dtype=np.float32)
-		)
+		rewritten_qus = Qus(qus=rewritten_qus_str)
 
 	# 3. Multi: n_multi_qus phrasings, or none if the LLM did not return exactly n_multi_qus
 	multi_qus = None
 	if constants.MULTI_QUERY in query_types:
 		phrasings = multi_phrasings(qus, query_args.n_multi_qus, query_llm_provider)
 		multi_qus = []
-		if len(phrasings) > 0:
-			phrasing_vectors = embedding_model.embed_documents(phrasings)
-			for phrasing_index in range(len(phrasings)):
-				multi_qus.append(Qus(
-					qus=phrasings[phrasing_index],
-					tokens=phrasings[phrasing_index].lower().split(),
-					embeddings=np.array(phrasing_vectors[phrasing_index], dtype=np.float32)
-				))
+		for phrasing in phrasings:
+			multi_qus.append(Qus(qus=phrasing))
 
 	# 4. HyDE: a hypothetical answer passage, or I_DONT_KNOW
 	hyde_ans = None
 	if constants.HYDE_QUERY in query_types:
-		hyde_ans_str = hyde_answer(qus, query_llm_provider)
-		hyde_vector = embedding_model.embed_documents([hyde_ans_str])[0]
-		hyde_ans = Ans(ans=hyde_ans_str, embeddings=np.array(hyde_vector, dtype=np.float32))
+		hyde_ans = Ans(ans=hyde_answer(qus, query_llm_provider))
 
 	query_llm, query_llm_model = query_args.query_llm_args.llm_model.split("/", 1)
 	return Query(
@@ -104,8 +86,6 @@ def transform_single_query(query_args: QueryArgs, query_id: str, qus: str, query
 		rewritten_qus=rewritten_qus,
 		multi_qus=multi_qus,
 		hyde_ans=hyde_ans,
-		normalized=True,
-		embedding_model=query_args.embedding_model,
 		llm=query_llm,
 		llm_model=query_llm_model
 	)

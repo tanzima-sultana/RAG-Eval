@@ -40,10 +40,8 @@ def make_retrieved(chunk_ids, top_k=4, reranking=False, rerank_top_k=0):
     Output: a Retrieved for q1 whose doc ids come from the chunk ids.
     What it does: builds one result to score.
     """
-    chunk_scores = []
     doc_ids = []
     for chunk_id in chunk_ids:
-        chunk_scores.append(1.0)
         doc_ids.append(chunk_id.rsplit("_", 1)[0])
     return Retrieved(
         id="q1",
@@ -51,7 +49,6 @@ def make_retrieved(chunk_ids, top_k=4, reranking=False, rerank_top_k=0):
         top_k=top_k,
         rerank_top_k=rerank_top_k,
         chunk_ids=chunk_ids,
-        chunk_scores=chunk_scores,
         doc_ids=doc_ids,
     )
 

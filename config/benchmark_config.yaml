@@ -27,9 +27,9 @@ ollama:
 retrieval:
   retrieval_types: [dense, bm25, hybrid]   # one or more of dense, bm25, hybrid
   top_k: 20                                # Chunks each retriever returns for a query
-  reranking: false                         # true to also rerank the top_k chunks with the cross-encoder, false not to
+  reranking: false                         # true to rerank the top_k chunks with the cross-encoder, false not to
   rerank_top_k: 5                          # Chunks kept after the cross-encoder reranks the top_k chunks
-  n_top_setups: 3                          # Best setups by retrieval eval, plain and reranked ranked together
+  n_top_setups: 3                          # Best setups by retrieval eval
 
 # 6. Qdrant server, where the build's Qdrant collections are
 qdrant:

@@ -1,8 +1,6 @@
-import torch
-from sentence_transformers import CrossEncoder
-
-from langchain_community.vectorstores import FAISS
-from langchain_qdrant import QdrantVectorStore
+from langchain_classic.retrievers import EnsembleRetriever
+from langchain_classic.retrievers.document_compressors import CrossEncoderReranker
+from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 
 from common import constants
 from common import paths
@@ -10,72 +8,107 @@ from common.args import QueryArgs
 from common.args import RetrievalArgs
 from rag.serving.retrieval.cache import load_retrieved_entry
 from rag.serving.retrieval.cache import save_retrieved_entry
-from rag.serving.retrieval.single_retrieval import bm25_search
-from rag.serving.retrieval.single_retrieval import dense_search
-from rag.serving.retrieval.single_retrieval import hybrid_search
-from rag.serving.retrieval.single_retrieval import rerank_result
-from schema.chunk import Document
+from rag.serving.retrieval.single_retrieval import invoke_retriever
+from rag.serving.retrieval.single_retrieval import make_retrieved
 from schema.index import Bm25Index
+from schema.index import FaissIndex
 from schema.query import Query
 from schema.retrieved import Retrieved
+from schema.setup import Setup
+from schema.vectordb import VectorDb
 
 
 class Retrieval:
-	def __init__(self, retrieval_args: RetrievalArgs, query_args: QueryArgs, query_type: str, retrieval_type: str, reranking: bool, index_type: str | None, vector_store: FAISS | QdrantVectorStore | None, bm25_index: Bm25Index | None, chunks: dict[str, Document], retrieved_path: str):
+	def __init__(self, retrieval_args: RetrievalArgs, query_args: QueryArgs, faiss_index: FaissIndex | None, vectordb_index: VectorDb | None, bm25_index: Bm25Index | None, retrieved_path: str):
 		"""
-		Input: retrieval_args, the retrieval settings of one chunk type; query_args, the query settings, used to name
-		the cache files; query_type, the one query type this setup searches with; retrieval_type, dense, bm25 or
-		hybrid; reranking, true to rerank the result with the cross-encoder; index_type, the dense index type for dense
-		and hybrid, None for bm25; vector_store, the dense index's LangChain vector store for dense and hybrid, None for
-		bm25; bm25_index, the BM25 index for bm25 and hybrid, None for dense; chunks, a dict of chunk_id to Document,
-		used only with reranking; retrieved_path, the folder the cache files are saved in, used as given.
+		Input: retrieval_args, the retrieval settings of one setup, with its one retrieval type in retrieval_types;
+		query_args, the query settings of one setup, with no query type in query_types for original or its one extra
+		query type; faiss_index, a FAISS index record for dense and hybrid, or None; vectordb_index, a Qdrant record for
+		dense and hybrid, or None; bm25_index, the BM25 index record for bm25 and hybrid, or None; retrieved_path, the
+		folder the retrieved files are saved in, used as given.
 		Output: nothing.
-		What it does: stores them, so one Retrieval stands for one setup, validates them and, only with reranking,
-		loads the cross-encoder once, so every query reuses it.
+		What it does: stores them, so one Retrieval stands for one setup, validates them, then builds the setup's
+		LangChain retriever once and, only with reranking, its LangChain cross-encoder reranker, so every query reuses
+		them. The setup's index type is read from the index records.
 		"""
 		self.retrieval_args = retrieval_args
 		self.query_args = query_args
-		self.query_type = query_type
-		self.retrieval_type = retrieval_type
-		self.reranking = reranking
-		self.index_type = index_type
-		self.vector_store = vector_store
+		self.faiss_index = faiss_index
+		self.vectordb_index = vectordb_index
 		self.bm25_index = bm25_index
-		self.chunks = chunks
 		self.retrieved_path = retrieved_path
 
-		# 1. Validate the settings before anything is loaded
+		# 1. Validate the settings before anything is built
 		self.validate()
 
-		# 2. The cross-encoder, only with reranking
-		self.cross_encoder = None
-		if self.reranking:
-			device = "cuda" if torch.cuda.is_available() else "cpu"
-			self.cross_encoder = CrossEncoder(constants.CROSS_ENCODER_MODEL, device=device)
+		# 2. The one retrieval type and query type of this setup. No extra query type means original
+		self.retrieval_type = retrieval_args.retrieval_types[0]
+		self.query_type = constants.ORIGINAL_QUERY
+		if len(query_args.query_types) == 1:
+			self.query_type = query_args.query_types[0]
+
+		# 3. The dense index record given, FAISS or Qdrant, and its index type
+		dense_vector_store = None
+		dense_index_type = None
+		if faiss_index is not None:
+			dense_vector_store = faiss_index.vector_store
+			dense_index_type = faiss_index.index_type
+		if vectordb_index is not None:
+			dense_vector_store = vectordb_index.vector_store
+			dense_index_type = vectordb_index.vectordb_type
+
+		# 4. The LangChain retriever of this retrieval type, each returning top_k chunks. The BM25 retriever is a copy
+		# with its own k, so the shared index is not changed
+		top_k = retrieval_args.top_k
+		if self.retrieval_type == constants.DENSE_RETRIEVAL:
+			self.retriever = dense_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": top_k})
+			self.index_type = dense_index_type
+		elif self.retrieval_type == constants.BM25_RETRIEVAL:
+			self.retriever = bm25_index.retriever.model_copy(update={"k": top_k})
+			self.index_type = constants.BM25_INDEX
+		else:
+			dense_retriever = dense_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": top_k})
+			bm25_retriever = bm25_index.retriever.model_copy(update={"k": top_k})
+			# Reciprocal rank fusion with LangChain's default equal weights and constant, one chunk kept once
+			self.retriever = EnsembleRetriever(retrievers=[dense_retriever, bm25_retriever], id_key="chunk_id")
+			self.index_type = f"{dense_index_type}+{constants.BM25_INDEX}"
+
+		# 5. The cross-encoder reranker, only with reranking
+		self.reranker = None
+		if retrieval_args.reranking:
+			cross_encoder = HuggingFaceCrossEncoder(model_name=constants.CROSS_ENCODER_MODEL)
+			self.reranker = CrossEncoderReranker(model=cross_encoder, top_n=retrieval_args.rerank_top_k)
 
 	def validate(self) -> None:
 		"""
 		Input: none.
 		Output: nothing.
-		What it does: raises ValueError if a retrieval setting or this setup is not valid: the retrieval types, top_k
-		and rerank_top_k; the query type and retrieval type of the setup; HyDE with BM25 or hybrid, since HyDE has no
-		tokens; and the index objects and chunks the setup needs.
+		What it does: raises ValueError if a setting of this setup is not valid: exactly one supported retrieval type,
+		top_k and rerank_top_k, at most one supported extra query type, HyDE only with dense, since HyDE is searched by
+		its meaning only, and the index records the retrieval type needs.
 		"""
 		retrieval_args = self.retrieval_args
+		query_args = self.query_args
 
-		# 1. The retrieval settings of the chunk type
+		# 1. Exactly one retrieval type, since one Retrieval stands for one setup
 		supported_retrieval_types = [
 			constants.DENSE_RETRIEVAL,
 			constants.BM25_RETRIEVAL,
 			constants.HYBRID_RETRIEVAL
 		]
-		for retrieval_type in retrieval_args.retrieval_types:
-			if retrieval_type not in supported_retrieval_types:
-				raise ValueError(
-					f"retrieval_type ({retrieval_type}) is not supported. Use \"{constants.DENSE_RETRIEVAL}\", "
-					f"\"{constants.BM25_RETRIEVAL}\" or \"{constants.HYBRID_RETRIEVAL}\"."
-				)
+		if len(retrieval_args.retrieval_types) != 1:
+			raise ValueError(
+				f"retrieval_types ({retrieval_args.retrieval_types}) must hold exactly one retrieval type, since one "
+				"Retrieval stands for one setup."
+			)
+		retrieval_type = retrieval_args.retrieval_types[0]
+		if retrieval_type not in supported_retrieval_types:
+			raise ValueError(
+				f"retrieval_type ({retrieval_type}) is not supported. Use \"{constants.DENSE_RETRIEVAL}\", "
+				f"\"{constants.BM25_RETRIEVAL}\" or \"{constants.HYBRID_RETRIEVAL}\"."
+			)
 
+		# 2. top_k and rerank_top_k
 		if retrieval_args.top_k < 1:
 			raise ValueError(f"top_k ({retrieval_args.top_k}) must be at least 1.")
 
@@ -88,56 +121,57 @@ class Retrieval:
 				"since the reranker only reorders the top_k chunks the retriever returns."
 			)
 
-		# 2. The query type and retrieval type of this setup
+		# 3. At most one extra query type. None means original
 		supported_query_types = [
-			constants.ORIGINAL_QUERY,
 			constants.REWRITTEN_QUERY,
 			constants.MULTI_QUERY,
 			constants.HYDE_QUERY
 		]
-		if self.query_type not in supported_query_types:
+		if len(query_args.query_types) > 1:
 			raise ValueError(
-				f"query_type ({self.query_type}) is not supported. Use \"{constants.ORIGINAL_QUERY}\", "
-				f"\"{constants.REWRITTEN_QUERY}\", \"{constants.MULTI_QUERY}\" or \"{constants.HYDE_QUERY}\"."
+				f"query_types ({query_args.query_types}) must hold at most one query type, none for original, since "
+				"one Retrieval stands for one setup."
+			)
+		if len(query_args.query_types) == 1 and query_args.query_types[0] not in supported_query_types:
+			raise ValueError(
+				f"query_type ({query_args.query_types[0]}) is not supported. Use \"{constants.REWRITTEN_QUERY}\", "
+				f"\"{constants.MULTI_QUERY}\" or \"{constants.HYDE_QUERY}\", or none for original."
 			)
 
-		if self.retrieval_type not in supported_retrieval_types:
+		# HyDE is a passage searched by its meaning, so it is searched with dense only
+		if query_args.query_types == [constants.HYDE_QUERY] and retrieval_type != constants.DENSE_RETRIEVAL:
 			raise ValueError(
-				f"retrieval_type ({self.retrieval_type}) is not supported. Use \"{constants.DENSE_RETRIEVAL}\", "
-				f"\"{constants.BM25_RETRIEVAL}\" or \"{constants.HYBRID_RETRIEVAL}\"."
+				f"query_type \"{constants.HYDE_QUERY}\" can only be searched with \"{constants.DENSE_RETRIEVAL}\", "
+				f"not \"{retrieval_type}\"."
 			)
 
-		# HyDE is a passage searched by its embedding only, so it has no BM25 tokens
-		if self.query_type == constants.HYDE_QUERY and self.retrieval_type != constants.DENSE_RETRIEVAL:
-			raise ValueError(
-				f"query_type \"{constants.HYDE_QUERY}\" has no BM25 tokens, so it can only be searched with "
-				f"\"{constants.DENSE_RETRIEVAL}\", not \"{self.retrieval_type}\"."
-			)
+		# 4. The index records this retrieval type searches
+		dense_index_count = 0
+		if self.faiss_index is not None:
+			dense_index_count = dense_index_count + 1
+		if self.vectordb_index is not None:
+			dense_index_count = dense_index_count + 1
 
-		# 3. The index objects this setup searches
-		if self.retrieval_type == constants.DENSE_RETRIEVAL:
-			if self.index_type is None or self.vector_store is None:
-				raise ValueError("Dense retrieval needs index_type and vector_store.")
-		elif self.retrieval_type == constants.BM25_RETRIEVAL:
-			if self.bm25_index is None:
-				raise ValueError("BM25 retrieval needs bm25_index.")
+		if retrieval_type == constants.DENSE_RETRIEVAL:
+			if dense_index_count != 1 or self.bm25_index is not None:
+				raise ValueError("Dense retrieval needs exactly one of faiss_index and vectordb_index, and no bm25_index.")
+		elif retrieval_type == constants.BM25_RETRIEVAL:
+			if dense_index_count != 0 or self.bm25_index is None:
+				raise ValueError("BM25 retrieval needs bm25_index only, and no faiss_index or vectordb_index.")
 		else:
-			if self.index_type is None or self.vector_store is None or self.bm25_index is None:
-				raise ValueError("Hybrid retrieval needs index_type, vector_store and bm25_index.")
-
-		# 4. The chunk texts the cross-encoder reads
-		if self.reranking and self.chunks is None:
-			raise ValueError("Reranking needs chunks, to read each chunk's text.")
+			if dense_index_count != 1 or self.bm25_index is None:
+				raise ValueError("Hybrid retrieval needs exactly one of faiss_index and vectordb_index, and bm25_index.")
 
 	def retrieve(self, query: Query) -> Retrieved:
 		"""
 		Input: query, one Query.
 		Output: the one Retrieved of this setup for the query.
-		What it does: looks the result up in its own saved file, named by the hash of what decides it, keyed by the
-		original question text, and gives it the query's id. If it is not saved, searches with this setup's retrieval
-		type and query type, reranks it against the original question if reranking is on, and saves it. Prints this
-		query's line.
+		What it does: takes the texts of this setup's query type and looks the result up in its own saved file, named by
+		the hash of the content it is made from, and gives it the query's id. If it is not saved, invokes the LangChain
+		retriever with the texts, reranks the result against the original question if reranking is on, and saves it.
+		Prints this query's line.
 		"""
+		retrieval_args = self.retrieval_args
 		query_type = self.query_type
 
 		# 1. Validate the input: the query holds this setup's query type. Original is always made
@@ -148,40 +182,55 @@ class Retrieval:
 		if query_type == constants.HYDE_QUERY and query.hyde_ans is None:
 			raise ValueError(f"Query {query.id} has no HyDE answer. Add \"{constants.HYDE_QUERY}\" to query_types.")
 
+		# 2. The texts of this query type. A HyDE answer the LLM refused to write is not searched
+		query_texts = []
+		if query_type == constants.ORIGINAL_QUERY:
+			query_texts.append(query.original_qus.qus)
+		elif query_type == constants.REWRITTEN_QUERY:
+			query_texts.append(query.rewritten_qus.qus)
+		elif query_type == constants.MULTI_QUERY:
+			for multi_qus in query.multi_qus:
+				query_texts.append(multi_qus.qus)
+		else:
+			if query.hyde_ans.ans != constants.I_DONT_KNOW:
+				query_texts.append(query.hyde_ans.ans)
 		original_qus = query.original_qus.qus
 
-		# 2. Load the saved result of this setup and question
+		# 3. Load the saved result of this content
 		retrieved_file = paths.get_retrieved_file_path(
-			self.retrieved_path, self.retrieval_args, self.query_args, query_type, original_qus,
-			self.index_type, self.retrieval_type, self.reranking
+			self.retrieved_path, retrieval_args, query_type, self.index_type, query_texts, original_qus
 		)
 		retrieved = load_retrieved_entry(retrieved_file)
 		if retrieved is not None:
 			retrieved.id = query.id
-			setup = retrieved.setup
 			print(
-				f"Retrieved {query.id} : {setup.index_type} {setup.query_type} {setup.retrieval_type} "
-				f"reranking={setup.reranking} : loaded from cache, {len(retrieved.chunk_ids)} chunks"
+				f"Retrieved {query.id} : {self.index_type} {query_type} {self.retrieval_type} "
+				f"reranking={retrieval_args.reranking} : loaded from cache, {len(retrieved.chunk_ids)} chunks"
 			)
 			return retrieved
 
-		# 3. Search with this setup's retrieval type
-		if self.retrieval_type == constants.DENSE_RETRIEVAL:
-			retrieved = dense_search(self.retrieval_args, self.vector_store, self.index_type, query, query_type)
-		elif self.retrieval_type == constants.BM25_RETRIEVAL:
-			retrieved = bm25_search(self.retrieval_args, self.bm25_index, query, query_type)
-		else:
-			retrieved = hybrid_search(self.retrieval_args, self.vector_store, self.index_type, self.bm25_index, query, query_type)
+		# 4. Search with the LangChain retriever
+		documents = invoke_retriever(self.retriever, query_texts, retrieval_args.top_k)
 
-		# 4. Rerank against the original question
-		if self.reranking:
-			retrieved = rerank_result(self.retrieval_args, self.cross_encoder, retrieved, original_qus, self.chunks)
+		# 5. Rerank against the original question with the LangChain cross-encoder reranker
+		rerank_top_k = 0
+		if self.reranker is not None:
+			rerank_top_k = retrieval_args.rerank_top_k
+			if len(documents) > 0:
+				documents = list(self.reranker.compress_documents(documents, original_qus))
 
-		# 5. Save the result and report it
+		# 6. The result of this setup, saved and reported
+		setup = Setup(
+			chunk_type=retrieval_args.index_args.chunking_args.chunk_type,
+			index_type=self.index_type,
+			query_type=query_type,
+			retrieval_type=self.retrieval_type,
+			reranking=retrieval_args.reranking
+		)
+		retrieved = make_retrieved(query.id, setup, retrieval_args.top_k, rerank_top_k, documents)
 		save_retrieved_entry(retrieved_file, original_qus, retrieved)
-		setup = retrieved.setup
 		print(
-			f"Retrieved {query.id} : {setup.index_type} {setup.query_type} {setup.retrieval_type} "
-			f"reranking={setup.reranking} : made, {len(retrieved.chunk_ids)} chunks"
+			f"Retrieved {query.id} : {self.index_type} {query_type} {self.retrieval_type} "
+			f"reranking={retrieval_args.reranking} : made, {len(retrieved.chunk_ids)} chunks"
 		)
 		return retrieved

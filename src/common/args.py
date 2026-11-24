@@ -305,8 +305,6 @@ def parse_eval_dataset_config() -> argparse.Namespace:
 @dataclasses.dataclass
 class QueryArgs:
 	query_llm_args: LLMArgs
-	# The build's embedding model, so the query vectors match the chunk vectors
-	embedding_model: str
 	n_multi_qus: int
 	query_types: list[str]
 	# True to split the queries into val and test, False to use all of them as both
@@ -318,13 +316,12 @@ class QueryArgs:
 	ollama_context_length: int | None
 
 
-def make_query_args(parsed_args: argparse.Namespace, embedding_model: str) -> QueryArgs:
+def make_query_args(parsed_args: argparse.Namespace) -> QueryArgs:
 	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_benchmark_config(); embedding_model, the build
-	manifest's embedding model.
+	Input: parsed_args, the argparse.Namespace returned by parse_benchmark_config().
 	Output: a QueryArgs holding the query transformation settings.
-	What it does: builds the query LLM's LLMArgs from its own block, copies the query settings and the embedding model,
-	and copies the Ollama settings only when the query LLM is an Ollama model.
+	What it does: builds the query LLM's LLMArgs from its own block, copies the query settings, and copies the Ollama
+	settings only when the query LLM is an Ollama model.
 	"""
 	query_llm_args = LLMArgs(
 		llm_model=parsed_args.query_llm_model,
@@ -342,7 +339,6 @@ def make_query_args(parsed_args: argparse.Namespace, embedding_model: str) -> Qu
 
 	query_args = QueryArgs(
 		query_llm_args=query_llm_args,
-		embedding_model=embedding_model,
 		n_multi_qus=parsed_args.n_multi_qus,
 		query_types=parsed_args.query_types,
 		query_split=parsed_args.query_split == "true",

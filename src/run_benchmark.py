@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import os
 import time
@@ -8,7 +9,6 @@ from common.constants import BM25_RETRIEVAL
 from common.constants import DENSE_RETRIEVAL
 from common.constants import HYBRID_RETRIEVAL
 from common.constants import HYDE_QUERY
-from common.constants import ORIGINAL_QUERY
 from common.constants import QDRANT_INDEX
 from common.args import parse_benchmark_config
 from common.args import make_benchmark_args
@@ -84,7 +84,7 @@ def run_benchmark(args) -> None:
 
 	# 4. Query transformation of the eval questions, with the build's embedding model
 	print("\n\nQuery transformation")
-	query_args = make_query_args(args, manifest.embedding_model)
+	query_args = make_query_args(args)
 	query_path = os.path.join(args.output_path, "queries")
 
 	s3 = time.time()
@@ -104,14 +104,11 @@ def run_benchmark(args) -> None:
 	# retrieval_evaluation = RetrievalEvaluation(eval_samples)
 	# retrieved_evals = []
 
-	# The query types searched: original is always made, then the extra query types. Reranking is off for every setup,
-	# and on as well when the config asks for it. The retrieved files of every setup are saved in one folder
-	search_query_types = [ORIGINAL_QUERY]
+	# The query settings of each query type searched, one Retrieval each: no extra query type for original, then one
+	# for each extra query type the query layer made. The retrieved files of every setup are saved in one folder
+	search_query_args_list = [dataclasses.replace(query_args, query_types=[])]
 	for query_type in query_args.query_types:
-		search_query_types.append(query_type)
-	reranking_options = [False]
-	if args.reranking == "true":
-		reranking_options.append(True)
+		search_query_args_list.append(dataclasses.replace(query_args, query_types=[query_type]))
 	retrieved_path = output_path + "/retrieved/"
 
 	# 6. Every chunk type the build made, with the settings it made them with
@@ -134,9 +131,13 @@ def run_benchmark(args) -> None:
 			for setting_name in index_entry.index_settings:
 				chunk_type_index_settings[setting_name] = index_entry.index_settings[setting_name]
 
-		# The retrieval settings of this chunk type. Every result of this chunk type is collected in retrieved_items
+		# The retrieval settings of each retrieval type of this chunk type, one Retrieval each. Every result of this chunk
+		# type is collected in retrieved_items
 		chunk_type_index_args = make_manifest_index_args(chunking_args, "", chunk_type_index_settings, manifest.input_hash)
 		retrieval_args = make_retrieval_args(args, chunk_type_index_args)
+		dense_retrieval_args = dataclasses.replace(retrieval_args, retrieval_types=[DENSE_RETRIEVAL])
+		bm25_retrieval_args = dataclasses.replace(retrieval_args, retrieval_types=[BM25_RETRIEVAL])
+		hybrid_retrieval_args = dataclasses.replace(retrieval_args, retrieval_types=[HYBRID_RETRIEVAL])
 		retrieved_items = []
 
 		# 7. The BM25 index of this chunk type, loaded once and kept for BM25 and hybrid retrieval
@@ -152,19 +153,17 @@ def run_benchmark(args) -> None:
 			e7 = time.time() - s7
 			print("\nIndexing time : ", e7)
 
-		# 8. BM25 retrieval: one Retrieval per setup, each query retrieved one at a time. HyDE has no BM25 tokens
+		# 8. BM25 retrieval: one Retrieval per query type, each query retrieved one at a time. HyDE is searched with
+		# dense only
 		if bm25_index is not None and BM25_RETRIEVAL in retrieval_args.retrieval_types:
 			print(f"\n\nRetrieval : {BM25_RETRIEVAL} {BM25_INDEX}")
 			s8 = time.time()
-			for query_type in search_query_types:
-				if query_type == HYDE_QUERY:
+			for search_query_args in search_query_args_list:
+				if search_query_args.query_types == [HYDE_QUERY]:
 					continue
-				for reranking in reranking_options:
-					retrieval = Retrieval(
-						retrieval_args, query_args, query_type, BM25_RETRIEVAL, reranking, None, None, bm25_index, chunks, retrieved_path
-					)
-					for query in val_queries:
-						retrieved_items.append(retrieval.retrieve(query))
+				retrieval = Retrieval(bm25_retrieval_args, search_query_args, None, None, bm25_index, retrieved_path)
+				for query in val_queries:
+					retrieved_items.append(retrieval.retrieve(query))
 			e8 = time.time() - s8
 			print("\nRetrieval time : ", e8)
 
@@ -176,16 +175,16 @@ def run_benchmark(args) -> None:
 			index_type = index_entry.index_type
 
 			s9 = time.time()
+			faiss_index = None
+			vectordb_index = None
 			if index_type == QDRANT_INDEX:
 				print(f"\n\nVector DB indexing : {index_type}")
 				vectordb_args = make_vectordb_args(args, chunking_args, index_type, manifest.input_hash)
-				vectordb = IndexingVectorDb(vectordb_args).load_saved_vectordb(chunks, index_entry.location)
-				vector_store = vectordb.vector_store
+				vectordb_index = IndexingVectorDb(vectordb_args).load_saved_vectordb(chunks, index_entry.location)
 			else:
 				print(f"\n\nIndexing : {index_type}")
 				index_args = make_manifest_index_args(chunking_args, index_type, chunk_type_index_settings, manifest.input_hash)
-				index = Indexing(index_args).load_saved_index(chunks, index_entry.location)
-				vector_store = index.vector_store
+				faiss_index = Indexing(index_args).load_saved_index(chunks, index_entry.location)
 			e9 = time.time() - s9
 			print("\nIndexing time : ", e9)
 
@@ -193,29 +192,23 @@ def run_benchmark(args) -> None:
 			if DENSE_RETRIEVAL in retrieval_args.retrieval_types:
 				print(f"\n\nRetrieval : {DENSE_RETRIEVAL} {index_type}")
 				s10 = time.time()
-				for query_type in search_query_types:
-					for reranking in reranking_options:
-						retrieval = Retrieval(
-							retrieval_args, query_args, query_type, DENSE_RETRIEVAL, reranking, index_type, vector_store, None, chunks, retrieved_path
-						)
-						for query in val_queries:
-							retrieved_items.append(retrieval.retrieve(query))
+				for search_query_args in search_query_args_list:
+					retrieval = Retrieval(dense_retrieval_args, search_query_args, faiss_index, vectordb_index, None, retrieved_path)
+					for query in val_queries:
+						retrieved_items.append(retrieval.retrieve(query))
 				e10 = time.time() - s10
 				print("\nRetrieval time : ", e10)
 
-			# Hybrid retrieval on this index and the BM25 index. HyDE has no BM25 tokens
+			# Hybrid retrieval on this index and the BM25 index. HyDE is searched with dense only
 			if bm25_index is not None and HYBRID_RETRIEVAL in retrieval_args.retrieval_types:
 				print(f"\n\nRetrieval : {HYBRID_RETRIEVAL} {index_type}+{BM25_INDEX}")
 				s11 = time.time()
-				for query_type in search_query_types:
-					if query_type == HYDE_QUERY:
+				for search_query_args in search_query_args_list:
+					if search_query_args.query_types == [HYDE_QUERY]:
 						continue
-					for reranking in reranking_options:
-						retrieval = Retrieval(
-							retrieval_args, query_args, query_type, HYBRID_RETRIEVAL, reranking, index_type, vector_store, bm25_index, chunks, retrieved_path
-						)
-						for query in val_queries:
-							retrieved_items.append(retrieval.retrieve(query))
+					retrieval = Retrieval(hybrid_retrieval_args, search_query_args, faiss_index, vectordb_index, bm25_index, retrieved_path)
+					for query in val_queries:
+						retrieved_items.append(retrieval.retrieve(query))
 				e11 = time.time() - s11
 				print("\nRetrieval time : ", e11)
 

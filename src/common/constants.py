@@ -62,8 +62,6 @@ HYDE_QUERY="hyde"
 DENSE_RETRIEVAL="dense"
 BM25_RETRIEVAL="bm25"
 HYBRID_RETRIEVAL="hybrid"
-# Reciprocal rank fusion constant for hybrid: a chunk at rank r (from 1) gets 1 / (RRF_K + r) from each list
-RRF_K=60
 
 # Seed for the tuning / held-out split, so every run gets the same split
 TUNING_SPLIT_SEED=42

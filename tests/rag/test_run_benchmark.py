@@ -210,7 +210,7 @@ def use_fake_benchmark_steps(monkeypatch):
             What it does: records the index args and folder.
             """
             record.loaded_indexes.append((self.index_args, index_folder))
-            return types.SimpleNamespace(vector_store="vector_store")
+            return "index record"
 
     class FakeIndexingVectorDb:
         """
@@ -232,14 +232,14 @@ def use_fake_benchmark_steps(monkeypatch):
             What it does: records the vector DB args and collection name.
             """
             record.loaded_vectordbs.append((self.vectordb_args, collection_name))
-            return types.SimpleNamespace(vector_store="vector_store")
+            return "index record"
 
     class FakeRetrieval:
         """
         Stand-in for Retrieval: one setup, giving a placeholder result per query.
         """
 
-        def __init__(self, retrieval_args, query_args, query_type, retrieval_type, reranking, index_type, vector_store, bm25_index, chunks, retrieved_path):
+        def __init__(self, retrieval_args, query_args, faiss_index, vectordb_index, bm25_index, retrieved_path):
             """
             Input: the arguments of Retrieval.
             Output: nothing.
@@ -342,7 +342,7 @@ def test_run_benchmark_loads_every_chunk_type_and_index_the_manifest_lists(tmp_p
 
     assert record.loaded_documents == [("out/documents", "testinputhash")]
     assert record.loaded_eval_datasets == ["out/eval_dataset/eval_dataset_testevalhash.json"]
-    assert record.query_args[0].embedding_model == "fake-model"
+    assert record.query_args[0].query_types == []
     assert record.transformed_questions == [("eval_qna_0", "What is X?")]
 
     loaded_chunk_folders = []
@@ -409,7 +409,6 @@ def make_query_args(**overrides):
     """
     field_values = {}
     field_values["query_llm_args"] = LLMArgs("ollama_chat/llama3.1:8b", 100, 30)
-    field_values["embedding_model"] = "fake-model"
     field_values["n_multi_qus"] = 3
     field_values["query_types"] = []
     field_values["query_split"] = False

@@ -37,7 +37,7 @@ def make_retrieved_eval(setup, query_id, recall, mrr):
     Output: a RetrievedEval of that setup and query.
     What it does: builds one scored result. Only the chunk level scores are used by the ranking.
     """
-    retrieved = Retrieved(id=query_id, setup=setup, top_k=3, rerank_top_k=0, chunk_ids=[], chunk_scores=[], doc_ids=[])
+    retrieved = Retrieved(id=query_id, setup=setup, top_k=3, rerank_top_k=0, chunk_ids=[], doc_ids=[])
     chunk_eval = Eval(hit=1, precision=0.0, recall=recall, mrr=mrr, ndcg=0.5, first_relevant_rank=1)
     doc_eval = Eval(hit=0, precision=0.0, recall=0.0, mrr=0.0, ndcg=0.0, first_relevant_rank=0)
     return RetrievedEval(retrieved=retrieved, chunk_eval=chunk_eval, doc_eval=doc_eval)

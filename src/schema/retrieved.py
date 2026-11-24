@@ -15,7 +15,5 @@ class Retrieved:
 	rerank_top_k: int
 	# The chunks, best first
 	chunk_ids: list[str]
-	# The score of each chunk. Each retrieval type and reranking has its own scale
-	chunk_scores: list[float]
 	# The document of each chunk: the part of the chunk id before the last "_"
 	doc_ids: list[str]
