@@ -7,9 +7,9 @@ from langchain_core.documents import Document as LangchainDocument
 
 from common import paths
 from common.args import IngestionArgs
-from schema.document import File
-from schema.document import DocumentType
-from schema.document import Metadata
+from schema.file import File
+from schema.file import FileType
+from schema.file import Metadata
 
 
 def convert_langchain_document(langchain_document: LangchainDocument, document_type: str) -> File:
@@ -51,7 +51,7 @@ def convert_langchain_document(langchain_document: LangchainDocument, document_t
 
 	document = File(
 		id=content_hash[:16],
-		type=DocumentType(document_type),
+		type=FileType(document_type),
 		text=langchain_document.page_content,
 		metadata=metadata,
 	)
@@ -120,9 +120,9 @@ def validate(ingestion_args: IngestionArgs) -> None:
 	if ingestion_args.output_path == "":
 		raise ValueError("output_path is empty.")
 
-	if ingestion_args.document_type != DocumentType.PDF:
+	if ingestion_args.document_type != FileType.PDF:
 		raise ValueError(
-			f"document_type ({ingestion_args.document_type}) is not supported. Use \"{DocumentType.PDF.value}\"."
+			f"document_type ({ingestion_args.document_type}) is not supported. Use \"{FileType.PDF.value}\"."
 		)
 
 
@@ -175,17 +175,17 @@ def compute_input_hash(ingestion_args: IngestionArgs) -> str:
 	return hashlib.sha256(file_hashes_json.encode("utf-8")).hexdigest()[:12]
 
 
-def ingestion(ingestion_args: IngestionArgs, input_hash: str) -> dict[str, File]:
+def ingestion(ingestion_args: IngestionArgs, output_path: str) -> dict[str, File]:
 	"""
-	Input: ingestion_args, the ingestion settings; input_hash, the hash of the input files from compute_input_hash.
+	Input: ingestion_args, the ingestion settings; output_path, the dataset's output folder.
 	Output: a dict of doc_id to File.
 	What it does: loads the documents from the cache, or loads the files with LangChain and saves them.
 	"""
-	# 1. Validate the settings
+	# 1. Validate the settings, then compute the hash of the input files
 	validate(ingestion_args)
+	input_hash = compute_input_hash(ingestion_args)
 
 	# 2. Load from the cache if the documents of these input files were saved before
-	output_path = paths.get_output_path(ingestion_args.output_path, ingestion_args.dataset_name)
 	processed_data_path = paths.get_documents_path(output_path)
 	print(f"Processed data folder : {processed_data_path}")
 	cached_documents = load_documents(processed_data_path, input_hash)

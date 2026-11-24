@@ -3,7 +3,7 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
-class DocumentType(str, Enum):
+class FileType(str, Enum):
 	"""
 	The supported document types. There is one value per parser in parsers/.
 	Each value is a plain string, so it is saved in the output JSON as text,
@@ -33,6 +33,6 @@ class Metadata(BaseModel):
 
 class File(BaseModel):
 	id: str = Field(..., description="Unique identifier derived from content hash")
-	type: DocumentType = Field(..., description="Detected document type (e.g., pdf, docx)")
+	type: FileType = Field(..., description="Detected document type (e.g., pdf, docx)")
 	text: str = Field(..., description="Cleaned full text content of the document")
 	metadata: Metadata = Field(..., description="Document-level metadata")
