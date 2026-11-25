@@ -500,6 +500,62 @@ def make_query_benchmark_args(parsed_args: argparse.Namespace) -> QueryBenchmark
 	return query_benchmark_args
 
 
+@dataclasses.dataclass
+class RetrievalArgs:
+	# Everything the retrieval layer needs for one reranking value, and what is saved for the API
+	# True to rerank the retrieved chunks with the cross-encoder, False to keep them as retrieved
+	reranking: bool
+	# Chunks the retrieval returns
+	top_k: int
+	# Chunks kept after the cross-encoder reranks the top_k chunks
+	rerank_top_k: int
+	# The cross-encoder that reranks, used only with reranking
+	cross_encoder_model: str
+
+
+def make_retrieval_args(parsed_args: argparse.Namespace, reranking: bool) -> RetrievalArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_benchmark_config(); reranking, the one reranking value
+	this RetrievalArgs is made for.
+	Output: a RetrievalArgs holding the retrieval settings of that reranking value.
+	What it does: copies top_k, rerank_top_k and the cross-encoder model from the parsed args and keeps the reranking
+	value.
+	"""
+	retrieval_args = RetrievalArgs(
+		reranking=reranking,
+		top_k=parsed_args.top_k,
+		rerank_top_k=parsed_args.rerank_top_k,
+		cross_encoder_model=parsed_args.cross_encoder_model
+	)
+	return retrieval_args
+
+
+@dataclasses.dataclass
+class RetrievalBenchmarkArgs:
+	# The retrieval settings only the benchmark uses. The API does not need them
+	# The reranking values to benchmark: True, False or both
+	reranking_values: list[bool]
+
+
+def make_retrieval_benchmark_args(parsed_args: argparse.Namespace) -> RetrievalBenchmarkArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_benchmark_config().
+	Output: a RetrievalBenchmarkArgs holding the benchmark's retrieval settings.
+	What it does: turns each reranking value of the config, the string "true" or "false", into a bool.
+	"""
+	reranking_values = []
+	for reranking_text in parsed_args.reranking:
+		if reranking_text == "true":
+			reranking_values.append(True)
+		else:
+			reranking_values.append(False)
+
+	retrieval_benchmark_args = RetrievalBenchmarkArgs(
+		reranking_values=reranking_values
+	)
+	return retrieval_benchmark_args
+
+
 def make_manifest_chunking_args(chunk_entry, embedding_model: str) -> ChunkingArgs:
 	"""
 	Input: chunk_entry, one ChunkEntry of the build manifest; embedding_model, the manifest's embedding model.
@@ -576,6 +632,15 @@ def parse_benchmark_config() -> argparse.Namespace:
 		help="URL of the local Ollama server, used only for an Ollama model")
 	parser.add_argument("--query_llm.ollama_context_length", dest="query_llm_ollama_context_length", type=int, required=True,
 		help="Context window in tokens of an Ollama model, used only for an Ollama model")
+	# The config's true and false are read as the strings "True" and "False", so each value is lowercased first
+	parser.add_argument("--retrieval.reranking", dest="reranking", type=str.lower, nargs="+", required=True, choices=["true", "false"],
+		help="Reranking values to benchmark: true, false or both")
+	parser.add_argument("--retrieval.top_k", dest="top_k", type=int, required=True,
+		help="Chunks the retrieval returns")
+	parser.add_argument("--retrieval.rerank_top_k", dest="rerank_top_k", type=int, required=True,
+		help="Chunks kept after the cross-encoder reranks the top_k chunks")
+	parser.add_argument("--retrieval.cross_encoder_model", dest="cross_encoder_model", type=str, required=True,
+		help="Cross-encoder that reranks, used only with reranking")
 	parsed_args = parser.parse_args(config_arguments + override_arguments)
 	return parsed_args
 
