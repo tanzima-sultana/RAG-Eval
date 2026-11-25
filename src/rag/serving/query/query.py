@@ -2,51 +2,47 @@ import os
 import random
 
 from common import constants
+from common import paths
 from common.args import OllamaArgs
 from common.args import QueryArgs
 from llm_provider.llm_provider import LLMProvider
-from rag.serving.query.cache import QueryLLMCache
-from rag.serving.query.single_query import transform_single_query
+from rag.serving.query.cache import load_query
+from rag.serving.query.cache import save_query
+from rag.serving.query.single_query import make_hyde_query
+from rag.serving.query.single_query import make_multi_queries
+from rag.serving.query.single_query import make_original_query
+from rag.serving.query.single_query import make_rewritten_query
 from schema.query import Query
 
 
 class QueryTransformation:
 	def __init__(self, query_args: QueryArgs, query_path: str):
 		"""
-		Input: query_args, the query transformation settings; query_path, the folder the query LLM cache file
-		(.langchain.db) is saved in, used as given.
+		Input: query_args, the query settings, holding one query type; query_path, the one folder every query is saved
+		in, used as given.
 		Output: nothing.
-		What it does: stores both, validates the settings, then builds the query LLM once, so every question reuses it.
-		Original is always made, and query_types holds only the extra types
-		(rewritten, multi and/or hyde), which all need the query LLM. So the query LLM is built only if query_types is
-		not empty, otherwise it is None. The query LLM gets a LangChain SQLite LLM cache in query_path, so each of its
-		replies is made once and read back on later runs.
+		What it does: stores both, validates the settings, creates the folder, then builds the query LLM once, so
+		every question reuses it. Original needs no LLM, so the query LLM is built only for rewritten, multi and hyde,
+		otherwise it is None.
 		"""
 		self.query_args = query_args
 		self.query_path = query_path
 
-		# 1. Validate the settings before anything is loaded
+		# 1. Validate the settings before anything is built
 		self.validate()
 
-		# 2. The query LLM, only if there is an extra query type, since each of them needs it. LLMProvider validates it,
-		# so a paid model needs ALLOW_PAID_API=1
+		# 2. The folder the queries are saved in
+		os.makedirs(query_path, exist_ok=True)
+
+		# 3. The query LLM, only for the query types that need it. LLMProvider validates it, so a paid model needs
+		# ALLOW_PAID_API=1
 		self.query_llm_provider = None
-		if len(query_args.query_types) > 0:
+		if query_args.query_type != constants.ORIGINAL_QUERY:
 			ollama_args = OllamaArgs(
 				ollama_api_base=query_args.ollama_api_base,
 				ollama_context_length=query_args.ollama_context_length
 			)
 			self.query_llm_provider = LLMProvider(query_args.query_llm_args, ollama_args)
-
-			# 3. The LLM cache of the query LLM only, in query_path. LangChain's key leaves out max_tokens, the Ollama
-			# context length and the Ollama URL, so they are added to it
-			os.makedirs(query_path, exist_ok=True)
-			settings_key = (
-				f"|max_tokens={query_args.query_llm_args.max_tokens}"
-				f"|num_ctx={query_args.ollama_context_length}"
-				f"|api_base={query_args.ollama_api_base}"
-			)
-			self.query_llm_provider.chat_model.cache = QueryLLMCache(os.path.join(query_path, ".langchain.db"), settings_key)
 
 	def validate(self) -> None:
 		"""
@@ -59,65 +55,145 @@ class QueryTransformation:
 		if query_args.n_multi_qus < 1:
 			raise ValueError(f"n_multi_qus ({query_args.n_multi_qus}) must be at least 1.")
 
-		# Original is always made, so query_types holds only the extra types. Empty query_types means original only
 		supported_query_types = [
+			constants.ORIGINAL_QUERY,
 			constants.REWRITTEN_QUERY,
 			constants.MULTI_QUERY,
 			constants.HYDE_QUERY
 		]
-		for query_type in query_args.query_types:
-			if query_type == constants.ORIGINAL_QUERY:
-				raise ValueError(
-					f"query_type \"{constants.ORIGINAL_QUERY}\" must not be in query_types. It is always made. "
-					f"List only the extra query types, or none for original only."
-				)
-			if query_type not in supported_query_types:
-				raise ValueError(
-					f"query_type ({query_type}) is not supported. Use \"{constants.REWRITTEN_QUERY}\", "
-					f"\"{constants.MULTI_QUERY}\" or \"{constants.HYDE_QUERY}\"."
-				)
+		if query_args.query_type not in supported_query_types:
+			raise ValueError(
+				f"query_type ({query_args.query_type}) is not supported. Use \"{constants.ORIGINAL_QUERY}\", "
+				f"\"{constants.REWRITTEN_QUERY}\", \"{constants.MULTI_QUERY}\" or \"{constants.HYDE_QUERY}\"."
+			)
 
-	def query(self, question_id: str, question: str) -> Query:
+	def query(self, question_id: str, question: str) -> tuple[list[Query], list[str], list[str]]:
 		"""
 		Input: question_id, the id of one question; question, its text.
-		Output: one Query of this question, with its id, always its original query, and the extra query types in
-		query_types. The other extra query types are None.
-		What it does: makes original and each query type in query_types of the question, as texts, with the query LLM
-		built in __init__. Each query LLM call reads the LLM cache first and calls the LLM only when the reply
-		is not saved. Prints the question's multi-query and HyDE I don't know and the query LLM's running cost.
+		Output: (list of Query, list of hashes, list of paths) for every query type. Original, rewritten and hyde
+		give one item in each list. Multi gives one item per phrasing, and all three lists are empty if the LLM did
+		not return the phrasings.
+		What it does: checks the input, then calls the method of the query type in query_args, which loads the saved
+		query or makes and saves it. Prints the query LLM's running cost when the query type uses the LLM.
 		"""
-		query_args = self.query_args
-
 		# 1. Validate the input
 		if question_id.strip() == "":
 			raise ValueError("question_id is empty. Give the id of the question.")
 		if question.strip() == "":
 			raise ValueError(f"question of {question_id} is empty. Give the question text.")
 
-		# 2. Original is always made, then each extra query type
-		query_types = [constants.ORIGINAL_QUERY]
-		for query_type in query_args.query_types:
-			query_types.append(query_type)
+		# 2. The query type is decided once, here
+		query_type = self.query_args.query_type
+		if query_type == constants.ORIGINAL_QUERY:
+			result = self.query_original(question_id, question)
+		elif query_type == constants.REWRITTEN_QUERY:
+			result = self.query_rewritten(question_id, question)
+		elif query_type == constants.MULTI_QUERY:
+			result = self.query_multi(question_id, question)
+		else:
+			result = self.query_hyde(question_id, question)
 
-		query = transform_single_query(
-			query_args, question_id, question, query_types, self.query_llm_provider
-		)
-
-		# 3. The question's I don't know, for the requested types. The cost is the running total of every call so far
-		if constants.MULTI_QUERY in query_args.query_types:
-			multi_dont_know_count = 0
-			if len(query.multi_qus) == 0:
-				multi_dont_know_count = 1
-			print(f"Multi-query I don't know : {multi_dont_know_count}")
-		if constants.HYDE_QUERY in query_args.query_types:
-			hyde_dont_know_count = 0
-			if query.hyde_ans.ans == constants.I_DONT_KNOW:
-				hyde_dont_know_count = 1
-			print(f"HyDE I don't know : {hyde_dont_know_count}")
+		# 3. The cost is the running total of every call so far
 		if self.query_llm_provider is not None:
 			self.query_llm_provider.compute_cost()
 
-		return query
+		return result
+
+	def query_batch(self, question_ids: list[str], questions: list[str]) -> dict:
+		"""
+		Input: question_ids, the ids of the questions; questions, their texts, in the same order.
+		Output: a dict keyed by question id, each value what query() returns for that question.
+		What it does: calls query() once for each question. The query LLM is built once in __init__, not per question.
+		"""
+		if len(question_ids) != len(questions):
+			raise ValueError(
+				f"question_ids ({len(question_ids)}) and questions ({len(questions)}) must be the same length."
+			)
+
+		results = {}
+		for index in range(len(question_ids)):
+			question_id = question_ids[index]
+			results[question_id] = self.query(question_id, questions[index])
+		return results
+
+	def query_original(self, question_id: str, question: str) -> tuple[list[Query], list[str], list[str]]:
+		"""
+		Input: question_id; question, its text.
+		Output: ([Query], [hash], [path]) of the original query, one item in each list.
+		What it does: hashes the question and the settings, loads the saved query if there is one, otherwise makes it
+		without an LLM and saves it.
+		"""
+		query_hash = paths.get_query_hash(self.query_args, question)
+		query_file_path = paths.get_query_file_path(self.query_path, query_hash)
+
+		query = load_query(query_file_path)
+		if query is None:
+			query = make_original_query(self.query_args, question_id, question)
+			save_query(query_file_path, query)
+		return [query], [query_hash], [query_file_path]
+
+	def query_rewritten(self, question_id: str, question: str) -> tuple[list[Query], list[str], list[str]]:
+		"""
+		Input: question_id; question, its text.
+		Output: ([Query], [hash], [path]) of the rewritten query, one item in each list.
+		What it does: hashes the question and the settings, loads the saved query if there is one, otherwise asks the
+		query LLM to rewrite the question and saves the query.
+		"""
+		query_hash = paths.get_query_hash(self.query_args, question)
+		query_file_path = paths.get_query_file_path(self.query_path, query_hash)
+
+		query = load_query(query_file_path)
+		if query is None:
+			query = make_rewritten_query(self.query_args, question_id, question, self.query_llm_provider)
+			save_query(query_file_path, query)
+		return [query], [query_hash], [query_file_path]
+
+	def query_hyde(self, question_id: str, question: str) -> tuple[list[Query], list[str], list[str]]:
+		"""
+		Input: question_id; question, its text.
+		Output: ([Query], [hash], [path]) of the HyDE query, one item in each list.
+		What it does: hashes the question and the settings, loads the saved query if there is one, otherwise asks the
+		query LLM for a hypothetical answer and saves the query. Prints 1 if the LLM refused, otherwise 0.
+		"""
+		query_hash = paths.get_query_hash(self.query_args, question)
+		query_file_path = paths.get_query_file_path(self.query_path, query_hash)
+
+		query = load_query(query_file_path)
+		if query is None:
+			query = make_hyde_query(self.query_args, question_id, question, self.query_llm_provider)
+			save_query(query_file_path, query)
+
+		hyde_dont_know_count = 0
+		if query.transformed_query == constants.I_DONT_KNOW:
+			hyde_dont_know_count = 1
+		print(f"HyDE I don't know : {hyde_dont_know_count}")
+		return [query], [query_hash], [query_file_path]
+
+	def query_multi(self, question_id: str, question: str) -> tuple[list[Query], list[str], list[str]]:
+		"""
+		Input: question_id; question, its text.
+		Output: (list of Query, list of hashes, list of paths), one of each per phrasing. All three are empty if the
+		LLM did not return exactly n_multi_qus phrasings.
+		What it does: asks the query LLM for the phrasings every time, since the phrasings are not known before the
+		LLM runs, then saves each phrasing as its own query, under the hash of its own text and the settings. Prints 1
+		if no phrasings were kept, otherwise 0.
+		"""
+		queries = make_multi_queries(self.query_args, question_id, question, self.query_llm_provider)
+
+		query_hashes = []
+		query_file_paths = []
+		for query in queries:
+			query_hash = paths.get_query_hash(self.query_args, query.transformed_query)
+			query_file_path = paths.get_query_file_path(self.query_path, query_hash)
+			save_query(query_file_path, query)
+			query_hashes.append(query_hash)
+			query_file_paths.append(query_file_path)
+
+		multi_dont_know_count = 0
+		if len(queries) == 0:
+			multi_dont_know_count = 1
+		print(f"Multi-query I don't know : {multi_dont_know_count}")
+		return queries, query_hashes, query_file_paths
 
 	def split_queries(self, queries: list[Query]) -> tuple[list[Query], list[Query]]:
 		"""

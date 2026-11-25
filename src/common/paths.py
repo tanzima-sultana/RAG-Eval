@@ -368,6 +368,36 @@ def make_query_hashed_args(query_args: QueryArgs) -> dict:
 	return hashed_args
 
 
+def get_query_hash(query_args: QueryArgs, query_text: str) -> str:
+	"""
+	Input: query_args, the settings of one query type; query_text, the text the query is looked up by: the question
+	for original, rewritten and hyde, one phrasing for multi.
+	Output: the first 12 hex characters of the SHA-256 of the text and the settings that shape the query.
+	What it does: hashes the text, the query type, the query LLM's model and max_tokens, n_multi_qus and the Ollama
+	context length, as JSON with sorted keys. The LLM timeout and the split settings are left out, since they do not
+	change the query.
+	"""
+	hashed_args = {}
+	hashed_args["query_text"] = query_text
+	hashed_args["query_type"] = query_args.query_type
+	hashed_args["query_llm_model"] = query_args.query_llm_args.llm_model
+	hashed_args["query_llm_max_tokens"] = query_args.query_llm_args.max_tokens
+	hashed_args["n_multi_qus"] = query_args.n_multi_qus
+	hashed_args["ollama_context_length"] = query_args.ollama_context_length
+
+	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
+	return hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
+
+
+def get_query_file_path(query_path: str, query_hash: str) -> str:
+	"""
+	Input: query_path, the folder of the saved queries; query_hash, from get_query_hash.
+	Output: {query_path}/{query_hash}.json
+	What it does: builds the file one query is saved to.
+	"""
+	return os.path.join(query_path, f"{query_hash}.json")
+
+
 # ------ Retrieval
 def get_retrieved_file_path(retrieved_path: str, retrieval_args: RetrievalArgs, query_type: str, index_type: str, index_paths: list[str], query_texts: list[str], original_qus: str) -> str:
 	"""

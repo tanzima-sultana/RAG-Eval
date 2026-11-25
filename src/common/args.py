@@ -416,7 +416,8 @@ def parse_eval_dataset_config() -> argparse.Namespace:
 class QueryArgs:
 	query_llm_args: LLMArgs
 	n_multi_qus: int
-	query_types: list[str]
+	# The one query type this QueryArgs makes: original, rewritten, multi or hyde
+	query_type: str
 	# True to split the queries into val and test, False to use all of them as both
 	query_split: bool
 	val_queries_size: int
@@ -426,10 +427,11 @@ class QueryArgs:
 	ollama_context_length: int | None
 
 
-def make_query_args(parsed_args: argparse.Namespace) -> QueryArgs:
+def make_query_args(parsed_args: argparse.Namespace, query_type: str) -> QueryArgs:
 	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_benchmark_config().
-	Output: a QueryArgs holding the query transformation settings.
+	Input: parsed_args, the argparse.Namespace returned by parse_benchmark_config(); query_type, the one query type
+	this QueryArgs makes.
+	Output: a QueryArgs holding the query transformation settings of that query type.
 	What it does: builds the query LLM's LLMArgs from its own block, copies the query settings, and copies the Ollama
 	settings only when the query LLM is an Ollama model.
 	"""
@@ -450,7 +452,7 @@ def make_query_args(parsed_args: argparse.Namespace) -> QueryArgs:
 	query_args = QueryArgs(
 		query_llm_args=query_llm_args,
 		n_multi_qus=parsed_args.n_multi_qus,
-		query_types=parsed_args.query_types,
+		query_type=query_type,
 		query_split=parsed_args.query_split == "true",
 		val_queries_size=parsed_args.val_queries_size,
 		test_queries_size=parsed_args.test_queries_size,
@@ -595,25 +597,17 @@ def parse_benchmark_config() -> argparse.Namespace:
 		help="URL of the local Ollama server, used only for an Ollama model")
 	parser.add_argument("--ollama.context_length", dest="ollama_context_length", type=int, required=True,
 		help="Context window in tokens of an Ollama model, used only for an Ollama model")
-	parser.add_argument("--retrieval.retrieval_types", dest="retrieval_types", type=str, nargs="+", required=True,
-		help="Retrieval types to run: dense, bm25 and/or hybrid")
 	parser.add_argument("--retrieval.top_k", dest="top_k", type=int, required=True,
 		help="Chunks each retriever returns for a query")
-	# The config's false is read as the string "False", so the value is lowercased first
-	parser.add_argument("--retrieval.reranking", dest="reranking", type=str.lower, required=True, choices=["true", "false"],
-		help="true to also rerank the top_k chunks with the cross-encoder, false not to")
+	# The config's true and false are read as the strings "True" and "False", so each value is lowercased first
+	parser.add_argument("--retrieval.reranking", dest="reranking", type=str.lower, nargs="+", required=True, choices=["true", "false"],
+		help="One or more of true and false: true to rerank the top_k chunks with the cross-encoder, false not to")
 	parser.add_argument("--retrieval.rerank_top_k", dest="rerank_top_k", type=int, required=True,
 		help="Chunks kept after the cross-encoder reranks the top_k chunks")
 	parser.add_argument("--retrieval.cross_encoder_model", dest="cross_encoder_model", type=str, required=True,
 		help="Cross-encoder model that reranks the top_k chunks, used only with reranking")
 	parser.add_argument("--retrieval.n_top_setups", dest="n_top_setups", type=int, required=True,
 		help="Best setups by retrieval eval")
-	parser.add_argument("--pipeline.setup_rank", dest="setup_rank", type=int, required=True,
-		help="Which best setup the pipeline runs on the test queries: 1 for the best")
-	parser.add_argument("--qdrant.url", dest="qdrant_url", type=str, required=True,
-		help="URL of the Qdrant server that holds the build's collections")
-	parser.add_argument("--qdrant.batch_size", dest="qdrant_batch_size", type=int, required=True,
-		help="Number of points per Qdrant request, required by the vector DB settings")
 
 	parsed_args = parser.parse_args(config_arguments + override_arguments)
 	return parsed_args
