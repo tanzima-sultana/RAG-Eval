@@ -6,23 +6,27 @@ by prompt. Every query is saved in a folder under tmp_path.
 """
 
 import os
+import types
+import warnings
 
 import pytest
 
-import types
+from langchain_litellm import ChatLiteLLM
 
 from common import paths
 from common.args import QueryArgs
+from common.args import QueryBenchmarkArgs
+from common.args import QueryLLMArgs
 from common.constants import I_DONT_KNOW
 from common.constants import HYDE_QUERY
 from common.constants import MULTI_QUERY
 from common.constants import ORIGINAL_QUERY
 from common.constants import REWRITTEN_QUERY
 from rag.serving.query import query as query_transformation_module
+from rag.serving.query.cache import QueryLLMCache
 from rag.serving.query.cache import load_query
 from rag.serving.query.cache import save_query
 from rag.serving.query.query import QueryTransformation
-from schema.llm import LLMArgs
 from schema.query import Query
 
 ALL_QUERY_TYPES = [ORIGINAL_QUERY, REWRITTEN_QUERY, MULTI_QUERY, HYDE_QUERY]
@@ -44,9 +48,11 @@ class FakeQueryLLMProvider:
         """
         Input: llm_args and ollama_args, as LLMProvider takes them.
         Output: nothing.
-        What it does: records the model.
+        What it does: records the model, and gives the fake a chat model with an empty cache field, like the
+        LangChain chat model the cache is attached to.
         """
         FakeQueryLLMProvider.built_models.append(llm_args.llm_model)
+        self.chat_model = types.SimpleNamespace(cache=None)
 
     def generate(self, system_prompt, user_prompt):
         """
@@ -87,6 +93,23 @@ def fake_query_llm(monkeypatch):
     return FakeQueryLLMProvider
 
 
+def make_query_llm_args(**overrides):
+    """
+    Input: any QueryLLMArgs field as a keyword argument.
+    Output: a QueryLLMArgs with small defaults plus the overrides.
+    What it does: fills in defaults for every field not overridden.
+    """
+    field_values = {}
+    field_values["llm_model"] = "ollama_chat/llama3.1:8b"
+    field_values["max_tokens"] = 100
+    field_values["timeout_seconds"] = 30
+    field_values["ollama_api_base"] = "http://ollama-test:11434"
+    field_values["ollama_context_length"] = 32768
+    for field_name in overrides:
+        field_values[field_name] = overrides[field_name]
+    return QueryLLMArgs(**field_values)
+
+
 def make_query_args(**overrides):
     """
     Input: any QueryArgs field as a keyword argument.
@@ -94,17 +117,28 @@ def make_query_args(**overrides):
     What it does: fills in defaults for every field not overridden.
     """
     field_values = {}
-    field_values["query_llm_args"] = LLMArgs("ollama_chat/llama3.1:8b", 100, 30)
-    field_values["n_multi_qus"] = 3
+    field_values["query_llm_args"] = make_query_llm_args()
     field_values["query_type"] = REWRITTEN_QUERY
-    field_values["query_split"] = True
-    field_values["val_queries_size"] = 1
-    field_values["test_queries_size"] = 1
-    field_values["ollama_api_base"] = "http://ollama-test:11434"
-    field_values["ollama_context_length"] = 32768
+    field_values["n_multi_qus"] = 3
     for field_name in overrides:
         field_values[field_name] = overrides[field_name]
     return QueryArgs(**field_values)
+
+
+def make_query_benchmark_args(**overrides):
+    """
+    Input: any QueryBenchmarkArgs field as a keyword argument.
+    Output: a QueryBenchmarkArgs with small defaults plus the overrides.
+    What it does: fills in defaults for every field not overridden.
+    """
+    field_values = {}
+    field_values["query_types"] = list(ALL_QUERY_TYPES)
+    field_values["query_split"] = True
+    field_values["val_queries_size"] = 1
+    field_values["test_queries_size"] = 1
+    for field_name in overrides:
+        field_values[field_name] = overrides[field_name]
+    return QueryBenchmarkArgs(**field_values)
 
 
 def make_query_path(tmp_path):
@@ -114,6 +148,19 @@ def make_query_path(tmp_path):
     What it does: names a queries folder under tmp_path. The folder is created by QueryTransformation.
     """
     return str(tmp_path / "queries")
+
+
+def list_query_files(query_path):
+    """
+    Input: query_path, the queries folder.
+    Output: the names of the saved query files in it, without the LLM cache file.
+    What it does: lists the .json files, so the count of saved queries can be checked.
+    """
+    query_file_names = []
+    for file_name in os.listdir(query_path):
+        if file_name.endswith(".json"):
+            query_file_names.append(file_name)
+    return query_file_names
 
 
 def make_query(question_id):
@@ -188,6 +235,128 @@ def test_constructor_creates_the_query_folder(fake_query_llm, tmp_path):
     QueryTransformation(make_query_args(query_type=ORIGINAL_QUERY), query_path)
 
     assert os.path.isdir(query_path)
+
+
+def test_constructor_attaches_the_llm_cache_to_the_query_llm(fake_query_llm, tmp_path):
+    """
+    Input: query_type rewritten, and a query folder that does not exist yet.
+    Output: the cache attached to the query LLM's chat model.
+    What it does: checks the folder is created and a QueryLLMCache in it, keyed with the settings LangChain leaves out,
+    is attached to the query LLM.
+    """
+    query_path = make_query_path(tmp_path)
+
+    query_transformation = QueryTransformation(make_query_args(query_type=REWRITTEN_QUERY), query_path)
+
+    cache = query_transformation.query_llm_provider.chat_model.cache
+    assert isinstance(cache, QueryLLMCache)
+    assert cache.database_path == os.path.join(query_path, ".langchain.db")
+    assert cache.settings_key == "|max_tokens=100|num_ctx=32768|api_base=http://ollama-test:11434"
+    assert os.path.isdir(query_path)
+
+
+def test_constructor_attaches_no_cache_for_original(fake_query_llm, tmp_path):
+    """
+    Input: query_type original, so no query LLM.
+    Output: the query LLM and the cache file.
+    What it does: checks there is no query LLM to cache and no cache file is made.
+    """
+    query_path = make_query_path(tmp_path)
+
+    query_transformation = QueryTransformation(make_query_args(query_type=ORIGINAL_QUERY), query_path)
+
+    assert query_transformation.query_llm_provider is None
+    assert not os.path.exists(os.path.join(query_path, ".langchain.db"))
+
+
+# ---------- QueryLLMCache ----------
+
+
+def make_mocked_chat_model(cache, mock_reply, max_tokens=100, num_ctx=32768, api_base="http://localhost:11434"):
+    """
+    Input: cache, the QueryLLMCache; mock_reply, the reply LiteLLM gives without calling any LLM; and the settings
+    the cache key adds.
+    Output: a LangChain ChatLiteLLM with the cache attached.
+    What it does: builds the same kind of chat model LLMProvider builds, with LiteLLM's mock_response, so no LLM is
+    called.
+    """
+    chat_model = ChatLiteLLM(
+        model="ollama_chat/llama3.1:8b",
+        max_tokens=max_tokens,
+        request_timeout=30,
+        api_base=api_base,
+        model_kwargs={"num_ctx": num_ctx, "mock_response": mock_reply},
+    )
+    chat_model.cache = cache
+    return chat_model
+
+
+def make_cache(database_path, max_tokens=100, num_ctx=32768, api_base="http://localhost:11434"):
+    """
+    Input: database_path; the settings the cache key adds.
+    Output: a QueryLLMCache keyed with those settings, as QueryTransformation builds it.
+    What it does: builds the settings_key the same way QueryTransformation does.
+    """
+    settings_key = f"|max_tokens={max_tokens}|num_ctx={num_ctx}|api_base={api_base}"
+    return QueryLLMCache(database_path, settings_key)
+
+
+def test_query_llm_cache_gives_the_saved_reply_back(tmp_path):
+    """
+    Input: the same prompt asked twice, through two caches on the same file, with a different mocked reply each time.
+    Output: both replies.
+    What it does: checks the second ask reads the first reply back as plain text, with LiteLLM's usage saved as a dict.
+    """
+    database_path = os.path.join(str(tmp_path), ".langchain.db")
+    messages = [("user", "Rewrite the question. Question: What is X?")]
+
+    first_reply = make_mocked_chat_model(make_cache(database_path), "reply one").invoke(messages)
+    second_reply = make_mocked_chat_model(make_cache(database_path), "reply two").invoke(messages)
+
+    assert first_reply.text == "reply one"
+    assert second_reply.text == "reply one"
+    assert isinstance(second_reply.response_metadata["token_usage"], dict)
+
+
+@pytest.mark.parametrize("changed_setting", [
+    {"max_tokens": 200},
+    {"num_ctx": 4096},
+    {"api_base": "http://other:11434"},
+])
+def test_query_llm_cache_does_not_reuse_a_reply_of_other_settings(tmp_path, changed_setting):
+    """
+    Input: the same prompt asked with the default settings, then with one setting LangChain leaves out of its key changed.
+    Output: the second reply.
+    What it does: checks the changed setting gives its own reply, not the saved one.
+    """
+    database_path = os.path.join(str(tmp_path), ".langchain.db")
+    messages = [("user", "Rewrite the question. Question: What is X?")]
+    make_mocked_chat_model(make_cache(database_path), "reply one").invoke(messages)
+
+    second_reply = make_mocked_chat_model(make_cache(database_path, **changed_setting), "reply two", **changed_setting).invoke(messages)
+
+    assert second_reply.text == "reply two"
+
+
+def test_query_llm_cache_reads_without_a_warning(tmp_path):
+    """
+    Input: a reply saved, then read back.
+    Output: the warnings raised while reading.
+    What it does: checks reading names the allowed classes, so LangChain raises no allowed_objects warning.
+    """
+    database_path = os.path.join(str(tmp_path), ".langchain.db")
+    messages = [("user", "Rewrite the question. Question: What is X?")]
+    make_mocked_chat_model(make_cache(database_path), "reply one").invoke(messages)
+
+    with warnings.catch_warnings(record=True) as raised_warnings:
+        warnings.simplefilter("always")
+        make_mocked_chat_model(make_cache(database_path), "reply two").invoke(messages)
+
+    warning_messages = []
+    for raised_warning in raised_warnings:
+        warning_messages.append(str(raised_warning.message))
+    for warning_message in warning_messages:
+        assert "allowed_objects" not in warning_message
 
 
 # ---------- query: input ----------
@@ -302,14 +471,14 @@ def test_query_rewritten_makes_a_new_query_when_a_setting_changes(fake_query_llm
     fake_query_llm.replies["What is X?"] = {"rewrite": "What does X mean?"}
     query_path = make_query_path(tmp_path)
     query_args = make_query_args(query_type=REWRITTEN_QUERY)
-    changed_query_args = make_query_args(query_type=REWRITTEN_QUERY, query_llm_args=LLMArgs("ollama_chat/llama3.1:8b", 200, 30))
+    changed_query_args = make_query_args(query_type=REWRITTEN_QUERY, query_llm_args=make_query_llm_args(max_tokens=200))
 
     _, first_hashes, _ = QueryTransformation(query_args, query_path).query("eval_qna_0", "What is X?")
     _, second_hashes, _ = QueryTransformation(changed_query_args, query_path).query("eval_qna_0", "What is X?")
 
     assert first_hashes != second_hashes
     assert fake_query_llm.reply_types == ["rewrite", "rewrite"]
-    assert len(os.listdir(query_path)) == 2
+    assert len(list_query_files(query_path)) == 2
 
 
 # ---------- query: hyde ----------
@@ -409,7 +578,7 @@ def test_query_multi_keeps_nothing_when_the_line_count_is_wrong(fake_query_llm, 
     assert queries == []
     assert query_hashes == []
     assert query_file_paths == []
-    assert os.listdir(query_path) == []
+    assert list_query_files(query_path) == []
     assert "Multi-query I don't know : 1" in capsys.readouterr().out
 
 
@@ -509,9 +678,9 @@ def test_get_query_hash_changes_with_the_text_and_the_type_and_ignores_the_timeo
     assert paths.get_query_hash(query_args, "What is Y?") != base_hash
     assert paths.get_query_hash(make_query_args(query_type=HYDE_QUERY), "What is X?") != base_hash
     assert paths.get_query_hash(make_query_args(query_type=REWRITTEN_QUERY, n_multi_qus=4), "What is X?") != base_hash
-    different_model = make_query_args(query_type=REWRITTEN_QUERY, query_llm_args=LLMArgs("ollama_chat/other:1b", 100, 30))
+    different_model = make_query_args(query_type=REWRITTEN_QUERY, query_llm_args=make_query_llm_args(llm_model="ollama_chat/other:1b"))
     assert paths.get_query_hash(different_model, "What is X?") != base_hash
-    different_timeout = make_query_args(query_type=REWRITTEN_QUERY, query_llm_args=LLMArgs("ollama_chat/llama3.1:8b", 100, 99))
+    different_timeout = make_query_args(query_type=REWRITTEN_QUERY, query_llm_args=make_query_llm_args(timeout_seconds=99))
     assert paths.get_query_hash(different_timeout, "What is X?") == base_hash
 
 
@@ -573,10 +742,11 @@ def test_split_queries_gives_the_same_disjoint_val_and_test_every_run(fake_query
     queries = []
     for query_number in range(10):
         queries.append(make_query(f"q_{query_number}"))
-    query_args = make_query_args(query_type=ORIGINAL_QUERY, val_queries_size=6, test_queries_size=3)
+    query_args = make_query_args(query_type=ORIGINAL_QUERY)
+    query_benchmark_args = make_query_benchmark_args(val_queries_size=6, test_queries_size=3)
 
-    val_queries, test_queries = QueryTransformation(query_args, make_query_path(tmp_path)).split_queries(queries)
-    val_queries_again, test_queries_again = QueryTransformation(query_args, make_query_path(tmp_path)).split_queries(queries)
+    val_queries, test_queries = QueryTransformation(query_args, make_query_path(tmp_path), query_benchmark_args).split_queries(queries)
+    val_queries_again, test_queries_again = QueryTransformation(query_args, make_query_path(tmp_path), query_benchmark_args).split_queries(queries)
 
     val_ids = get_query_ids(val_queries)
     test_ids = get_query_ids(test_queries)
@@ -594,9 +764,10 @@ def test_split_queries_uses_all_queries_for_both_when_split_is_off(fake_query_ll
     What it does: checks val and test are both all the queries, in their order, and the sizes are not used.
     """
     queries = [make_query("q_a"), make_query("q_b"), make_query("q_c")]
-    query_args = make_query_args(query_type=ORIGINAL_QUERY, query_split=False, val_queries_size=50, test_queries_size=50)
+    query_args = make_query_args(query_type=ORIGINAL_QUERY)
+    query_benchmark_args = make_query_benchmark_args(query_split=False, val_queries_size=50, test_queries_size=50)
 
-    val_queries, test_queries = QueryTransformation(query_args, make_query_path(tmp_path)).split_queries(queries)
+    val_queries, test_queries = QueryTransformation(query_args, make_query_path(tmp_path), query_benchmark_args).split_queries(queries)
 
     assert get_query_ids(val_queries) == ["q_a", "q_b", "q_c"]
     assert get_query_ids(test_queries) == ["q_a", "q_b", "q_c"]
@@ -614,7 +785,21 @@ def test_split_queries_raises_for_invalid_sizes(fake_query_llm, tmp_path, val_qu
     What it does: checks the split never returns an empty set or reuses a query.
     """
     queries = [make_query("q_a"), make_query("q_b"), make_query("q_c")]
-    query_args = make_query_args(query_type=ORIGINAL_QUERY, val_queries_size=val_queries_size, test_queries_size=test_queries_size)
+    query_args = make_query_args(query_type=ORIGINAL_QUERY)
+    query_benchmark_args = make_query_benchmark_args(val_queries_size=val_queries_size, test_queries_size=test_queries_size)
 
     with pytest.raises(ValueError, match=message):
-        QueryTransformation(query_args, make_query_path(tmp_path)).split_queries(queries)
+        QueryTransformation(query_args, make_query_path(tmp_path), query_benchmark_args).split_queries(queries)
+
+
+def test_split_queries_raises_when_the_layer_has_no_query_benchmark_args(fake_query_llm, tmp_path):
+    """
+    Input: a QueryTransformation built without query benchmark args, as the API builds it, and 3 queries.
+    Output: ValueError.
+    What it does: checks the layer works without the benchmark args, and only split_queries asks for them.
+    """
+    queries = [make_query("q_a"), make_query("q_b"), make_query("q_c")]
+    query_transformation = QueryTransformation(make_query_args(query_type=ORIGINAL_QUERY), make_query_path(tmp_path))
+
+    with pytest.raises(ValueError, match="needs query_benchmark_args"):
+        query_transformation.split_queries(queries)

@@ -5,7 +5,7 @@ from schema.setup import Setup
 
 
 @dataclasses.dataclass
-class Eval:
+class RetrievedEval:
 	# The scores of one Retrieved at one level, chunk or doc
 	# 1 if at least one chunk is relevant, else 0
 	hit: int
@@ -19,26 +19,3 @@ class Eval:
 	ndcg: float
 	# Rank of the first relevant chunk, from 1. 0 for a miss
 	first_relevant_rank: int
-
-
-@dataclasses.dataclass
-class RetrievedEval:
-	# The Retrieved that was scored: its setup and its chunks
-	retrieved: Retrieved
-	# A chunk is relevant if it is from an EvalSample doc and overlaps an EvalSample context passage.
-	# Recall is the share of context passages found
-	chunk_eval: Eval
-	# A chunk is relevant if it is from an EvalSample doc. Recall is the share of EvalSample docs found
-	doc_eval: Eval
-
-
-@dataclasses.dataclass
-class SetupScore:
-	# The chunk level scores of one setup, each the mean over its val queries. The setups are ranked by these
-	setup: Setup
-	# The val queries the means are taken over
-	queries_count: int
-	mean_hit: float
-	mean_recall: float
-	mean_mrr: float
-	mean_ndcg: float

@@ -4,7 +4,6 @@ import dataclasses
 import yaml
 
 from schema.llm import LLMArgs
-from schema.setup import SetupRecord
 
 
 @dataclasses.dataclass
@@ -413,82 +412,92 @@ def parse_eval_dataset_config() -> argparse.Namespace:
 
 
 @dataclasses.dataclass
-class QueryArgs:
-	query_llm_args: LLMArgs
-	n_multi_qus: int
-	# The one query type this QueryArgs makes: original, rewritten, multi or hyde
-	query_type: str
-	# True to split the queries into val and test, False to use all of them as both
-	query_split: bool
-	val_queries_size: int
-	test_queries_size: int
+class QueryLLMArgs:
+	# A LiteLLM model string, "{provider}/{model}", e.g. ollama_chat/llama3.1:8b
+	llm_model: str
+	# Maximum output tokens per call
+	max_tokens: int
+	# Seconds before one call times out
+	timeout_seconds: int
 	# The Ollama server and context length, only when the query LLM is an Ollama model, None otherwise
 	ollama_api_base: str | None
 	ollama_context_length: int | None
 
 
-def make_query_args(parsed_args: argparse.Namespace, query_type: str) -> QueryArgs:
+def make_query_llm_args(parsed_args: argparse.Namespace) -> QueryLLMArgs:
 	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_benchmark_config(); query_type, the one query type
-	this QueryArgs makes.
-	Output: a QueryArgs holding the query transformation settings of that query type.
-	What it does: builds the query LLM's LLMArgs from its own block, copies the query settings, and copies the Ollama
-	settings only when the query LLM is an Ollama model.
+	Input: parsed_args, the argparse.Namespace returned by parse_benchmark_config().
+	Output: a QueryLLMArgs holding the query LLM settings.
+	What it does: copies the settings of the query_llm block, and copies the Ollama settings only when the query LLM is
+	an Ollama model.
 	"""
-	query_llm_args = LLMArgs(
-		llm_model=parsed_args.query_llm_model,
-		max_tokens=parsed_args.query_llm_max_tokens,
-		timeout_seconds=parsed_args.query_llm_timeout_seconds
-	)
-
 	ollama_providers = ["ollama", "ollama_chat"]
 	query_llm_provider = parsed_args.query_llm_model.split("/", 1)[0]
 	ollama_api_base = None
 	ollama_context_length = None
 	if query_llm_provider in ollama_providers:
-		ollama_api_base = parsed_args.ollama_api_base
-		ollama_context_length = parsed_args.ollama_context_length
+		ollama_api_base = parsed_args.query_llm_ollama_api_base
+		ollama_context_length = parsed_args.query_llm_ollama_context_length
 
-	query_args = QueryArgs(
-		query_llm_args=query_llm_args,
-		n_multi_qus=parsed_args.n_multi_qus,
-		query_type=query_type,
-		query_split=parsed_args.query_split == "true",
-		val_queries_size=parsed_args.val_queries_size,
-		test_queries_size=parsed_args.test_queries_size,
+	query_llm_args = QueryLLMArgs(
+		llm_model=parsed_args.query_llm_model,
+		max_tokens=parsed_args.query_llm_max_tokens,
+		timeout_seconds=parsed_args.query_llm_timeout_seconds,
 		ollama_api_base=ollama_api_base,
 		ollama_context_length=ollama_context_length
+	)
+	return query_llm_args
+
+
+@dataclasses.dataclass
+class QueryArgs:
+	# Everything the query layer needs for one query type, and what is saved for the API
+	query_llm_args: QueryLLMArgs
+	# The one query type this QueryArgs makes: original, rewritten, multi or hyde
+	query_type: str
+	# Phrasings the query LLM writes for each question, used only by multi
+	n_multi_qus: int
+
+
+def make_query_args(parsed_args: argparse.Namespace, query_llm_args: QueryLLMArgs, query_type: str) -> QueryArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_benchmark_config(); query_llm_args, the query LLM
+	settings; query_type, the one query type this QueryArgs makes.
+	Output: a QueryArgs holding the query settings of that query type.
+	What it does: copies n_multi_qus from the parsed args and keeps the query LLM settings and the query type.
+	"""
+	query_args = QueryArgs(
+		query_llm_args=query_llm_args,
+		query_type=query_type,
+		n_multi_qus=parsed_args.n_multi_qus
 	)
 	return query_args
 
 
 @dataclasses.dataclass
-class RetrievalArgs:
-	# The chunk type of the chunks searched, used to label each result
-	chunk_type: str
-	retrieval_types: list[str]
-	top_k: int
-	reranking: bool
-	rerank_top_k: int
-	# The cross-encoder model that reranks, used only with reranking
-	cross_encoder_model: str
+class QueryBenchmarkArgs:
+	# The query settings only the benchmark uses. The API does not need them
+	# The query types to make for every eval question: original, rewritten, multi and/or hyde
+	query_types: list[str]
+	# True to split the queries into val and test, False to use all of them as both
+	query_split: bool
+	val_queries_size: int
+	test_queries_size: int
 
 
-def make_retrieval_args(parsed_args: argparse.Namespace, chunk_type: str) -> RetrievalArgs:
+def make_query_benchmark_args(parsed_args: argparse.Namespace) -> QueryBenchmarkArgs:
 	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_benchmark_config(); chunk_type, the chunk type searched.
-	Output: a RetrievalArgs holding the retrieval settings for that chunk type.
-	What it does: copies chunk_type and each retrieval setting.
+	Input: parsed_args, the argparse.Namespace returned by parse_benchmark_config().
+	Output: a QueryBenchmarkArgs holding the benchmark's query settings.
+	What it does: copies each setting of the query block that only the benchmark uses.
 	"""
-	retrieval_args = RetrievalArgs(
-		chunk_type=chunk_type,
-		retrieval_types=parsed_args.retrieval_types,
-		top_k=parsed_args.top_k,
-		reranking=parsed_args.reranking == "true",
-		rerank_top_k=parsed_args.rerank_top_k,
-		cross_encoder_model=parsed_args.cross_encoder_model
+	query_benchmark_args = QueryBenchmarkArgs(
+		query_types=parsed_args.query_types,
+		query_split=parsed_args.query_split == "true",
+		val_queries_size=parsed_args.val_queries_size,
+		test_queries_size=parsed_args.test_queries_size
 	)
-	return retrieval_args
+	return query_benchmark_args
 
 
 def make_manifest_chunking_args(chunk_entry, embedding_model: str) -> ChunkingArgs:
@@ -506,36 +515,6 @@ def make_manifest_chunking_args(chunk_entry, embedding_model: str) -> ChunkingAr
 		semantic_threshold=chunk_entry.semantic_threshold
 	)
 	return chunking_args
-
-
-@dataclasses.dataclass
-class BenchmarkArgs:
-	# The benchmark settings that change its results, which the benchmark hash is made from
-	query_args: QueryArgs
-	retrieval_types: list[str]
-	top_k: int
-	reranking: bool
-	rerank_top_k: int
-	cross_encoder_model: str
-	n_top_setups: int
-
-
-def make_benchmark_args(parsed_args: argparse.Namespace, query_args: QueryArgs) -> BenchmarkArgs:
-	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_benchmark_config(); query_args, the query settings.
-	Output: a BenchmarkArgs holding the settings that change the benchmark's results.
-	What it does: copies query_args and each retrieval and ranking setting.
-	"""
-	benchmark_args = BenchmarkArgs(
-		query_args=query_args,
-		retrieval_types=parsed_args.retrieval_types,
-		top_k=parsed_args.top_k,
-		reranking=parsed_args.reranking == "true",
-		rerank_top_k=parsed_args.rerank_top_k,
-		cross_encoder_model=parsed_args.cross_encoder_model,
-		n_top_setups=parsed_args.n_top_setups
-	)
-	return benchmark_args
 
 
 def parse_benchmark_config() -> argparse.Namespace:
@@ -576,12 +555,10 @@ def parse_benchmark_config() -> argparse.Namespace:
 		help="The eval dataset metadata; the eval set it names is used")
 	parser.add_argument("--inputs.output_path", dest="output_path", type=str, required=True,
 		help="Root output folder")
-	parser.add_argument("--query.query_llm_model", dest="query_llm_model", type=str, required=True,
-		help="LiteLLM model that transforms the eval questions, e.g. ollama_chat/llama3.1:8b")
 	parser.add_argument("--query.n_multi_qus", dest="n_multi_qus", type=int, required=True,
 		help="Phrasings the query LLM writes for each eval question")
 	parser.add_argument("--query.query_types", dest="query_types", type=str, nargs="*", required=True,
-		help="Extra query types to make and search with, besides original: rewritten, multi and/or hyde. Empty for original only")
+		help="Query types to make for every eval question: original, rewritten, multi and/or hyde. Must always hold original")
 	# The config's true is read as the string "True", so the value is lowercased first
 	parser.add_argument("--query.query_split", dest="query_split", type=str.lower, required=True, choices=["true", "false"],
 		help="true to split the queries into val and test, false to use all of them as both")
@@ -589,161 +566,19 @@ def parse_benchmark_config() -> argparse.Namespace:
 		help="Used only with query_split true: queries for retrieval and retrieval evaluation")
 	parser.add_argument("--query.test_queries_size", dest="test_queries_size", type=int, required=True,
 		help="Used only with query_split true: queries for answer generation and answer evaluation")
+	parser.add_argument("--query_llm.model", dest="query_llm_model", type=str, required=True,
+		help="LiteLLM model that transforms the eval questions, e.g. ollama_chat/llama3.1:8b")
 	parser.add_argument("--query_llm.max_tokens", dest="query_llm_max_tokens", type=int, required=True,
 		help="Maximum output tokens per call of the query LLM")
 	parser.add_argument("--query_llm.timeout_seconds", dest="query_llm_timeout_seconds", type=int, required=True,
 		help="Seconds before one call of the query LLM times out")
-	parser.add_argument("--ollama.api_base", dest="ollama_api_base", type=str, required=True,
+	parser.add_argument("--query_llm.ollama_api_base", dest="query_llm_ollama_api_base", type=str, required=True,
 		help="URL of the local Ollama server, used only for an Ollama model")
-	parser.add_argument("--ollama.context_length", dest="ollama_context_length", type=int, required=True,
+	parser.add_argument("--query_llm.ollama_context_length", dest="query_llm_ollama_context_length", type=int, required=True,
 		help="Context window in tokens of an Ollama model, used only for an Ollama model")
-	parser.add_argument("--retrieval.top_k", dest="top_k", type=int, required=True,
-		help="Chunks each retriever returns for a query")
-	# The config's true and false are read as the strings "True" and "False", so each value is lowercased first
-	parser.add_argument("--retrieval.reranking", dest="reranking", type=str.lower, nargs="+", required=True, choices=["true", "false"],
-		help="One or more of true and false: true to rerank the top_k chunks with the cross-encoder, false not to")
-	parser.add_argument("--retrieval.rerank_top_k", dest="rerank_top_k", type=int, required=True,
-		help="Chunks kept after the cross-encoder reranks the top_k chunks")
-	parser.add_argument("--retrieval.cross_encoder_model", dest="cross_encoder_model", type=str, required=True,
-		help="Cross-encoder model that reranks the top_k chunks, used only with reranking")
-	parser.add_argument("--retrieval.n_top_setups", dest="n_top_setups", type=int, required=True,
-		help="Best setups by retrieval eval")
-
 	parsed_args = parser.parse_args(config_arguments + override_arguments)
 	return parsed_args
 
-
-
-@dataclasses.dataclass
-class PipelineArgs:
-	# Every setting of one pipeline, one sub-args per layer. The setup's settings come from its best setups record,
-	# the rest from the pipeline config
-	# The setup's index type, e.g. faiss_flatip, qdrant or faiss_flatip+bm25, and its index paths in that order
-	index_type: str
-	index_paths: list[str]
-	# The embedding model the indexes were built with, which embeds the query
-	embedding_model: str
-	# The Qdrant server, used only when the setup has a Qdrant collection
-	qdrant_url: str
-	# The query layer: its query_types is empty for original or holds the setup's one query type
-	query_args: QueryArgs
-	# The folder of the query LLM cache
-	query_path: str
-	# The retrieval layer: its retrieval_types holds the setup's one retrieval type
-	retrieval_args: RetrievalArgs
-	# The folder of the retrieved results
-	retrieved_path: str
-	# The context, prompt and answer layers, None until they are built
-	context_args: None
-	prompt_args: None
-	answer_args: None
-
-
-def make_pipeline_args(setup_record: SetupRecord, query_path: str, retrieved_path: str, query_llm_timeout_seconds: int, ollama_api_base: str, qdrant_url: str) -> PipelineArgs:
-	"""
-	Input: setup_record, the best setup to serve; query_path and retrieved_path, the cache folders; the query LLM
-	timeout, the Ollama server and the Qdrant server, the settings that do not depend on the setup.
-	Output: the PipelineArgs of that setup.
-	What it does: builds each sub-args from the record's params and artifacts and the given settings.
-	"""
-	params = setup_record.params
-
-	# 1. The query layer: the setup's one query type, none for original. The Ollama server only for an Ollama model
-	query_llm_args = LLMArgs(
-		llm_model=params.query_llm_model,
-		max_tokens=params.query_llm_max_tokens,
-		timeout_seconds=query_llm_timeout_seconds
-	)
-	ollama_providers = ["ollama", "ollama_chat"]
-	query_llm_provider = params.query_llm_model.split("/", 1)[0]
-	setup_ollama_api_base = None
-	if query_llm_provider in ollama_providers:
-		setup_ollama_api_base = ollama_api_base
-	query_types = []
-	if params.query_type != "original":
-		query_types.append(params.query_type)
-	# The pipeline serves one question at a time, so the val and test split is not used
-	query_args = QueryArgs(
-		query_llm_args=query_llm_args,
-		n_multi_qus=params.n_multi_qus,
-		query_types=query_types,
-		query_split=False,
-		val_queries_size=0,
-		test_queries_size=0,
-		ollama_api_base=setup_ollama_api_base,
-		ollama_context_length=params.ollama_context_length
-	)
-
-	# 2. The retrieval layer: the setup's one retrieval type and its retrieval settings
-	retrieval_args = RetrievalArgs(
-		chunk_type=params.chunk_type,
-		retrieval_types=[params.retrieval_type],
-		top_k=params.top_k,
-		reranking=params.reranking,
-		rerank_top_k=params.rerank_top_k,
-		cross_encoder_model=params.cross_encoder_model
-	)
-
-	pipeline_args = PipelineArgs(
-		index_type=params.index_type,
-		index_paths=list(setup_record.artifacts.index_paths),
-		embedding_model=setup_record.artifacts.embedding_model,
-		qdrant_url=qdrant_url,
-		query_args=query_args,
-		query_path=query_path,
-		retrieval_args=retrieval_args,
-		retrieved_path=retrieved_path,
-		context_args=None,
-		prompt_args=None,
-		answer_args=None
-	)
-	return pipeline_args
-
-
-def parse_pipeline_config() -> argparse.Namespace:
-	"""
-	Input: --config, the YAML pipeline config, and any override flags as --{section}.{key} value.
-	Output: an argparse.Namespace with every pipeline setting, e.g. args.best_setups_path.
-	What it does: reads each section's settings from the file as --{section}.{key} flags, then the override flags, so an
-	override replaces the file's value, and parses them all.
-	"""
-	# 1. Get the config file path. The other command line flags are overrides
-	config_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
-	config_parser.add_argument("--config", type=str, required=True, help="YAML config file, e.g. config/pipeline_config.yaml")
-	config_args, override_arguments = config_parser.parse_known_args()
-
-	with open(config_args.config, encoding="utf-8") as config_file:
-		config = yaml.safe_load(config_file)
-
-	# 2. Turn each setting of the file into its flag
-	config_arguments = []
-	for section in config:
-		section_settings = config[section]
-		if not isinstance(section_settings, dict):
-			raise ValueError(f"{section} in {config_args.config} must be a section holding settings.")
-		for key in section_settings:
-			config_arguments.append(f"--{section}.{key}")
-			config_arguments.append(str(section_settings[key]))
-
-	# 3. Parse the file's flags and then the overrides, so an override replaces the file's value
-	parser = argparse.ArgumentParser(description="Pipeline parameters", allow_abbrev=False)
-	parser.add_argument("--inputs.best_setups_path", dest="best_setups_path", type=str, required=True,
-		help="The best setups file the benchmark saved")
-	parser.add_argument("--inputs.setup_rank", dest="setup_rank", type=int, required=True,
-		help="Which setup of the best setups file to serve: 1 for the best")
-	parser.add_argument("--inputs.query_path", dest="query_path", type=str, required=True,
-		help="The folder of the query LLM cache")
-	parser.add_argument("--inputs.retrieved_path", dest="retrieved_path", type=str, required=True,
-		help="The folder of the retrieved results")
-	parser.add_argument("--query_llm.timeout_seconds", dest="query_llm_timeout_seconds", type=int, required=True,
-		help="Seconds before one call of the query LLM times out")
-	parser.add_argument("--ollama.api_base", dest="ollama_api_base", type=str, required=True,
-		help="URL of the local Ollama server, used only when the setup's query LLM is an Ollama model")
-	parser.add_argument("--qdrant.url", dest="qdrant_url", type=str, required=True,
-		help="URL of the Qdrant server that holds the build's collections")
-
-	parsed_args = parser.parse_args(config_arguments + override_arguments)
-	return parsed_args
 
 
 def parse_embedder_args(parser: argparse.ArgumentParser) -> None:

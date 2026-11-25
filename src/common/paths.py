@@ -12,8 +12,6 @@ from common.args import FaissIVFArgs
 from common.args import EvalDatasetArgs
 from common.args import OllamaArgs
 from common.args import QueryArgs
-from common.args import BenchmarkArgs
-from common.args import RetrievalArgs
 from common.constants import FAISS_FLATIP_INDEX
 from common.constants import FAISS_IVF_INDEX
 from common.constants import FAISS_HNSW_INDEX
@@ -250,42 +248,6 @@ def get_build_manifest_path(output_path: str, dataset_name: str, dataset_size: i
 	return os.path.join(output_path, "build", manifest_file_name)
 
 
-# ------ Setup ranking
-def get_best_setups_path(output_path: str, build_hash: str, eval_dataset_hash: str, benchmark_hash: str) -> str:
-	"""
-	Input: output_path, the dataset's output folder; build_hash, from the build manifest; eval_dataset_hash, from the
-	eval dataset metadata; benchmark_hash, from get_benchmark_hash.
-	Output: {output_path}/best_setups/best_setups_{build_hash}_{eval_dataset_hash}_{benchmark_hash}.json
-	What it does: builds the file the benchmark saves its best setups to, named by the three hashes.
-	"""
-	file_name = f"best_setups_{build_hash}_{eval_dataset_hash}_{benchmark_hash}.json"
-	return os.path.join(output_path, "best_setups", file_name)
-
-
-def get_benchmark_hash(benchmark_args: BenchmarkArgs, ollama_args: OllamaArgs) -> str:
-	"""
-	Input: benchmark_args, the benchmark settings that change its results; ollama_args.
-	Output: the first 12 hex characters of the SHA-256 of those settings.
-	What it does: hashes the query settings, the retrieval and ranking settings, as JSON with sorted keys. The Ollama
-	context length is included only when the query LLM is an Ollama model.
-	"""
-	hashed_args = make_query_hashed_args(benchmark_args.query_args)
-	hashed_args["retrieval_types"] = benchmark_args.retrieval_types
-	hashed_args["top_k"] = benchmark_args.top_k
-	hashed_args["reranking"] = benchmark_args.reranking
-	hashed_args["rerank_top_k"] = benchmark_args.rerank_top_k
-	hashed_args["cross_encoder_model"] = benchmark_args.cross_encoder_model
-	hashed_args["n_top_setups"] = benchmark_args.n_top_setups
-
-	ollama_providers = ["ollama", "ollama_chat"]
-	query_llm_provider = benchmark_args.query_args.query_llm_args.llm_model.split("/", 1)[0]
-	if query_llm_provider in ollama_providers:
-		hashed_args["ollama_context_length"] = ollama_args.ollama_context_length
-
-	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
-	return hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
-
-
 # ------ Eval dataset
 def get_eval_dataset_hash(eval_dataset_args: EvalDatasetArgs, ollama_args: OllamaArgs) -> str:
 	"""
@@ -350,24 +312,6 @@ def get_eval_dataset_kg_path(output_path: str, eval_dataset_args: EvalDatasetArg
 
 
 # ------ Query transformation
-def make_query_hashed_args(query_args: QueryArgs) -> dict:
-	"""
-	Input: query_args.
-	Output: a dict of every query setting that shapes the queries, keyed by name.
-	What it does: collects each QueryArgs field and the query LLM's model and max_tokens. The LLM timeout is left out,
-	since it does not change the queries.
-	"""
-	hashed_args = {}
-	hashed_args["query_llm_model"] = query_args.query_llm_args.llm_model
-	hashed_args["query_llm_max_tokens"] = query_args.query_llm_args.max_tokens
-	hashed_args["n_multi_qus"] = query_args.n_multi_qus
-	hashed_args["query_types"] = query_args.query_types
-	hashed_args["query_split"] = query_args.query_split
-	hashed_args["val_queries_size"] = query_args.val_queries_size
-	hashed_args["test_queries_size"] = query_args.test_queries_size
-	return hashed_args
-
-
 def get_query_hash(query_args: QueryArgs, query_text: str) -> str:
 	"""
 	Input: query_args, the settings of one query type; query_text, the text the query is looked up by: the question
@@ -383,7 +327,7 @@ def get_query_hash(query_args: QueryArgs, query_text: str) -> str:
 	hashed_args["query_llm_model"] = query_args.query_llm_args.llm_model
 	hashed_args["query_llm_max_tokens"] = query_args.query_llm_args.max_tokens
 	hashed_args["n_multi_qus"] = query_args.n_multi_qus
-	hashed_args["ollama_context_length"] = query_args.ollama_context_length
+	hashed_args["ollama_context_length"] = query_args.query_llm_args.ollama_context_length
 
 	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
 	return hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
@@ -396,33 +340,3 @@ def get_query_file_path(query_path: str, query_hash: str) -> str:
 	What it does: builds the file one query is saved to.
 	"""
 	return os.path.join(query_path, f"{query_hash}.json")
-
-
-# ------ Retrieval
-def get_retrieved_file_path(retrieved_path: str, retrieval_args: RetrievalArgs, query_type: str, index_type: str, index_paths: list[str], query_texts: list[str], original_qus: str) -> str:
-	"""
-	Input: retrieved_path, the folder of the retrieved files; retrieval_args, the setup's retrieval settings; query_type;
-	index_type; index_paths, the paths of the indexes searched; query_texts, the texts searched; original_qus, the
-	original question.
-	Output: {retrieved_path}/{hash}.json
-	What it does: names the file by a hash of what the result is made from: the texts, the setup and the indexes it
-	searched, plus the original question and rerank settings when reranking. An index path is named by a hash of the
-	chunk and index settings it was built with, so it stands for them.
-	"""
-	hashed_args = {}
-	hashed_args["query_texts"] = query_texts
-	hashed_args["query_type"] = query_type
-	hashed_args["retrieval_type"] = retrieval_args.retrieval_types[0]
-	hashed_args["top_k"] = retrieval_args.top_k
-	hashed_args["index_type"] = index_type
-	hashed_args["index_paths"] = index_paths
-	hashed_args["reranking"] = retrieval_args.reranking
-
-	if retrieval_args.reranking:
-		hashed_args["original_qus"] = original_qus
-		hashed_args["rerank_top_k"] = retrieval_args.rerank_top_k
-		hashed_args["cross_encoder_model"] = retrieval_args.cross_encoder_model
-
-	hashed_args_json = json.dumps(hashed_args, sort_keys=True)
-	retrieved_hash = hashlib.sha256(hashed_args_json.encode("utf-8")).hexdigest()[:12]
-	return os.path.join(retrieved_path, f"{retrieved_hash}.json")

@@ -4,6 +4,8 @@ import time
 
 from common import constants
 from common.args import make_query_args
+from common.args import make_query_benchmark_args
+from common.args import make_query_llm_args
 from common.args import parse_benchmark_config
 from evaluation.eval_dataset.cache import load_eval_dataset
 from rag.serving.query.query import QueryTransformation
@@ -60,10 +62,14 @@ def run_benchmark(args) -> None:
 
 	# 4. The queries of every eval question, one query type at a time. Original must always be one of the types
 	print("\n\nQuery transformation")
-	if len(args.query_types) == 0:
+	query_llm_args = make_query_llm_args(args)
+	query_benchmark_args = make_query_benchmark_args(args)
+	if len(query_benchmark_args.query_types) == 0:
 		raise ValueError("query_types is empty. It must hold at least original.")
-	if constants.ORIGINAL_QUERY not in args.query_types:
-		raise ValueError(f"query_types ({args.query_types}) must always hold \"{constants.ORIGINAL_QUERY}\".")
+	if constants.ORIGINAL_QUERY not in query_benchmark_args.query_types:
+		raise ValueError(
+			f"query_types ({query_benchmark_args.query_types}) must always hold \"{constants.ORIGINAL_QUERY}\"."
+		)
 
 	s3 = time.time()
 	eval_sample_ids = []
@@ -78,10 +84,10 @@ def run_benchmark(args) -> None:
 	for eval_sample_id in eval_sample_ids:
 		queries_by_eval_sample_id[eval_sample_id] = []
 
-	for query_type in args.query_types:
+	for query_type in query_benchmark_args.query_types:
 		print(f"\nQuery type : {query_type}")
-		query_args = make_query_args(args, query_type)
-		query_transformation = QueryTransformation(query_args, query_path)
+		query_args = make_query_args(args, query_llm_args, query_type)
+		query_transformation = QueryTransformation(query_args, query_path, query_benchmark_args)
 		query_results = query_transformation.query_batch(eval_sample_ids, eval_questions)
 
 		query_count = 0

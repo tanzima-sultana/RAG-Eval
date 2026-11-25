@@ -5,28 +5,34 @@ from common import constants
 from common import paths
 from common.args import OllamaArgs
 from common.args import QueryArgs
+from common.args import QueryBenchmarkArgs
 from llm_provider.llm_provider import LLMProvider
+from rag.serving.query.cache import QueryLLMCache
 from rag.serving.query.cache import load_query
 from rag.serving.query.cache import save_query
 from rag.serving.query.single_query import make_hyde_query
 from rag.serving.query.single_query import make_multi_queries
 from rag.serving.query.single_query import make_original_query
 from rag.serving.query.single_query import make_rewritten_query
+from schema.llm import LLMArgs
 from schema.query import Query
 
 
 class QueryTransformation:
-	def __init__(self, query_args: QueryArgs, query_path: str):
+	def __init__(self, query_args: QueryArgs, query_path: str, query_benchmark_args: QueryBenchmarkArgs | None = None):
 		"""
-		Input: query_args, the query settings, holding one query type; query_path, the one folder every query is saved
-		in, used as given.
+		Input: query_args, the query settings, holding one query type and the query LLM settings; query_path, the one
+		folder every query is saved in, used as given; query_benchmark_args, the benchmark's query settings, used only
+		by split_queries, None when the layer is not run by the benchmark, as in the API.
 		Output: nothing.
-		What it does: stores both, validates the settings, creates the folder, then builds the query LLM once, so
+		What it does: stores them, validates the settings, creates the folder, then builds the query LLM once, so
 		every question reuses it. Original needs no LLM, so the query LLM is built only for rewritten, multi and hyde,
-		otherwise it is None.
+		otherwise it is None. The query LLM gets a LangChain SQLite LLM cache in query_path, so each of its replies is
+		made once and read back on later runs, which is also what makes multi repeat.
 		"""
 		self.query_args = query_args
 		self.query_path = query_path
+		self.query_benchmark_args = query_benchmark_args
 
 		# 1. Validate the settings before anything is built
 		self.validate()
@@ -38,11 +44,25 @@ class QueryTransformation:
 		# ALLOW_PAID_API=1
 		self.query_llm_provider = None
 		if query_args.query_type != constants.ORIGINAL_QUERY:
-			ollama_args = OllamaArgs(
-				ollama_api_base=query_args.ollama_api_base,
-				ollama_context_length=query_args.ollama_context_length
+			llm_args = LLMArgs(
+				llm_model=query_args.query_llm_args.llm_model,
+				max_tokens=query_args.query_llm_args.max_tokens,
+				timeout_seconds=query_args.query_llm_args.timeout_seconds
 			)
-			self.query_llm_provider = LLMProvider(query_args.query_llm_args, ollama_args)
+			ollama_args = OllamaArgs(
+				ollama_api_base=query_args.query_llm_args.ollama_api_base,
+				ollama_context_length=query_args.query_llm_args.ollama_context_length
+			)
+			self.query_llm_provider = LLMProvider(llm_args, ollama_args)
+
+			# 4. The LLM cache of the query LLM only, in query_path. LangChain's key leaves out max_tokens, the Ollama
+			# context length and the Ollama URL, so they are added to it
+			settings_key = (
+				f"|max_tokens={query_args.query_llm_args.max_tokens}"
+				f"|num_ctx={query_args.query_llm_args.ollama_context_length}"
+				f"|api_base={query_args.query_llm_args.ollama_api_base}"
+			)
+			self.query_llm_provider.chat_model.cache = QueryLLMCache(os.path.join(query_path, ".langchain.db"), settings_key)
 
 	def validate(self) -> None:
 		"""
@@ -202,16 +222,19 @@ class QueryTransformation:
 		and answer evaluation.
 		What it does: with query_split true, shuffles a copy of queries with TUNING_SPLIT_SEED, so every run gets the
 		same split, and takes the first val_queries_size as val and the next test_queries_size as test. With
-		query_split false, val and test are both all the queries.
+		query_split false, val and test are both all the queries. It reads the split settings from the query benchmark
+		args, so it raises ValueError if the layer was built without them.
 		"""
-		query_args = self.query_args
+		query_benchmark_args = self.query_benchmark_args
+		if query_benchmark_args is None:
+			raise ValueError("split_queries needs query_benchmark_args. Build QueryTransformation with them.")
 
-		if not query_args.query_split:
+		if not query_benchmark_args.query_split:
 			print(f"No query split : val and test are all {len(queries)} queries")
 			return queries, queries
 
-		val_queries_size = query_args.val_queries_size
-		test_queries_size = query_args.test_queries_size
+		val_queries_size = query_benchmark_args.val_queries_size
+		test_queries_size = query_benchmark_args.test_queries_size
 		if val_queries_size < 1 or test_queries_size < 1:
 			raise ValueError(
 				f"val_queries_size ({val_queries_size}) and test_queries_size ({test_queries_size}) must each be "
