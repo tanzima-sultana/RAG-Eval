@@ -18,6 +18,8 @@ SEMANTIC_CHUNKING="semantic"
 MIN_CHUNK_SIZE=128
 MAX_CHUNK_SIZE=256
 FIXED_CHUNK_OVERLAP=32
+# Semantic chunking starts a new chunk where the distance between neighbouring sentences is above this percentile
+SEMANTIC_BREAKPOINT_PERCENTILE=95
 
 # 4. Indexing
 

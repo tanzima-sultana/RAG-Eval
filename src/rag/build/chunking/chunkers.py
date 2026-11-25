@@ -1,55 +1,16 @@
-import functools
-import logging
+import bisect
 
+import numpy as np
 import torch
 import sentence_transformers
 
-from langchain_core.embeddings import Embeddings
-from langchain_experimental.text_splitter import SemanticChunker
-from langchain_text_splitters import NLTKTextSplitter
-from langchain_text_splitters import SentenceTransformersTokenTextSplitter
-from langchain_text_splitters import Tokenizer
-from langchain_text_splitters import split_text_on_tokens
+from nltk.tokenize.punkt import PunktTokenizer
 
+from common import constants
 from common.args import ChunkingArgs
 from common.args import EmbedderArgs
-from schema.file import File
 from schema.chunk import Chunk
-
-
-class SentenceTransformerEmbeddings(Embeddings):
-	"""
-	A LangChain Embeddings object around an already loaded SentenceTransformer model, for SemanticChunker.
-	"""
-
-	def __init__(self, model):
-		"""
-		Input: model, a loaded SentenceTransformer model.
-		Output: nothing.
-		What it does: stores the model.
-		"""
-		self.model = model
-
-	def embed_documents(self, texts: list[str]) -> list[list[float]]:
-		"""
-		Input: texts, a list of strings.
-		Output: one embedding per text.
-		What it does: encodes the texts with the model.
-		"""
-		embeddings = self.model.encode(texts, batch_size=256, show_progress_bar=False)
-		embedding_lists = []
-		for embedding in embeddings:
-			embedding_lists.append(embedding.tolist())
-		return embedding_lists
-
-	def embed_query(self, text: str) -> list[float]:
-		"""
-		Input: text, one string.
-		Output: its embedding.
-		What it does: encodes the text with embed_documents.
-		"""
-		embedding_lists = self.embed_documents([text])
-		return embedding_lists[0]
+from schema.file import File
 
 
 class Chunker:
@@ -58,186 +19,310 @@ class Chunker:
 		Input: embedder_args, the shared embedder settings, whose model_name the chunkers use; chunking_args, the
 		chunking settings for one chunk type.
 		Output: nothing.
-		What it does: stores embedder_args and chunking_args. The tokenizer is set by the chunking method that runs.
+		What it does: stores embedder_args and chunking_args. The model and its tokenizer are loaded by the chunking
+		method that runs.
 		"""
 		self.embedder_args = embedder_args
 		self.chunking_args = chunking_args
+		self.model = None
 		self.tokenizer = None
 
-	def fixed_chunking(self, documents: dict[str, File]) -> dict[str, dict[str, Chunk]]:
+	def load_model(self) -> None:
 		"""
-		Input: documents, a dict of doc_id to File.
-		Output: a dict of doc_id to that document's chunks.
-		What it does: splits each document into overlapping token windows with SentenceTransformersTokenTextSplitter,
-		then merges too-short windows.
+		Input: none.
+		Output: nothing.
+		What it does: loads the SentenceTransformer model of the embedder, on cuda if it is available, otherwise on cpu,
+		and keeps its tokenizer. The tokenizer counts tokens and gives the position of every token in the text. The
+		model embeds sentences for semantic chunking.
 		"""
-		# 1. Build the splitter. It loads the model itself
 		device = "cuda" if torch.cuda.is_available() else "cpu"
-		splitter = SentenceTransformersTokenTextSplitter(
-			chunk_overlap=self.chunking_args.fixed_chunk_overlap,
-			model_name=self.embedder_args.model_name,
-			tokens_per_chunk=self.chunking_args.max_chunk_size,
-			model_kwargs={"device": device},
-		)
-		self.tokenizer = splitter.tokenizer
+		self.model = sentence_transformers.SentenceTransformer(self.embedder_args.model_name, device=device)
+		self.tokenizer = self.model.tokenizer
 
-		# 2. Split each document into token windows, then merge the too-short ones
-		chunks_by_document = {}
-		for doc_id in documents:
-			window_texts = splitter.split_text(documents[doc_id].text)
-			chunk_texts = self.merge_short_pieces(window_texts)
-			chunks_by_document[doc_id] = self.make_chunks(doc_id, chunk_texts)
-
-		return chunks_by_document
-
-	def sentence_chunking(self, documents: dict[str, File]) -> dict[str, dict[str, Chunk]]:
+	def fixed_chunking(self, files: list[File]) -> dict[str, Chunk]:
 		"""
-		Input: documents, a dict of doc_id to File.
-		Output: a dict of doc_id to that document's chunks.
-		What it does: packs whole sentences into chunks with NLTKTextSplitter, then cuts too-long pieces and merges
-		too-short ones.
+		Input: files, a list of File.
+		Output: a dict of chunk_id to Chunk for every file.
+		What it does: cuts each file's document_texts into token windows of max_chunk_size tokens, each overlapping the
+		previous one by fixed_chunk_overlap tokens, then merges too-short windows.
 		"""
-		# 1. Load the model for its tokenizer
-		device = "cuda" if torch.cuda.is_available() else "cpu"
-		model = sentence_transformers.SentenceTransformer(self.embedder_args.model_name, device=device)
-		self.tokenizer = model.tokenizer
+		self.load_model()
 
-		# 2. Build the splitter. Its warning for each too-long sentence is turned off; those are cut in step 3
-		logging.getLogger("langchain_text_splitters.base").setLevel(logging.ERROR)
-		splitter = NLTKTextSplitter(
-			separator=" ",
-			chunk_size=self.chunking_args.max_chunk_size,
-			chunk_overlap=0,
-			length_function=self.count_tokens,
-		)
-
-		# 3. Split each document into sentence chunks, then cut the too-long ones and merge the too-short ones
-		chunks_by_document = {}
-		for doc_id in documents:
-			piece_texts = splitter.split_text(documents[doc_id].text)
-			cut_texts = self.cut_long_pieces(piece_texts)
-			chunk_texts = self.merge_short_pieces(cut_texts)
-			chunks_by_document[doc_id] = self.make_chunks(doc_id, chunk_texts)
-
-		return chunks_by_document
-
-	def semantic_chunking(self, documents: dict[str, File]) -> dict[str, dict[str, Chunk]]:
-		"""
-		Input: documents, a dict of doc_id to File.
-		Output: a dict of doc_id to that document's chunks.
-		What it does: splits each document at topic changes with SemanticChunker, then cuts too-long pieces and merges
-		too-short ones.
-		"""
-		# 1. Load the model, used both to embed sentences and for its tokenizer
-		device = "cuda" if torch.cuda.is_available() else "cpu"
-		model = sentence_transformers.SentenceTransformer(self.embedder_args.model_name, device=device)
-		self.tokenizer = model.tokenizer
-
-		# 2. Build the splitter
-		splitter = SemanticChunker(
-			embeddings=SentenceTransformerEmbeddings(model),
-			buffer_size=0,
-			breakpoint_threshold_type="percentile",
-		)
-
-		# 3. Split each document at topic changes, then cut the too-long pieces and merge the too-short ones
-		chunks_by_document = {}
-		for doc_id in documents:
-			piece_texts = splitter.split_text(documents[doc_id].text)
-			cut_texts = self.cut_long_pieces(piece_texts)
-			chunk_texts = self.merge_short_pieces(cut_texts)
-			chunks_by_document[doc_id] = self.make_chunks(doc_id, chunk_texts)
-
-		return chunks_by_document
-
-	def make_chunks(self, doc_id: str, chunk_texts: list[str]) -> dict[str, Chunk]:
-		"""
-		Input: doc_id; chunk_texts, the document's chunk texts in order.
-		Output: a dict of chunk_id to Chunk.
-		What it does: wraps each text into a Chunk with id "{doc_id}_{n}".
-		"""
 		chunks = {}
-		for chunk_index in range(len(chunk_texts)):
-			chunk_text = chunk_texts[chunk_index]
-			chunk_id = f"{doc_id}_{chunk_index}"
-			chunk_size = self.count_tokens(chunk_text)
-			chunks[chunk_id] = Chunk(chunk_id, chunk_text, chunk_size, self.chunking_args.chunk_type)
+		for file in files:
+			token_starts, token_ends = self.tokenize_document(file.document_texts)
+			spans = self.window_spans(token_starts, token_ends, 0, len(token_starts))
+			spans = self.merge_short_spans(spans, token_starts)
+			chunks.update(self.make_chunks(file, spans, token_starts))
+
 		return chunks
 
-	def cut_long_pieces(self, piece_texts: list[str]) -> list[str]:
+	def sentence_chunking(self, files: list[File]) -> dict[str, Chunk]:
 		"""
-		Input: piece_texts, one document's pieces from a LangChain splitter.
-		Output: the chunk texts, in order.
-		What it does: drops empty pieces and cuts pieces longer than max_chunk_size into token windows.
+		Input: files, a list of File.
+		Output: a dict of chunk_id to Chunk for every file.
+		What it does: splits each file's document_texts into sentences with NLTK's Punkt splitter and packs whole
+		sentences into a chunk until the next sentence would go over max_chunk_size tokens. A sentence longer than
+		max_chunk_size is cut into overlapping token windows. Too-short chunks are merged at the end.
 		"""
-		# The windows hold no start and end special tokens
-		long_piece_tokenizer = Tokenizer(
-			chunk_overlap=self.chunking_args.fixed_chunk_overlap,
-			tokens_per_chunk=self.chunking_args.max_chunk_size,
-			decode=self.tokenizer.decode,
-			encode=functools.partial(self.tokenizer.encode, add_special_tokens=False),
-		)
+		self.load_model()
+		max_chunk_size = self.chunking_args.max_chunk_size
+		sentence_splitter = PunktTokenizer("english")
 
-		chunk_texts = []
-		for piece_text in piece_texts:
-			if piece_text.strip() == "":
+		chunks = {}
+		for file in files:
+			token_starts, token_ends = self.tokenize_document(file.document_texts)
+			sentence_spans = list(sentence_splitter.span_tokenize(file.document_texts))
+
+			spans = []
+			current_start = None
+			current_end = None
+			for sentence_start, sentence_end in sentence_spans:
+				sentence_tokens = self.count_tokens(token_starts, sentence_start, sentence_end)
+
+				# 1. A sentence longer than max_chunk_size on its own: close the chunk being built, then cut the sentence
+				if sentence_tokens > max_chunk_size:
+					if current_start is not None:
+						spans.append((current_start, current_end))
+						current_start = None
+						current_end = None
+
+					first_token = bisect.bisect_left(token_starts, sentence_start)
+					last_token = bisect.bisect_left(token_starts, sentence_end)
+					long_sentence_windows = self.window_spans(token_starts, token_ends, first_token, last_token)
+					for long_sentence_window in long_sentence_windows:
+						spans.append(long_sentence_window)
+					continue
+
+				# 2. Adding this sentence would go over max_chunk_size: close the chunk being built
+				if current_start is not None:
+					tokens_with_sentence = self.count_tokens(token_starts, current_start, sentence_end)
+					if tokens_with_sentence > max_chunk_size:
+						spans.append((current_start, current_end))
+						current_start = None
+						current_end = None
+
+				# 3. Add the sentence to the chunk being built
+				if current_start is None:
+					current_start = sentence_start
+				current_end = sentence_end
+
+			if current_start is not None:
+				spans.append((current_start, current_end))
+
+			spans = self.merge_short_spans(spans, token_starts)
+			chunks.update(self.make_chunks(file, spans, token_starts))
+
+		return chunks
+
+	def semantic_chunking(self, files: list[File]) -> dict[str, Chunk]:
+		"""
+		Input: files, a list of File.
+		Output: a dict of chunk_id to Chunk for every file.
+		What it does: splits each file's document_texts into sentences with NLTK's Punkt splitter, embeds every
+		sentence and starts a new chunk where the cosine distance between a sentence and the one before it is above the
+		SEMANTIC_BREAKPOINT_PERCENTILE percentile of that file's distances. A chunk longer than max_chunk_size is cut
+		into overlapping token windows. Too-short chunks are merged at the end.
+		"""
+		self.load_model()
+		max_chunk_size = self.chunking_args.max_chunk_size
+		sentence_splitter = PunktTokenizer("english")
+
+		chunks = {}
+		for file in files:
+			token_starts, token_ends = self.tokenize_document(file.document_texts)
+			sentence_spans = list(sentence_splitter.span_tokenize(file.document_texts))
+			if len(sentence_spans) == 0:
 				continue
-			if self.count_tokens(piece_text) <= self.chunking_args.max_chunk_size:
-				chunk_texts.append(piece_text)
-			else:
-				window_texts = split_text_on_tokens(text=piece_text, tokenizer=long_piece_tokenizer)
-				for window_text in window_texts:
-					chunk_texts.append(window_text)
-		return chunk_texts
 
-	def merge_short_pieces(self, piece_texts: list[str]) -> list[str]:
+			# 1. Embed every sentence, and find the sentences after which the meaning changes the most
+			sentence_texts = []
+			for sentence_start, sentence_end in sentence_spans:
+				sentence_texts.append(file.document_texts[sentence_start:sentence_end])
+			embeddings = self.model.encode(sentence_texts, batch_size=256, show_progress_bar=False)
+			norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+			norms[norms == 0] = 1
+			normalized_embeddings = embeddings / norms
+
+			break_after_sentences = set()
+			if len(sentence_spans) > 1:
+				similarities = np.sum(normalized_embeddings[:-1] * normalized_embeddings[1:], axis=1)
+				distances = 1 - similarities
+				breakpoint_distance = np.percentile(distances, constants.SEMANTIC_BREAKPOINT_PERCENTILE)
+				for sentence_index in range(len(distances)):
+					if distances[sentence_index] > breakpoint_distance:
+						break_after_sentences.add(sentence_index)
+
+			# 2. The pieces between the breakpoints
+			piece_spans = []
+			piece_start = None
+			for sentence_index in range(len(sentence_spans)):
+				sentence_start, sentence_end = sentence_spans[sentence_index]
+				if piece_start is None:
+					piece_start = sentence_start
+				is_last_sentence = sentence_index == len(sentence_spans) - 1
+				if sentence_index in break_after_sentences or is_last_sentence:
+					piece_spans.append((piece_start, sentence_end))
+					piece_start = None
+
+			# 3. Cut the pieces longer than max_chunk_size into overlapping token windows, then merge the short ones
+			spans = []
+			for piece_start, piece_end in piece_spans:
+				piece_tokens = self.count_tokens(token_starts, piece_start, piece_end)
+				if piece_tokens <= max_chunk_size:
+					spans.append((piece_start, piece_end))
+					continue
+
+				first_token = bisect.bisect_left(token_starts, piece_start)
+				last_token = bisect.bisect_left(token_starts, piece_end)
+				piece_windows = self.window_spans(token_starts, token_ends, first_token, last_token)
+				for piece_window in piece_windows:
+					spans.append(piece_window)
+
+			spans = self.merge_short_spans(spans, token_starts)
+			chunks.update(self.make_chunks(file, spans, token_starts))
+
+		return chunks
+
+	def tokenize_document(self, document_texts: str) -> tuple[list[int], list[int]]:
 		"""
-		Input: piece_texts, one document's chunk texts in order.
-		Output: the chunk texts after merging, in order.
-		What it does: joins a piece shorter than min_chunk_size tokens with the next piece, with a space, as long as the
-		joined text stays at most max_chunk_size tokens. If the last piece is still shorter than min_chunk_size, it is
-		joined to the previous piece under the same limit. A short piece that cannot be joined without going over
-		max_chunk_size is kept as it is.
+		Input: document_texts, the text of one document.
+		Output: (token_starts, token_ends): the start and the end position in document_texts of every token, in order.
+		What it does: tokenizes the whole text once, without the start and end special tokens, and reads the position of
+		each token from the fast tokenizer's offset mapping. The positions are exact, so a stretch of the text can be
+		counted and cut by tokens with no decode.
+		"""
+		encoded = self.tokenizer(document_texts, add_special_tokens=False, return_offsets_mapping=True)
+
+		token_starts = []
+		token_ends = []
+		for token_start, token_end in encoded["offset_mapping"]:
+			token_starts.append(token_start)
+			token_ends.append(token_end)
+		return token_starts, token_ends
+
+	# One line, but kept as a method because every chunker and the merge step count tokens of a span
+	def count_tokens(self, token_starts: list[int], start: int, end: int) -> int:
+		"""
+		Input: token_starts, the start position of every token of the document; start and end, a span of the text.
+		Output: the number of tokens that start inside the span.
+		What it does: counts the tokens of the span with two binary searches.
+		"""
+		return bisect.bisect_left(token_starts, end) - bisect.bisect_left(token_starts, start)
+
+	def window_spans(self, token_starts: list[int], token_ends: list[int], first_token: int, last_token: int) -> list[tuple[int, int]]:
+		"""
+		Input: token_starts and token_ends, the positions of every token of the document; first_token and last_token,
+		the range of tokens to cut, last_token not included.
+		Output: a list of (start, end) spans in the text, one per window.
+		What it does: slides a window of max_chunk_size tokens over the range, advancing by
+		max_chunk_size - fixed_chunk_overlap tokens each step. It stops as soon as a window reaches the last token, so no
+		extra window holds only tokens already covered by the overlap.
+		"""
+		max_chunk_size = self.chunking_args.max_chunk_size
+		step = max_chunk_size - self.chunking_args.fixed_chunk_overlap
+
+		spans = []
+		window_first_token = first_token
+		while window_first_token < last_token:
+			window_end_token = window_first_token + max_chunk_size
+			if window_end_token > last_token:
+				window_end_token = last_token
+
+			spans.append((token_starts[window_first_token], token_ends[window_end_token - 1]))
+
+			if window_end_token >= last_token:
+				break
+			window_first_token += step
+
+		return spans
+
+	def merge_short_spans(self, spans: list[tuple[int, int]], token_starts: list[int]) -> list[tuple[int, int]]:
+		"""
+		Input: spans, one document's chunk spans in order; token_starts, the start position of every token.
+		Output: the spans after merging, in order.
+		What it does: joins a span shorter than min_chunk_size tokens with the next span, as long as the joined span
+		stays at most max_chunk_size tokens. If the last span is still shorter than min_chunk_size, it is joined to the
+		previous span under the same limit. A short span that cannot be joined without going over max_chunk_size is kept
+		as it is. A joined span runs from the start of the first to the end of the last, so it stays an exact slice.
 		"""
 		min_chunk_size = self.chunking_args.min_chunk_size
 		max_chunk_size = self.chunking_args.max_chunk_size
 
-		# 1. Walk the pieces in order, joining the current piece with the next while it is too short
-		merged_texts = []
-		current_text = None
-		for piece_text in piece_texts:
-			if current_text is None:
-				current_text = piece_text
+		# 1. Walk the spans in order, joining the current span with the next while it is too short
+		merged_spans = []
+		current_span = None
+		for span in spans:
+			if current_span is None:
+				current_span = span
 				continue
 
-			if self.count_tokens(current_text) < min_chunk_size:
-				joined_text = current_text + " " + piece_text
-				if self.count_tokens(joined_text) <= max_chunk_size:
-					current_text = joined_text
+			current_tokens = self.count_tokens(token_starts, current_span[0], current_span[1])
+			if current_tokens < min_chunk_size:
+				joined_tokens = self.count_tokens(token_starts, current_span[0], span[1])
+				if joined_tokens <= max_chunk_size:
+					current_span = (current_span[0], span[1])
 					continue
 
-			merged_texts.append(current_text)
-			current_text = piece_text
+			merged_spans.append(current_span)
+			current_span = span
 
-		if current_text is None:
-			return merged_texts
+		if current_span is None:
+			return merged_spans
 
-		# 2. The last piece: join it to the previous one if it is still too short and the join fits
-		last_text_is_short = self.count_tokens(current_text) < min_chunk_size
-		if last_text_is_short and len(merged_texts) > 0:
-			joined_text = merged_texts[-1] + " " + current_text
-			if self.count_tokens(joined_text) <= max_chunk_size:
-				merged_texts[-1] = joined_text
-				return merged_texts
+		# 2. The last span: join it to the previous one if it is still too short and the join fits
+		last_tokens = self.count_tokens(token_starts, current_span[0], current_span[1])
+		if last_tokens < min_chunk_size and len(merged_spans) > 0:
+			previous_span = merged_spans[-1]
+			joined_tokens = self.count_tokens(token_starts, previous_span[0], current_span[1])
+			if joined_tokens <= max_chunk_size:
+				merged_spans[-1] = (previous_span[0], current_span[1])
+				return merged_spans
 
-		merged_texts.append(current_text)
-		return merged_texts
+		merged_spans.append(current_span)
+		return merged_spans
 
-	# One line, but kept as a method because NLTKTextSplitter needs a function as its length_function
-	def count_tokens(self, text: str) -> int:
+	def make_chunks(self, file: File, spans: list[tuple[int, int]], token_starts: list[int]) -> dict[str, Chunk]:
 		"""
-		Input: text.
-		Output: the number of tokens in text.
-		What it does: counts the tokens without the start and end special tokens.
+		Input: file, the File the spans are from; spans, its chunk spans in order; token_starts, the start position of
+		every token of its document_texts.
+		Output: a dict of chunk_id to Chunk.
+		What it does: turns each span into a Chunk with id {document_id}_{n}. Its text is the exact slice of
+		document_texts, and its page numbers are the pages whose range the span overlaps, so a chunk across a page break
+		has both. A blank slice is dropped.
 		"""
-		return len(self.tokenizer.encode(text, add_special_tokens=False))
+		# 1. Where each page sits in document_texts: the pages' texts are found one after the other, in page order
+		page_ranges = []
+		search_start = 0
+		for page_number in sorted(file.pages):
+			page_text = file.pages[page_number].page_texts
+			page_start = file.document_texts.find(page_text, search_start)
+			page_end = page_start + len(page_text)
+			page_ranges.append((page_number, page_start, page_end))
+			search_start = page_end
+
+		# 2. One Chunk per span
+		chunks = {}
+		chunk_index = 0
+		for span_start, span_end in spans:
+			chunk_texts = file.document_texts[span_start:span_end]
+			if chunk_texts.strip() == "":
+				continue
+
+			page_numbers = []
+			for page_number, page_start, page_end in page_ranges:
+				if page_start < span_end and page_end > span_start:
+					page_numbers.append(page_number)
+
+			chunk_id = f"{file.document_id}_{chunk_index}"
+			chunks[chunk_id] = Chunk(
+				chunk_id=chunk_id,
+				chunk_texts=chunk_texts,
+				chunk_size=self.count_tokens(token_starts, span_start, span_end),
+				chunk_type=self.chunking_args.chunk_type,
+				source=file.source,
+				page_numbers=page_numbers,
+			)
+			chunk_index += 1
+
+		return chunks

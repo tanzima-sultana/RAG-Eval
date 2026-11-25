@@ -2,11 +2,13 @@
 test_build_config.py
 
 Tests for common.args.parse_args, the build config parser: nested per-index-type blocks become --{block}.{key}
-flags, a list inside a block becomes one flag followed by its values, and an index type's settings are optional when
-its block is not given.
+flags, a list inside a block becomes one flag followed by its values, a FAISS type's settings are optional when its
+block is not given, faiss_types and vectordb_types may be empty, and the BM25 settings are required.
 """
 
 import sys
+
+import pytest
 
 from common.args import parse_args
 
@@ -28,29 +30,47 @@ chunking:
   min_chunk_size: 2
   max_chunk_size: 6
   fixed_chunk_overlap: [2, 4]
-vectordb:
+vectordb_indexing:
   vectordb_types: [qdrant]
   qdrant_url: http://localhost:6333
   qdrant_batch_size: 3
 """
 
 INDEXING_WITH_EVERY_BLOCK = """
-indexing:
-  index_types: [faiss_flatip, faiss_ivf, faiss_hnsw, bm25]
+faiss_indexing:
+  faiss_types: [faiss_flatip, faiss_ivf, faiss_hnsw]
   faiss_ivf:
     ivf_nlist_multiplier: [4, 8, 16]
   faiss_hnsw:
     hnsw_m: 32
     hnsw_ef_construction: 200
-  bm25:
-    bm25_k1: 1.5
-    bm25_b: 0.75
-    bm25_tokenizer: whitespace
+bm25_indexing:
+  bm25_k1: 1.5
+  bm25_b: 0.75
+  bm25_tokenizer: whitespace
 """
 
 INDEXING_FLATIP_ONLY = """
-indexing:
-  index_types: [faiss_flatip]
+faiss_indexing:
+  faiss_types: [faiss_flatip]
+bm25_indexing:
+  bm25_k1: 1.5
+  bm25_b: 0.75
+  bm25_tokenizer: whitespace
+"""
+
+INDEXING_WITHOUT_BM25 = """
+faiss_indexing:
+  faiss_types: [faiss_flatip]
+"""
+
+INDEXING_WITH_EMPTY_FAISS_TYPES = """
+faiss_indexing:
+  faiss_types: []
+bm25_indexing:
+  bm25_k1: 1.5
+  bm25_b: 0.75
+  bm25_tokenizer: whitespace
 """
 
 
@@ -72,36 +92,57 @@ def parse_build_config(tmp_path, monkeypatch, indexing_section, override_argumen
 
 def test_parse_args_reads_each_nested_index_block(tmp_path, monkeypatch):
     """
-    Input: an indexing section with the faiss_ivf, faiss_hnsw and bm25 blocks.
+    Input: a faiss_indexing section with the faiss_ivf and faiss_hnsw blocks, and a bm25_indexing section.
     Output: the parsed args.
     What it does: checks each setting inside a block is read with its type.
     """
     parsed_args = parse_build_config(tmp_path, monkeypatch, INDEXING_WITH_EVERY_BLOCK, [])
 
-    assert parsed_args.index_types == ["faiss_flatip", "faiss_ivf", "faiss_hnsw", "bm25"]
+    assert parsed_args.faiss_types == ["faiss_flatip", "faiss_ivf", "faiss_hnsw"]
     assert parsed_args.ivf_nlist_multiplier == [4.0, 8.0, 16.0]
     assert parsed_args.hnsw_m == 32
     assert parsed_args.hnsw_ef_construction == 200
     assert parsed_args.bm25_k1 == 1.5
     assert parsed_args.bm25_b == 0.75
     assert parsed_args.bm25_tokenizer == "whitespace"
+    assert parsed_args.vectordb_types == ["qdrant"]
+    assert parsed_args.qdrant_url == "http://localhost:6333"
+    assert parsed_args.qdrant_batch_size == 3
 
 
-def test_parse_args_leaves_settings_of_missing_blocks_none(tmp_path, monkeypatch):
+def test_parse_args_leaves_settings_of_missing_faiss_blocks_none(tmp_path, monkeypatch):
     """
-    Input: an indexing section with only index_types [faiss_flatip] and no blocks.
+    Input: a faiss_indexing section with only faiss_types [faiss_flatip] and no blocks.
     Output: the parsed args.
-    What it does: checks the config parses, and every per-index-type setting is None.
+    What it does: checks the config parses, and every FAISS IVF and HNSW setting is None.
     """
     parsed_args = parse_build_config(tmp_path, monkeypatch, INDEXING_FLATIP_ONLY, [])
 
-    assert parsed_args.index_types == ["faiss_flatip"]
+    assert parsed_args.faiss_types == ["faiss_flatip"]
     assert parsed_args.ivf_nlist_multiplier is None
     assert parsed_args.hnsw_m is None
     assert parsed_args.hnsw_ef_construction is None
-    assert parsed_args.bm25_k1 is None
-    assert parsed_args.bm25_b is None
-    assert parsed_args.bm25_tokenizer is None
+
+
+def test_parse_args_reads_empty_faiss_types_as_an_empty_list(tmp_path, monkeypatch):
+    """
+    Input: a faiss_indexing section with faiss_types [].
+    Output: the parsed args.
+    What it does: checks an empty list is read as an empty list, so no FAISS index is built.
+    """
+    parsed_args = parse_build_config(tmp_path, monkeypatch, INDEXING_WITH_EMPTY_FAISS_TYPES, [])
+
+    assert parsed_args.faiss_types == []
+
+
+def test_parse_args_requires_the_bm25_settings(tmp_path, monkeypatch):
+    """
+    Input: a config with no bm25_indexing section.
+    Output: SystemExit from the parser.
+    What it does: checks BM25 is always built, so its settings are required.
+    """
+    with pytest.raises(SystemExit):
+        parse_build_config(tmp_path, monkeypatch, INDEXING_WITHOUT_BM25, [])
 
 
 def test_parse_args_overrides_a_block_setting_with_its_block_flag(tmp_path, monkeypatch):

@@ -1,284 +1,183 @@
-import argparse
 import dataclasses
-import datetime
 import json
 import os
 
-from qdrant_client import QdrantClient
-
-from common import constants
 from common import paths
+from common.args import Bm25IndexingArgs
 from common.args import ChunkingArgs
 from common.args import EmbedderArgs
-from common.args import IndexArgs
+from common.args import EmbeddingArgs
+from common.args import FaissHNSWArgs
+from common.args import FaissIVFArgs
 from common.args import IngestionArgs
-from common.args import VectorDbArgs
-from schema.index import Bm25Index
-from schema.index import FaissIndex
+from common.args import QdrantArgs
+from common import constants
+from schema.manifest import Bm25Entry
 from schema.manifest import BuildManifest
 from schema.manifest import ChunkEntry
-from schema.manifest import IndexEntry
+from schema.manifest import EmbeddingEntry
+from schema.manifest import FaissEntry
+from schema.manifest import IngestionEntry
+from schema.manifest import VectorDbEntry
 
 
-def get_index_settings(index_args: IndexArgs) -> dict:
+def make_build_manifest(
+	dataset_name: str,
+	dataset_size: int,
+	ingestion_entry: IngestionEntry,
+	chunk_entry: ChunkEntry,
+	embedder_args: EmbedderArgs,
+	embedding_entry: EmbeddingEntry,
+	bm25_entry: Bm25Entry,
+	faiss_entry: FaissEntry | None,
+	vectordb_entry: VectorDbEntry | None
+) -> BuildManifest:
 	"""
-	Input: index_args, the settings of one FAISS or BM25 index.
-	Output: the settings of its index type as a dict: empty for faiss_flatip.
-	What it does: picks the settings that change the saved index, so the manifest can record and compare them.
+	Input: dataset_name; dataset_size; the ingestion, chunk, embedding and BM25 entries and the embedder args that every
+	setup has; faiss_entry or vectordb_entry, the one this setup has, and None for the other.
+	Output: the BuildManifest of one setup.
+	What it does: works out the build hash of the setup from the hashes of all its entries, with "" for the index entry
+	that is None, and puts everything into one BuildManifest.
 	"""
-	index_settings = {}
-	if index_args.index_type == constants.FAISS_IVF_INDEX:
-		index_settings["ivf_nlist_multiplier"] = index_args.ivf_nlist_multiplier
-	elif index_args.index_type == constants.FAISS_HNSW_INDEX:
-		index_settings["hnsw_m"] = index_args.hnsw_m
-		index_settings["hnsw_ef_construction"] = index_args.hnsw_ef_construction
-	elif index_args.index_type == constants.BM25_INDEX:
-		index_settings["bm25_k1"] = index_args.bm25_k1
-		index_settings["bm25_b"] = index_args.bm25_b
-		index_settings["bm25_tokenizer"] = index_args.bm25_tokenizer
-	return index_settings
+	faiss_hash = ""
+	if faiss_entry is not None:
+		faiss_hash = faiss_entry.hash
 
+	vectordb_hash = ""
+	if vectordb_entry is not None:
+		vectordb_hash = vectordb_entry.hash
 
-def start_build_manifest(ingestion_args: IngestionArgs, embedder_args: EmbedderArgs, parsed_args: argparse.Namespace, input_hash: str) -> BuildManifest:
-	"""
-	Input: ingestion_args; embedder_args, the shared embedder settings; parsed_args, the parsed build args; input_hash,
-	the hash of the input files.
-	Output: a BuildManifest with no entries yet.
-	What it does: fills in the build hash, the input hash, the dataset and the documents folder. The build adds an
-	entry per output as it goes.
-	"""
-	output_path = paths.get_output_path(ingestion_args.output_path, ingestion_args.dataset_name)
-	return BuildManifest(
-		build_hash=paths.get_build_hash(parsed_args, input_hash),
-		input_hash=input_hash,
-		dataset_name=ingestion_args.dataset_name,
-		dataset_size=ingestion_args.dataset_size,
-		documents_path=paths.get_documents_path(output_path),
+	build_hash = paths.get_build_hash(
+		ingestion_entry.hash,
+		chunk_entry.hash,
+		embedding_entry.hash,
+		bm25_entry.hash,
+		faiss_hash,
+		vectordb_hash
+	)
+
+	build_manifest = BuildManifest(
+		dataset_name=dataset_name,
+		dataset_size=dataset_size,
+		build_hash=build_hash,
+		ingestion_entry=ingestion_entry,
+		chunk_entry=chunk_entry,
 		embedder=embedder_args,
-		built_at="",
-		chunk_entries=[],
-		index_entries=[]
+		embedding_entry=embedding_entry,
+		bm25_index_entry=bm25_entry,
+		faiss_index_entry=faiss_entry,
+		vectordb_index_entry=vectordb_entry
 	)
+	return build_manifest
 
 
-def make_chunk_entry(chunking_args: ChunkingArgs, chunk_path: str, embedding_path: str, chunk_count: int) -> ChunkEntry:
+def save_build_manifests(manifests: list[BuildManifest], output_path: str, dataset_name: str, dataset_size: int) -> str:
 	"""
-	Input: chunking_args; chunk_path and embedding_path, the folders the build saved to; chunk_count.
-	Output: the ChunkEntry of one chunk type.
-	What it does: records the chunk settings with the folders.
+	Input: manifests, the BuildManifest of every setup of the run, in the order they were built; output_path, the
+	dataset's output folder; dataset_name; dataset_size.
+	Output: the path of the file the manifests were saved to.
+	What it does: saves the list of manifests as JSON to the file get_build_manifest_path names. It writes to a temporary
+	file first and then moves it into place, so a crash never leaves a half-written file. A file with the same name is
+	overwritten.
 	"""
-	return ChunkEntry(
-		chunk_type=chunking_args.chunk_type,
-		min_chunk_size=chunking_args.min_chunk_size,
-		max_chunk_size=chunking_args.max_chunk_size,
-		fixed_chunk_overlap=chunking_args.fixed_chunk_overlap,
-		chunk_path=chunk_path,
-		embedding_path=embedding_path,
-		chunk_count=chunk_count
-	)
+	build_hashes = []
+	manifest_dicts = []
+	for manifest in manifests:
+		build_hashes.append(manifest.build_hash)
+		manifest_dicts.append(dataclasses.asdict(manifest))
+
+	manifest_path = paths.get_build_manifest_path(output_path, dataset_name, dataset_size, build_hashes)
+	os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
+
+	temporary_manifest_path = manifest_path + ".tmp"
+	with open(temporary_manifest_path, "w", encoding="utf-8") as f:
+		json.dump(manifest_dicts, f, indent=2)
+	os.replace(temporary_manifest_path, manifest_path)
+
+	print(f"Build manifests : {len(manifests)} setups, saved to {manifest_path}")
+	return manifest_path
 
 
-def make_index_entry(chunking_args: ChunkingArgs, index_args: IndexArgs, index: FaissIndex | Bm25Index, count: int) -> IndexEntry:
+def load_build_manifests(manifest_path: str) -> list[BuildManifest]:
 	"""
-	Input: chunking_args, the chunking settings of the chunks the index holds; index_args, the settings of one FAISS or
-	BM25 index; index, the index the build returned; count, the vectors or chunks it holds.
-	Output: the IndexEntry of the index.
-	What it does: records the index type, its settings and the settings the build worked out with its folder. A BM25
-	index_path is its pickle file, so its folder is taken. For faiss_ivf, the nlist the build computed is read from the
-	built FAISS index.
+	Input: manifest_path, a file save_build_manifests wrote.
+	Output: the list of BuildManifest in it, in the order they were saved.
+	What it does: reads the JSON and rebuilds each BuildManifest with its entries and args. The args of a FAISS entry
+	are rebuilt from its faiss_type: FaissIVFArgs for faiss_ivf, FaissHNSWArgs for faiss_hnsw, None for faiss_flatip.
 	"""
-	index_folder = index.index_path
-	if index_args.index_type == constants.BM25_INDEX:
-		index_folder = os.path.dirname(index.index_path)
+	with open(manifest_path, encoding="utf-8") as f:
+		manifest_dicts = json.load(f)
 
-	built_settings = {}
-	if index_args.index_type == constants.FAISS_IVF_INDEX:
-		built_settings["nlist"] = index.vector_store.index.nlist
-
-	return IndexEntry(
-		chunk_type=chunking_args.chunk_type,
-		index_type=index_args.index_type,
-		index_settings=get_index_settings(index_args),
-		built_settings=built_settings,
-		location=index_folder,
-		count=count
-	)
-
-
-def make_vectordb_entry(chunking_args: ChunkingArgs, vectordb_args: VectorDbArgs, collection_name: str, count: int) -> IndexEntry:
-	"""
-	Input: chunking_args, the chunking settings of the chunks the collection holds; vectordb_args; collection_name,
-	the collection the build filled; count, the points it holds.
-	Output: the IndexEntry of the collection.
-	What it does: records the vector DB type with the collection name as its location.
-	"""
-	return IndexEntry(
-		chunk_type=chunking_args.chunk_type,
-		index_type=vectordb_args.vectordb_type,
-		index_settings={},
-		built_settings={},
-		location=collection_name,
-		count=count
-	)
-
-
-def save_build_manifest(manifest: BuildManifest, output_path: str, parsed_args: argparse.Namespace, input_hash: str) -> None:
-	"""
-	Input: manifest; output_path, the dataset's output folder; parsed_args, the parsed build args; input_hash, the
-	hash of the input files.
-	Output: nothing.
-	What it does: stamps the build time and saves the manifest as JSON through a temporary file, to
-	build/manifest_{dataset_name}_{dataset_size}_{build hash}.json.
-	"""
-	manifest.built_at = datetime.datetime.now().isoformat(timespec="seconds")
-
-	manifest_file = paths.get_build_manifest_path(output_path, parsed_args, input_hash)
-	os.makedirs(os.path.dirname(manifest_file), exist_ok=True)
-	with open(manifest_file + ".tmp", "w", encoding="utf-8") as f:
-		json.dump(dataclasses.asdict(manifest), f, indent=2)
-	os.replace(manifest_file + ".tmp", manifest_file)
-	print(f"Build manifest saved : {manifest_file}")
-
-
-def load_build_manifest(output_path: str, parsed_args: argparse.Namespace, input_hash: str) -> BuildManifest:
-	"""
-	Input: output_path, the dataset's output folder; parsed_args, the parsed build args; input_hash, the hash of the
-	input files.
-	Output: the saved BuildManifest.
-	What it does: reads build/manifest_{dataset_name}_{dataset_size}_{build hash}.json, and raises FileNotFoundError if the build has not saved one.
-	"""
-	manifest_file = paths.get_build_manifest_path(output_path, parsed_args, input_hash)
-	return load_build_manifest_from_path(manifest_file)
-
-
-def load_build_manifest_from_path(manifest_file: str) -> BuildManifest:
-	"""
-	Input: manifest_file, the path of a saved manifest_{dataset_name}_{dataset_size}_{build hash}.json.
-	Output: the saved BuildManifest.
-	What it does: reads the manifest file, and raises FileNotFoundError if it does not exist.
-	"""
-	if not os.path.exists(manifest_file):
-		raise FileNotFoundError(f"No build manifest at {manifest_file}. Run scripts/build.sh first.")
-
-	with open(manifest_file, encoding="utf-8") as f:
-		manifest_dict = json.load(f)
-
-	chunk_entries = []
-	for chunk_entry_dict in manifest_dict["chunk_entries"]:
-		chunk_entries.append(ChunkEntry(**chunk_entry_dict))
-	index_entries = []
-	for index_entry_dict in manifest_dict["index_entries"]:
-		index_entries.append(IndexEntry(**index_entry_dict))
-
-	manifest_dict["embedder"] = EmbedderArgs(**manifest_dict["embedder"])
-	manifest_dict["chunk_entries"] = chunk_entries
-	manifest_dict["index_entries"] = index_entries
-	return BuildManifest(**manifest_dict)
-
-
-def is_build_complete(output_path: str, parsed_args: argparse.Namespace, input_hash: str) -> bool:
-	"""
-	Input: output_path, the dataset's output folder; parsed_args, the parsed build args; input_hash, the hash of the
-	input files.
-	Output: True if a build with exactly these args and input files finished and every output it lists is still
-	there, else False.
-	What it does: looks for build/manifest_{dataset_name}_{dataset_size}_{build hash}.json and checks the documents, every chunk and embedding
-	folder, every FAISS and BM25 folder and, only if the manifest has Qdrant entries, every Qdrant collection. Prints
-	the first missing item. Raises ConnectionError if the Qdrant server is needed and not reachable.
-	"""
-	# 1. The manifest of a build with these args and input files
-	manifest_file = paths.get_build_manifest_path(output_path, parsed_args, input_hash)
-	if not os.path.exists(manifest_file):
-		print(f"No build manifest at {manifest_file}, building")
-		return False
-	manifest = load_build_manifest(output_path, parsed_args, input_hash)
-
-	# 2. The documents
-	doc_ids_file = os.path.join(manifest.documents_path, f"doc_ids_{manifest.input_hash}.json")
-	if not os.path.exists(doc_ids_file):
-		print(f"Missing documents : {doc_ids_file}, building")
-		return False
-
-	# 3. The chunk and embedding folders
-	for chunk_entry in manifest.chunk_entries:
-		if not os.path.isdir(chunk_entry.chunk_path):
-			print(f"Missing chunks : {chunk_entry.chunk_path}, building")
-			return False
-		if not os.path.isdir(chunk_entry.embedding_path):
-			print(f"Missing embeddings : {chunk_entry.embedding_path}, building")
-			return False
-
-	# 4. The FAISS and BM25 folders, and the Qdrant collection names to check next
-	qdrant_collection_names = []
-	for index_entry in manifest.index_entries:
-		if index_entry.index_type == constants.QDRANT_INDEX:
-			qdrant_collection_names.append(index_entry.location)
-			continue
-		if not os.path.isdir(index_entry.location):
-			print(f"Missing {index_entry.index_type} index : {index_entry.location}, building")
-			return False
-
-	# 5. The Qdrant collections, only if the build made any
-	if len(qdrant_collection_names) > 0:
-		qdrant_client = QdrantClient(url=parsed_args.qdrant_url)
-		try:
-			qdrant_client.get_collections()
-		except Exception as error:
-			raise ConnectionError(
-				f"Qdrant server is not reachable at {parsed_args.qdrant_url}. Start it with the qdrant-docker skill."
-			) from error
-		for collection_name in qdrant_collection_names:
-			if not qdrant_client.collection_exists(collection_name):
-				print(f"Missing Qdrant collection : {collection_name}, building")
-				return False
-
-	return True
-
-
-def find_chunk_entry(manifest: BuildManifest, embedder_args: EmbedderArgs, chunking_args: ChunkingArgs) -> ChunkEntry:
-	"""
-	Input: manifest; embedder_args, the embedder settings the caller needs; chunking_args, the chunk settings the
-	caller needs.
-	Output: the ChunkEntry of that chunk type.
-	What it does: finds the entry, and raises ValueError if the build used another embedder, has no entry or built it
-	with other settings.
-	"""
-	if manifest.embedder != embedder_args:
-		raise ValueError(
-			f"The build used embedder {manifest.embedder}, not {embedder_args}. "
-			"Run scripts/build.sh with these settings first."
+	manifests = []
+	for manifest_dict in manifest_dicts:
+		ingestion_dict = manifest_dict["ingestion_entry"]
+		ingestion_entry = IngestionEntry(
+			args=IngestionArgs(**ingestion_dict["args"]),
+			hash=ingestion_dict["hash"],
+			path=ingestion_dict["path"]
 		)
 
-	for chunk_entry in manifest.chunk_entries:
-		if chunk_entry.chunk_type != chunking_args.chunk_type:
-			continue
-		built_settings = (chunk_entry.min_chunk_size, chunk_entry.max_chunk_size, chunk_entry.fixed_chunk_overlap)
-		wanted_settings = (chunking_args.min_chunk_size, chunking_args.max_chunk_size, chunking_args.fixed_chunk_overlap)
-		if built_settings != wanted_settings:
-			raise ValueError(
-				f"The build made {chunking_args.chunk_type} chunks with settings {built_settings}, not {wanted_settings}. "
-				"Run scripts/build.sh with these settings first."
+		chunk_dict = manifest_dict["chunk_entry"]
+		chunk_entry = ChunkEntry(
+			args=ChunkingArgs(**chunk_dict["args"]),
+			hash=chunk_dict["hash"],
+			path=chunk_dict["path"]
+		)
+
+		embedding_dict = manifest_dict["embedding_entry"]
+		embedding_entry = EmbeddingEntry(
+			args=EmbeddingArgs(
+				embedder_args=EmbedderArgs(**embedding_dict["args"]["embedder_args"]),
+				chunking_args=ChunkingArgs(**embedding_dict["args"]["chunking_args"])
+			),
+			hash=embedding_dict["hash"],
+			path=embedding_dict["path"]
+		)
+
+		bm25_dict = manifest_dict["bm25_index_entry"]
+		bm25_entry = Bm25Entry(
+			args=Bm25IndexingArgs(**bm25_dict["args"]),
+			hash=bm25_dict["hash"],
+			path=bm25_dict["path"]
+		)
+
+		faiss_entry = None
+		faiss_dict = manifest_dict["faiss_index_entry"]
+		if faiss_dict is not None:
+			faiss_args = None
+			if faiss_dict["faiss_type"] == constants.FAISS_IVF_INDEX:
+				faiss_args = FaissIVFArgs(**faiss_dict["faiss_args"])
+			elif faiss_dict["faiss_type"] == constants.FAISS_HNSW_INDEX:
+				faiss_args = FaissHNSWArgs(**faiss_dict["faiss_args"])
+			faiss_entry = FaissEntry(
+				faiss_type=faiss_dict["faiss_type"],
+				faiss_args=faiss_args,
+				hash=faiss_dict["hash"],
+				path=faiss_dict["path"]
 			)
-		return chunk_entry
 
-	raise ValueError(f"The build has no {chunking_args.chunk_type} chunks. Run scripts/build.sh with this chunk type first.")
-
-
-def find_index_entry(manifest: BuildManifest, chunk_type: str, index_type: str, index_settings: dict) -> IndexEntry:
-	"""
-	Input: manifest; chunk_type; index_type, a FAISS or BM25 index type or a vector DB type; index_settings, the
-	settings the caller needs, as get_index_settings gives them ({} for faiss_flatip and qdrant).
-	Output: the IndexEntry of that index.
-	What it does: finds the entry, and raises ValueError if the build has none or built it with other settings.
-	"""
-	for index_entry in manifest.index_entries:
-		if index_entry.chunk_type != chunk_type or index_entry.index_type != index_type:
-			continue
-		if index_entry.index_settings != index_settings:
-			raise ValueError(
-				f"The build made the {chunk_type} {index_type} index with settings {index_entry.index_settings}, not "
-				f"{index_settings}. Run scripts/build.sh with these settings first."
+		vectordb_entry = None
+		vectordb_dict = manifest_dict["vectordb_index_entry"]
+		if vectordb_dict is not None:
+			vectordb_entry = VectorDbEntry(
+				vectordb_type=vectordb_dict["vectordb_type"],
+				args=QdrantArgs(**vectordb_dict["args"]),
+				hash=vectordb_dict["hash"],
+				path=vectordb_dict["path"]
 			)
-		return index_entry
 
-	raise ValueError(f"The build has no {chunk_type} {index_type} index. Run scripts/build.sh with this index type first.")
+		manifest = BuildManifest(
+			dataset_name=manifest_dict["dataset_name"],
+			dataset_size=manifest_dict["dataset_size"],
+			build_hash=manifest_dict["build_hash"],
+			ingestion_entry=ingestion_entry,
+			chunk_entry=chunk_entry,
+			embedder=EmbedderArgs(**manifest_dict["embedder"]),
+			embedding_entry=embedding_entry,
+			bm25_index_entry=bm25_entry,
+			faiss_index_entry=faiss_entry,
+			vectordb_index_entry=vectordb_entry
+		)
+		manifests.append(manifest)
+
+	return manifests

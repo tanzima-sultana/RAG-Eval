@@ -11,10 +11,10 @@ from langchain_community.vectorstores.utils import DistanceStrategy
 from langchain_core.documents import Document as LangchainDocument
 from langchain_core.embeddings import Embeddings
 
+from common import constants
 from common import paths
-from common.args import ChunkingArgs
-from common.args import EmbedderArgs
-from common.args import IndexArgs
+from common.args import FaissHNSWArgs
+from common.args import FaissIVFArgs
 from schema.chunk import Chunk
 from schema.embed import Embedded
 from schema.index import FaissIndex
@@ -110,23 +110,21 @@ def load_faiss_index_from_path(index_type: str, index_folder: str, embedding_mod
 	)
 
 
-class FaissIndexer:
-	def __init__(self, embedder_args: EmbedderArgs, chunking_args: ChunkingArgs, index_args: IndexArgs, embedding_model: Embeddings):
+class FaissIndexing:
+	def __init__(self, embedding_hash: str, embedding_model: Embeddings):
 		"""
-		Input: embedder_args; chunking_args, the chunking settings of the chunks the index holds; index_args, the
-		indexing settings for one FAISS index type; embedding_model, which the FAISS vector store uses to embed queries.
+		Input: embedding_hash, the hash of the embeddings the indexes are built from, from embedding; embedding_model,
+		which the FAISS vector store uses to embed queries.
 		Output: nothing.
-		What it does: stores the args and the embedding model the FAISS indexing methods use.
+		What it does: stores the two.
 		"""
-		self.embedder_args = embedder_args
-		self.chunking_args = chunking_args
-		self.index_args = index_args
+		self.embedding_hash = embedding_hash
 		self.embedding_model = embedding_model
 
-	def faiss_flatip_indexing(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex:
+	def faiss_flatip_indexing(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> tuple[FaissIndex, str, str]:
 		"""
 		Input: chunks; embeddings; output_path, the dataset's output folder.
-		Output: a FaissIndex holding an exact inner product (IndexFlatIP) vector store.
+		Output: (faiss_index, faiss_hash, faiss_index_path): a FaissIndex holding an exact inner product (IndexFlatIP) vector store.
 		What it does: loads the saved index if it holds the same chunks, otherwise builds, wraps and saves a new one.
 		"""
 		if len(embeddings) == 0:
@@ -142,7 +140,8 @@ class FaissIndexer:
 		dimension = vectors.shape[1]
 
 		# 2. Load the saved index if it holds exactly the same chunks
-		faiss_index_path = paths.get_faiss_index_path(output_path, self.embedder_args, self.chunking_args, self.index_args)
+		faiss_hash = paths.get_faiss_hash(constants.FAISS_FLATIP_INDEX, None, self.embedding_hash)
+		faiss_index_path = paths.get_faiss_index_path(output_path, constants.FAISS_FLATIP_INDEX, faiss_hash)
 		print(f"Index folder : {faiss_index_path}")
 		vector_store = load_faiss_index(faiss_index_path, chunk_ids, self.embedding_model)
 		if vector_store is not None:
@@ -157,26 +156,29 @@ class FaissIndexer:
 			save_faiss_index(faiss_index_path, vector_store)
 			print(f"FAISS flatip index built : {flatip_index.ntotal} vectors")
 
-		return FaissIndex(
-			index_type=self.index_args.index_type,
+		faiss_index = FaissIndex(
+			index_type=constants.FAISS_FLATIP_INDEX,
 			vector_store=vector_store,
 			index_path=faiss_index_path,
 			dimension=dimension
 		)
+		return faiss_index, faiss_hash, faiss_index_path
 
-	def faiss_ivf_indexing(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex:
+	def faiss_ivf_indexing(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str, ivf_args: FaissIVFArgs) -> tuple[FaissIndex, str, str]:
 		"""
-		Input: chunks; embeddings; output_path, the dataset's output folder.
-		Output: a FaissIndex holding an IVF (IndexIVFFlat) vector store with ivf_nlist clusters.
+		Input: chunks; embeddings; output_path, the dataset's output folder; ivf_args, the settings of this IVF index.
+		Output: (faiss_index, faiss_hash, faiss_index_path): a FaissIndex holding an IVF (IndexIVFFlat) vector store with ivf_nlist clusters.
 		What it does: computes ivf_nlist from ivf_nlist_multiplier and the number of chunks, then loads the saved index
 		if it holds the same chunks, otherwise builds, wraps and saves a new one.
 		"""
+		if ivf_args.ivf_nlist_multiplier <= 0:
+			raise ValueError(f"ivf_nlist_multiplier ({ivf_args.ivf_nlist_multiplier}) must be greater than 0.")
 		if len(embeddings) == 0:
 			raise ValueError("embeddings is empty. There is nothing to index.")
 
 		# nlist = multiplier * sqrt(number of chunks), capped at number of chunks // 39, since FAISS needs about 39
 		# training vectors per cluster, and at least 1
-		ivf_nlist = round(self.index_args.ivf_nlist_multiplier * math.sqrt(len(embeddings)))
+		ivf_nlist = round(ivf_args.ivf_nlist_multiplier * math.sqrt(len(embeddings)))
 		max_ivf_nlist = len(embeddings) // 39
 		if ivf_nlist > max_ivf_nlist:
 			ivf_nlist = max_ivf_nlist
@@ -193,7 +195,8 @@ class FaissIndexer:
 		dimension = vectors.shape[1]
 
 		# 2. Load the saved index if it holds exactly the same chunks
-		faiss_index_path = paths.get_faiss_index_path(output_path, self.embedder_args, self.chunking_args, self.index_args)
+		faiss_hash = paths.get_faiss_hash(constants.FAISS_IVF_INDEX, ivf_args, self.embedding_hash)
+		faiss_index_path = paths.get_faiss_index_path(output_path, constants.FAISS_IVF_INDEX, faiss_hash)
 		print(f"Index folder : {faiss_index_path}")
 		vector_store = load_faiss_index(faiss_index_path, chunk_ids, self.embedding_model)
 		if vector_store is not None:
@@ -211,19 +214,24 @@ class FaissIndexer:
 			save_faiss_index(faiss_index_path, vector_store)
 			print(f"FAISS ivf index built : {ivf_index.ntotal} vectors")
 
-		return FaissIndex(
-			index_type=self.index_args.index_type,
+		faiss_index = FaissIndex(
+			index_type=constants.FAISS_IVF_INDEX,
 			vector_store=vector_store,
 			index_path=faiss_index_path,
 			dimension=dimension
 		)
+		return faiss_index, faiss_hash, faiss_index_path
 
-	def faiss_hnsw_indexing(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> FaissIndex:
+	def faiss_hnsw_indexing(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str, hnsw_args: FaissHNSWArgs) -> tuple[FaissIndex, str, str]:
 		"""
-		Input: chunks; embeddings; output_path, the dataset's output folder.
-		Output: a FaissIndex holding an HNSW (IndexHNSWFlat) vector store.
+		Input: chunks; embeddings; output_path, the dataset's output folder; hnsw_args, the settings of this HNSW index.
+		Output: (faiss_index, faiss_hash, faiss_index_path): a FaissIndex holding an HNSW (IndexHNSWFlat) vector store.
 		What it does: loads the saved index if it holds the same chunks, otherwise builds, wraps and saves a new one.
 		"""
+		if hnsw_args.hnsw_m <= 0:
+			raise ValueError(f"hnsw_m ({hnsw_args.hnsw_m}) must be greater than 0.")
+		if hnsw_args.hnsw_ef_construction <= 0:
+			raise ValueError(f"hnsw_ef_construction ({hnsw_args.hnsw_ef_construction}) must be greater than 0.")
 		if len(embeddings) == 0:
 			raise ValueError("embeddings is empty. There is nothing to index.")
 
@@ -237,7 +245,8 @@ class FaissIndexer:
 		dimension = vectors.shape[1]
 
 		# 2. Load the saved index if it holds exactly the same chunks
-		faiss_index_path = paths.get_faiss_index_path(output_path, self.embedder_args, self.chunking_args, self.index_args)
+		faiss_hash = paths.get_faiss_hash(constants.FAISS_HNSW_INDEX, hnsw_args, self.embedding_hash)
+		faiss_index_path = paths.get_faiss_index_path(output_path, constants.FAISS_HNSW_INDEX, faiss_hash)
 		print(f"Index folder : {faiss_index_path}")
 		vector_store = load_faiss_index(faiss_index_path, chunk_ids, self.embedding_model)
 		if vector_store is not None:
@@ -245,8 +254,8 @@ class FaissIndexer:
 		else:
 			# 3. Build the index. Each vector is linked to hnsw_m close vectors, and a search walks this graph
 			# towards the query, so it is fast but approximate
-			hnsw_index = faiss.IndexHNSWFlat(dimension, self.index_args.hnsw_m, faiss.METRIC_INNER_PRODUCT)
-			hnsw_index.hnsw.efConstruction = self.index_args.hnsw_ef_construction
+			hnsw_index = faiss.IndexHNSWFlat(dimension, hnsw_args.hnsw_m, faiss.METRIC_INNER_PRODUCT)
+			hnsw_index.hnsw.efConstruction = hnsw_args.hnsw_ef_construction
 			hnsw_index.add(vectors)
 
 			# 4. Wrap it in a LangChain FAISS vector store and save it
@@ -254,12 +263,13 @@ class FaissIndexer:
 			save_faiss_index(faiss_index_path, vector_store)
 			print(f"FAISS hnsw index built : {hnsw_index.ntotal} vectors")
 
-		return FaissIndex(
-			index_type=self.index_args.index_type,
+		faiss_index = FaissIndex(
+			index_type=constants.FAISS_HNSW_INDEX,
 			vector_store=vector_store,
 			index_path=faiss_index_path,
 			dimension=dimension
 		)
+		return faiss_index, faiss_hash, faiss_index_path
 
 	def wrap_faiss_index(self, faiss_index: faiss.Index, chunk_ids: list[str], chunks: dict[str, Chunk]) -> FAISS:
 		"""
@@ -273,7 +283,7 @@ class FaissIndexer:
 		for position in range(len(chunk_ids)):
 			chunk_id = chunk_ids[position]
 			documents_by_chunk_id[chunk_id] = LangchainDocument(
-				page_content=chunks[chunk_id].text,
+				page_content=chunks[chunk_id].chunk_texts,
 				metadata={"chunk_id": chunk_id}
 			)
 			index_to_docstore_id[position] = chunk_id

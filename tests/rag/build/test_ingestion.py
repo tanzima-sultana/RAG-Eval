@@ -1,8 +1,8 @@
 """
 test_ingestion.py
 
-Tests for rag.build.ingestion.ingestion. PyPDFium2Loader is replaced with a fake that reads each file as plain text,
-so the test files do not need to be real PDFs.
+Tests for rag.build.ingestion (ingestion.py and cache.py). PyPDFium2Loader is replaced with a fake that reads each
+file as plain text and returns one page per "\\f"-separated part, so the test files do not need to be real PDFs.
 """
 
 import hashlib
@@ -15,11 +15,11 @@ from langchain_core.documents import Document as LangchainDocument
 from common.args import IngestionArgs
 from common.paths import get_output_path
 from rag.build.ingestion import ingestion as ingestion_module
-from rag.build.ingestion.cache import load_documents
-from rag.build.ingestion.cache import load_saved_documents
-from rag.build.ingestion.cache import save_documents
-from rag.build.ingestion.ingestion import compute_input_hash
-from rag.build.ingestion.ingestion import convert_langchain_document
+from rag.build.ingestion.cache import load_file
+from rag.build.ingestion.cache import load_files
+from rag.build.ingestion.cache import save_files
+from rag.build.ingestion.ingestion import compute_ingestion_hash
+from rag.build.ingestion.ingestion import convert_langchain_pages
 from rag.build.ingestion.ingestion import ingestion
 from rag.build.ingestion.ingestion import list_input_files
 from rag.build.ingestion.ingestion import validate
@@ -27,8 +27,8 @@ from rag.build.ingestion.ingestion import validate
 
 class FakePyPDFium2Loader:
     """
-    Stand-in for PyPDFium2Loader: reads the file as text. A file whose text is "FAIL" raises an error.
-    Every loaded file path is recorded in loaded_files.
+    Stand-in for PyPDFium2Loader: reads the file as text and returns one page per "\\f"-separated part. A file whose
+    text is "FAIL" raises an error. Every loaded file path is recorded in loaded_files.
     """
 
     loaded_files = []
@@ -45,7 +45,7 @@ class FakePyPDFium2Loader:
     def load(self):
         """
         Input: none.
-        Output: a list with one LangChain Document holding the file's text.
+        Output: a list with one LangChain Document per page of the file.
         What it does: records the file and reads it, or raises if its text is "FAIL".
         """
         FakePyPDFium2Loader.loaded_files.append(self.file_path)
@@ -54,8 +54,12 @@ class FakePyPDFium2Loader:
         if text == "FAIL":
             raise RuntimeError("broken file")
 
-        metadata = {"source": self.file_path, "total_pages": 1, "author": "", "title": "A Title"}
-        return [LangchainDocument(page_content=text, metadata=metadata)]
+        page_texts = text.split("\f")
+        langchain_pages = []
+        for page_number in range(len(page_texts)):
+            metadata = {"source": self.file_path, "total_pages": len(page_texts), "page": page_number, "author": "", "title": "A Title"}
+            langchain_pages.append(LangchainDocument(page_content=page_texts[page_number], metadata=metadata))
+        return langchain_pages
 
 
 @pytest.fixture
@@ -118,6 +122,39 @@ def get_documents_path(output_path):
     return os.path.join(output_path, "dataset", "documents")
 
 
+def document_id_of(file_text):
+    """
+    Input: file_text, the text a test file was written with.
+    Output: the document id of that file: the first 16 characters of the SHA-256 of its bytes.
+    What it does: computes the expected document id.
+    """
+    return hashlib.sha256(file_text.encode("utf-8")).hexdigest()[:16]
+
+
+def get_document_texts(files):
+    """
+    Input: files, a list of File.
+    Output: the list of document texts in order.
+    What it does: collects each file's document_texts.
+    """
+    document_texts = []
+    for file in files:
+        document_texts.append(file.document_texts)
+    return document_texts
+
+
+def get_page_ids(file):
+    """
+    Input: file, one File.
+    Output: the list of the page ids of its pages, in the order of its pages dict.
+    What it does: collects each page's id.
+    """
+    page_ids = []
+    for page_number in file.pages:
+        page_ids.append(file.pages[page_number].page_id)
+    return page_ids
+
+
 # ---------- validate ----------
 
 
@@ -141,33 +178,41 @@ def test_validate_raises_for_invalid_setting(tmp_path, field_name, field_value, 
         validate(ingestion_args)
 
 
-# ---------- convert_langchain_document ----------
+# ---------- convert_langchain_pages ----------
 
 
-def test_convert_langchain_document_fills_id_and_metadata(tmp_path):
+def test_convert_langchain_pages_fills_the_file_pages_and_metadata():
     """
-    Input: a LangChain Document of a file, with an empty author.
+    Input: pages 0 and 2 of a 3-page file as LangChain Documents, with an empty author.
     Output: our File.
-    What it does: checks the id is the first 16 characters of the file hash and the metadata is copied.
+    What it does: checks the document id is the first 16 characters of the file hash, the pages are keyed by their page
+    number with page ids made of the document id and the page number, the document text is the pages joined, and the
+    file-level values and metadata are filled.
     """
-    document_file = tmp_path / "a.pdf"
-    document_file.write_bytes(b"some bytes")
-    langchain_metadata = {"source": str(document_file), "total_pages": 3, "author": "", "title": "A Title"}
-    langchain_document = LangchainDocument(page_content="Some text.", metadata=langchain_metadata)
-
-    document = convert_langchain_document(langchain_document, "pdf")
-
     content_hash = hashlib.sha256(b"some bytes").hexdigest()
-    assert document.id == content_hash[:16]
-    assert document.text == "Some text."
-    assert document.type.value == "pdf"
-    assert document.metadata.content_hash == content_hash
-    assert document.metadata.file_size_bytes == 10
-    assert document.metadata.page_count == 3
-    assert document.metadata.parser == "langchain_pypdfium2"
-    assert document.metadata.author is None
-    assert document.metadata.title == "A Title"
-    assert document.metadata.creation_date is None
+    langchain_metadata = {"source": "a.pdf", "total_pages": 3, "author": "", "title": "A Title"}
+    langchain_pages = [
+        LangchainDocument(page_content="Page zero.", metadata={**langchain_metadata, "page": 0}),
+        LangchainDocument(page_content="Page two.", metadata={**langchain_metadata, "page": 2}),
+    ]
+
+    file = convert_langchain_pages(langchain_pages, "pdf", content_hash, 10)
+
+    assert file.document_id == content_hash[:16]
+    assert file.document_type.value == "pdf"
+    assert file.source == "a.pdf"
+    assert file.document_texts == "Page zero.\n\fPage two."
+    assert list(file.pages.keys()) == [0, 2]
+    assert file.pages[2].page_id == f"{content_hash[:16]}_2"
+    assert file.pages[2].page_number == 2
+    assert file.pages[2].page_texts == "Page two."
+    assert file.metadata.content_hash == content_hash
+    assert file.metadata.file_size_bytes == 10
+    assert file.metadata.page_count == 3
+    assert file.metadata.parser == "langchain_pypdfium2"
+    assert file.metadata.author is None
+    assert file.metadata.title == "A Title"
+    assert file.metadata.creation_date is None
 
 
 # ---------- ingestion ----------
@@ -176,121 +221,253 @@ def test_convert_langchain_document_fills_id_and_metadata(tmp_path):
 def test_ingestion_reads_only_document_type_files_up_to_dataset_size(tmp_path, fake_loader):
     """
     Input: three pdf files and one txt file, with dataset_size 2.
-    Output: the documents and the loaded files.
+    Output: the files and the loaded files.
     What it does: checks only the first two pdf files in name order are loaded.
     """
     input_path = make_input_folder(tmp_path, {"c.pdf": "text c", "a.pdf": "text a", "b.pdf": "text b", "d.txt": "text d"})
     ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=2)
 
-    documents = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
+    files, ingestion_hash, ingestion_path = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
 
     loaded_file_names = []
     for loaded_file in FakePyPDFium2Loader.loaded_files:
         loaded_file_names.append(os.path.basename(loaded_file))
     assert loaded_file_names == ["a.pdf", "b.pdf"]
-
-    document_texts = []
-    for doc_id in documents:
-        document_texts.append(documents[doc_id].text)
-    assert document_texts == ["text a", "text b"]
+    assert get_document_texts(files) == ["text a", "text b"]
 
 
-def test_ingestion_skips_empty_and_failed_files(tmp_path, fake_loader, capsys):
+def test_ingestion_returns_one_file_per_input_file_with_its_pages(tmp_path, fake_loader):
     """
-    Input: one good file, one file with only whitespace and one file the loader fails on.
-    Output: the documents and what was printed.
-    What it does: checks only the good file becomes a document and the counts are printed.
+    Input: two files of three pages each.
+    Output: the files.
+    What it does: checks 2 files come back in file name order, each with its 3 pages keyed by 0-based page number, the
+    page ids made of the document id and the page number, the document text joined, and the source.
     """
-    input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "  \n ", "c.pdf": "FAIL"})
+    text_a = "a0\fa1\fa2"
+    text_b = "b0\fb1\fb2"
+    input_path = make_input_folder(tmp_path, {"a.pdf": text_a, "b.pdf": text_b})
     ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"))
 
-    documents = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
+    files, ingestion_hash, ingestion_path = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
 
-    assert len(documents) == 1
-    assert "Files read : 3, loaded : 1, failed : 1, empty : 1" in capsys.readouterr().out
+    assert len(files) == 2
+    assert files[0].document_id == document_id_of(text_a)
+    assert files[1].document_id == document_id_of(text_b)
+    assert files[0].source == os.path.join(input_path, "a.pdf")
+    assert files[0].document_texts == "a0\n\fa1\n\fa2"
+    assert list(files[0].pages.keys()) == [0, 1, 2]
+    assert get_page_ids(files[0]) == [f"{document_id_of(text_a)}_0", f"{document_id_of(text_a)}_1", f"{document_id_of(text_a)}_2"]
+    assert files[1].pages[2].page_texts == "b2"
+    assert files[0].metadata.page_count == 3
 
 
-def test_ingestion_saves_documents_and_doc_ids(tmp_path, fake_loader):
+def test_ingestion_returns_the_ingestion_hash(tmp_path, fake_loader):
     """
-    Input: two pdf files with dataset_size 2.
-    Output: the files in the documents folder.
-    What it does: checks one {doc_id}.json per document and doc_ids_{input_hash}.json listing them.
+    Input: one ingestion run, then the same run again.
+    Output: the ingestion hash it returns.
+    What it does: checks the returned hash is the one compute_ingestion_hash gives, on a first run and from the cache.
     """
-    input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "text b"})
+    input_path = make_input_folder(tmp_path, {"a.pdf": "text a"})
+    ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"))
+
+    first_files, first_hash, first_path = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
+    second_files, second_hash, second_path = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
+
+    assert first_hash == compute_ingestion_hash(ingestion_args)
+    assert second_hash == first_hash
+
+
+def test_ingestion_skips_blank_pages_and_keeps_the_other_page_numbers(tmp_path, fake_loader, capsys):
+    """
+    Input: one file with three pages, the middle one blank.
+    Output: the files and what was printed.
+    What it does: checks the blank page is skipped and counted, the other pages keep their page numbers, and the page
+    count of the metadata is still 3.
+    """
+    text_a = "page 0\f  \n \fpage 2"
+    input_path = make_input_folder(tmp_path, {"a.pdf": text_a})
+    ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"))
+
+    files, ingestion_hash, ingestion_path = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
+
+    assert list(files[0].pages.keys()) == [0, 2]
+    assert get_page_ids(files[0]) == [f"{document_id_of(text_a)}_0", f"{document_id_of(text_a)}_2"]
+    assert files[0].document_texts == "page 0\n\fpage 2"
+    assert files[0].metadata.page_count == 3
+    assert "Files read : 1, from cache : 0, parsed : 1, failed : 0, duplicate : 0, empty : 0, files loaded : 1, pages loaded : 2, empty pages : 1" in capsys.readouterr().out
+
+
+def test_ingestion_skips_a_file_with_only_blank_pages(tmp_path, fake_loader, capsys):
+    """
+    Input: one good file and one file with only whitespace.
+    Output: the files and what was printed.
+    What it does: checks the blank file gives no File and is counted as empty.
+    """
+    input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "  \n "})
+    ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"))
+
+    files, ingestion_hash, ingestion_path = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
+
+    assert get_document_texts(files) == ["text a"]
+    assert "Files read : 2, from cache : 0, parsed : 1, failed : 0, duplicate : 0, empty : 1, files loaded : 1, pages loaded : 1, empty pages : 1" in capsys.readouterr().out
+
+
+def test_ingestion_skips_failed_and_duplicate_files(tmp_path, fake_loader, capsys):
+    """
+    Input: one good file, one file the loader fails on and one file with the same content as the good file.
+    Output: the files and what was printed.
+    What it does: checks the failed file gives no File, the duplicate file is skipped, and both are counted.
+    """
+    input_path = make_input_folder(tmp_path, {"a.pdf": "text a\ftext a 1", "b.pdf": "FAIL", "c.pdf": "text a\ftext a 1"})
+    ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"))
+
+    files, ingestion_hash, ingestion_path = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
+
+    assert len(files) == 1
+    assert files[0].source == os.path.join(input_path, "a.pdf")
+    assert "Files read : 3, from cache : 0, parsed : 1, failed : 1, duplicate : 1, empty : 0, files loaded : 1, pages loaded : 2, empty pages : 0" in capsys.readouterr().out
+
+
+def test_ingestion_saves_files_and_document_ids(tmp_path, fake_loader):
+    """
+    Input: two pdf files of two pages each, with dataset_size 2.
+    Output: the files in the documents folder, and the path ingestion returns.
+    What it does: checks the returned path is the documents folder, one {document_id}.json per file holding its pages, and doc_ids_{ingestion_hash}.json listing
+    the document ids.
+    """
+    text_a = "a0\fa1"
+    text_b = "b0\fb1"
+    input_path = make_input_folder(tmp_path, {"a.pdf": text_a, "b.pdf": text_b})
     output_path = str(tmp_path / "out")
     ingestion_args = make_ingestion_args(input_path, output_path, dataset_size=2)
-    input_hash = compute_input_hash(ingestion_args)
 
-    documents = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
+    files, ingestion_hash, ingestion_path = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
 
     documents_path = get_documents_path(output_path)
-    expected_file_names = [f"doc_ids_{input_hash}.json"]
-    for doc_id in documents:
-        expected_file_names.append(f"{doc_id}.json")
+    assert ingestion_path == documents_path
+    document_ids = [document_id_of(text_a), document_id_of(text_b)]
+    expected_file_names = [f"doc_ids_{ingestion_hash}.json", f"{document_ids[0]}.json", f"{document_ids[1]}.json"]
     assert sorted(os.listdir(documents_path)) == sorted(expected_file_names)
 
-    with open(os.path.join(documents_path, f"doc_ids_{input_hash}.json"), encoding="utf-8") as f:
-        saved_doc_ids = json.load(f)
-    assert saved_doc_ids == list(documents.keys())
+    with open(os.path.join(documents_path, f"doc_ids_{ingestion_hash}.json"), encoding="utf-8") as f:
+        assert json.load(f) == document_ids
+    with open(os.path.join(documents_path, f"{document_ids[0]}.json"), encoding="utf-8") as f:
+        saved_file_dict = json.load(f)
+    assert saved_file_dict["document_id"] == document_ids[0]
+    assert list(saved_file_dict["pages"].keys()) == ["0", "1"]
 
 
 def test_ingestion_loads_from_cache_on_second_run(tmp_path, fake_loader, capsys):
     """
     Input: the same ingestion run twice.
-    Output: the second run's documents and the loaded files.
-    What it does: checks the second run loads every document from the cache and never calls the loader.
+    Output: the second run's files and the loaded files.
+    What it does: checks the second run loads every file from the cache and never calls the loader.
     """
-    input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "text b"})
+    input_path = make_input_folder(tmp_path, {"a.pdf": "a0\fa1", "b.pdf": "b0\fb1"})
     ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=2)
 
-    first_documents = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
+    first_files, first_hash, first_path = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
     FakePyPDFium2Loader.loaded_files = []
     capsys.readouterr()
-    second_documents = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
+    second_files, second_hash, second_path = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
 
-    assert second_documents == first_documents
+    assert second_files == first_files
     assert FakePyPDFium2Loader.loaded_files == []
-    assert "Documents : 2 (all from cache)" in capsys.readouterr().out
+    assert "Files : 2, pages : 4 (all from cache)" in capsys.readouterr().out
 
 
 def test_ingestion_input_sets_share_document_files(tmp_path, fake_loader):
     """
     Input: ingestion with dataset_size 1, then dataset_size 2.
     Output: the files in the documents folder.
-    What it does: checks each input set gets its own doc_ids list, and the shared document is saved once.
+    What it does: checks each input set gets its own list of document ids, and the shared document is saved once.
     """
-    input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "text b"})
+    text_a = "text a"
+    text_b = "text b"
+    input_path = make_input_folder(tmp_path, {"a.pdf": text_a, "b.pdf": text_b})
     output_path = str(tmp_path / "out")
     one_file_args = make_ingestion_args(input_path, output_path, dataset_size=1)
     two_file_args = make_ingestion_args(input_path, output_path, dataset_size=2)
 
     ingestion(one_file_args, get_dataset_output_path(one_file_args))
-    documents = ingestion(two_file_args, get_dataset_output_path(two_file_args))
+    ingestion(two_file_args, get_dataset_output_path(two_file_args))
 
-    expected_file_names = [f"doc_ids_{compute_input_hash(one_file_args)}.json", f"doc_ids_{compute_input_hash(two_file_args)}.json"]
-    for doc_id in documents:
-        expected_file_names.append(f"{doc_id}.json")
+    expected_file_names = [
+        f"doc_ids_{compute_ingestion_hash(one_file_args)}.json",
+        f"doc_ids_{compute_ingestion_hash(two_file_args)}.json",
+        f"{document_id_of(text_a)}.json",
+        f"{document_id_of(text_b)}.json",
+    ]
     assert sorted(os.listdir(get_documents_path(output_path))) == sorted(expected_file_names)
 
 
 def test_ingestion_reads_the_files_again_when_an_input_file_changes(tmp_path, fake_loader):
     """
     Input: two pdf files ingested, then one file edited.
-    Output: the documents and the loaded files.
-    What it does: checks the input hash ingestion computes changes, so the cache is missed, the files are read again
-    and the edited file gets a new document.
+    Output: the files and the loaded files.
+    What it does: checks the ingestion hash changes, so the run list is missed, only the edited file is parsed again and
+    it gets a new File.
     """
     input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "text b"})
     ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=2)
-    first_documents = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
+    first_files, first_hash, first_path = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
 
     with open(os.path.join(input_path, "b.pdf"), "w", encoding="utf-8") as f:
         f.write("text b edited")
     FakePyPDFium2Loader.loaded_files = []
-    second_documents = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
+    second_files, second_hash, second_path = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
 
-    assert len(FakePyPDFium2Loader.loaded_files) == 2
-    assert second_documents != first_documents
+    assert len(FakePyPDFium2Loader.loaded_files) == 1
+    assert second_hash != first_hash
+    assert second_files != first_files
+
+
+def test_ingestion_parses_only_the_file_that_changed(tmp_path, fake_loader, capsys):
+    """
+    Input: two pdf files ingested, then one file edited and ingested again.
+    Output: the files, the loaded files and what was printed.
+    What it does: checks only the edited file is parsed again, the other file is loaded from its saved file by its
+    document id, and both files are returned in file name order.
+    """
+    input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "text b"})
+    ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=2)
+    first_files, first_hash, first_path = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
+
+    with open(os.path.join(input_path, "b.pdf"), "w", encoding="utf-8") as f:
+        f.write("text b edited")
+    FakePyPDFium2Loader.loaded_files = []
+    capsys.readouterr()
+    second_files, second_hash, second_path = ingestion(ingestion_args, get_dataset_output_path(ingestion_args))
+
+    loaded_file_names = []
+    for loaded_file in FakePyPDFium2Loader.loaded_files:
+        loaded_file_names.append(os.path.basename(loaded_file))
+    assert loaded_file_names == ["b.pdf"]
+    assert second_files[0] == first_files[0]
+    assert get_document_texts(second_files) == ["text a", "text b edited"]
+    assert "from cache : 1, parsed : 1" in capsys.readouterr().out
+
+
+def test_ingestion_parses_only_the_new_files_when_dataset_size_grows(tmp_path, fake_loader):
+    """
+    Input: ingestion with dataset_size 1, then dataset_size 2.
+    Output: the loaded files.
+    What it does: checks the second run parses only the second file, since the first file's document is already saved.
+    """
+    input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "text b"})
+    output_path = str(tmp_path / "out")
+    one_file_args = make_ingestion_args(input_path, output_path, dataset_size=1)
+    two_file_args = make_ingestion_args(input_path, output_path, dataset_size=2)
+    ingestion(one_file_args, get_dataset_output_path(one_file_args))
+
+    FakePyPDFium2Loader.loaded_files = []
+    files, ingestion_hash, ingestion_path = ingestion(two_file_args, get_dataset_output_path(two_file_args))
+
+    loaded_file_names = []
+    for loaded_file in FakePyPDFium2Loader.loaded_files:
+        loaded_file_names.append(os.path.basename(loaded_file))
+    assert loaded_file_names == ["b.pdf"]
+    assert get_document_texts(files) == ["text a", "text b"]
 
 
 def test_ingestion_raises_for_invalid_settings_before_reading(tmp_path, fake_loader):
@@ -307,62 +484,70 @@ def test_ingestion_raises_for_invalid_settings_before_reading(tmp_path, fake_loa
     assert FakePyPDFium2Loader.loaded_files == []
 
 
-# ---------- cache: save_documents / load_documents / load_saved_documents ----------
+# ---------- cache: save_files / load_file / load_files ----------
 
 
-def make_saved_documents(make_document):
+def test_save_and_load_files_round_trip(tmp_path, make_file):
     """
-    Input: the make_document fixture.
-    Output: a dict of doc_id to File with two documents.
-    What it does: builds the documents the cache tests save.
+    Input: two files (two pages and one page) saved under one ingestion hash and loaded back.
+    Output: the loaded files.
+    What it does: checks the files come back the same, in the same order, with their pages still keyed by int page
+    numbers, and an unknown ingestion hash gives None.
     """
-    documents = {}
-    documents["d1"] = make_document("d1", "text one")
-    documents["d2"] = make_document("d2", "text two")
-    return documents
+    files = [make_file("d1", ["text 0", "text 1"]), make_file("d2", ["text 2"])]
+
+    save_files(str(tmp_path), files, ["d1", "d2"], "ingestionhash")
+
+    loaded_files = load_files(str(tmp_path), "ingestionhash")
+    assert loaded_files == files
+    assert loaded_files[0].pages[1].page_id == "d1_1"
+    assert load_files(str(tmp_path), "otherhash") is None
 
 
-def test_save_and_load_documents_round_trip(tmp_path, make_document):
+def test_save_files_saves_only_the_new_files_and_lists_every_document(tmp_path, make_file):
     """
-    Input: two documents saved under one input hash and loaded back.
-    Output: the loaded documents.
-    What it does: checks the documents come back the same, and an unknown input hash gives None.
+    Input: one new file saved with a list of two document ids, one of them saved before.
+    Output: the files in the folder.
+    What it does: checks only the new file is written, and the list holds both ids in the order given.
     """
-    documents = make_saved_documents(make_document)
+    old_file = make_file("d1", ["text 0"])
+    new_file = make_file("d2", ["text 1"])
+    save_files(str(tmp_path), [old_file], ["d1"], "firsthash")
 
-    save_documents(str(tmp_path), documents, "inputhash")
+    save_files(str(tmp_path), [new_file], ["d1", "d2"], "secondhash")
 
-    assert load_documents(str(tmp_path), "inputhash") == documents
-    assert load_documents(str(tmp_path), "otherhash") is None
+    assert sorted(os.listdir(str(tmp_path))) == ["d1.json", "d2.json", "doc_ids_firsthash.json", "doc_ids_secondhash.json"]
+    with open(os.path.join(str(tmp_path), "doc_ids_secondhash.json"), encoding="utf-8") as f:
+        assert json.load(f) == ["d1", "d2"]
 
 
-def test_load_saved_documents_loads_every_saved_document(tmp_path, make_document, capsys):
+def test_load_file_loads_one_saved_file_by_its_document_id(tmp_path, make_file):
     """
-    Input: two documents saved under one input hash.
-    Output: the loaded documents and what was printed.
-    What it does: checks load_saved_documents returns every saved document. The input hash is passed in the
-    dataset_size argument, because load_saved_documents passes that argument on to load_documents as the input hash.
+    Input: one file saved.
+    Output: the file loaded by its document id, and the result for an unknown document id.
+    What it does: checks the saved file comes back the same, and an unknown document id gives None.
     """
-    documents = make_saved_documents(make_document)
-    save_documents(str(tmp_path), documents, "inputhash")
+    file = make_file("d1", ["text 0", "text 1"])
+    save_files(str(tmp_path), [file], ["d1"], "ingestionhash")
 
-    loaded_documents = load_saved_documents(str(tmp_path), "inputhash")
-
-    assert loaded_documents == documents
-    assert "Documents : 2 (all from cache)" in capsys.readouterr().out
+    assert load_file(str(tmp_path), "d1") == file
+    assert load_file(str(tmp_path), "d2") is None
 
 
-def test_load_saved_documents_raises_when_not_saved(tmp_path):
+def test_load_files_gives_none_when_a_listed_file_is_missing(tmp_path, make_file):
     """
-    Input: an empty documents folder.
-    Output: FileNotFoundError.
-    What it does: checks load_saved_documents raises when nothing is saved under that input hash.
+    Input: a run list naming two documents, with one document's file removed.
+    Output: the result of load_files.
+    What it does: checks load_files gives None, so ingestion goes on to load or parse each file itself.
     """
-    with pytest.raises(FileNotFoundError):
-        load_saved_documents(str(tmp_path), "inputhash")
+    files = [make_file("d1", ["text 0"]), make_file("d2", ["text 1"])]
+    save_files(str(tmp_path), files, ["d1", "d2"], "ingestionhash")
+    os.remove(os.path.join(str(tmp_path), "d2.json"))
+
+    assert load_files(str(tmp_path), "ingestionhash") is None
 
 
-# ---------- list_input_files / compute_input_hash ----------
+# ---------- list_input_files / compute_ingestion_hash ----------
 
 
 def test_list_input_files_keeps_the_first_dataset_size_files_of_document_type(tmp_path):
@@ -376,33 +561,33 @@ def test_list_input_files_keeps_the_first_dataset_size_files_of_document_type(tm
     assert list_input_files(make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=2)) == ["a.pdf", "b.pdf"]
 
 
-def test_compute_input_hash_is_12_hex_characters_and_the_same_for_the_same_files(tmp_path):
+def test_compute_ingestion_hash_is_12_hex_characters_and_the_same_for_the_same_files(tmp_path):
     """
     Input: the same input folder hashed twice.
-    Output: the two input hashes.
+    Output: the two ingestion hashes.
     What it does: checks the hash is 12 hex characters and stable.
     """
     input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "text b"})
     ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=2)
 
-    input_hash = compute_input_hash(ingestion_args)
+    ingestion_hash = compute_ingestion_hash(ingestion_args)
 
-    assert len(input_hash) == 12
-    int(input_hash, 16)
-    assert compute_input_hash(ingestion_args) == input_hash
+    assert len(ingestion_hash) == 12
+    int(ingestion_hash, 16)
+    assert compute_ingestion_hash(ingestion_args) == ingestion_hash
 
 
 @pytest.mark.parametrize("change", ["edit", "add_inside", "remove"])
-def test_compute_input_hash_changes_when_a_read_file_changes(tmp_path, change):
+def test_compute_ingestion_hash_changes_when_a_read_file_changes(tmp_path, change):
     """
     Input: three pdf files with dataset_size 3, then one file edited, a file added that sorts inside the first 3, or
     a file removed.
-    Output: the input hash before and after.
-    What it does: checks any change to the files ingestion reads gives a new input hash.
+    Output: the ingestion hash before and after.
+    What it does: checks any change to the files ingestion reads gives a new ingestion hash.
     """
     input_path = make_input_folder(tmp_path, {"b.pdf": "text b", "c.pdf": "text c", "d.pdf": "text d"})
     ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=3)
-    input_hash_before = compute_input_hash(ingestion_args)
+    ingestion_hash_before = compute_ingestion_hash(ingestion_args)
 
     if change == "edit":
         with open(os.path.join(input_path, "c.pdf"), "w", encoding="utf-8") as f:
@@ -413,22 +598,22 @@ def test_compute_input_hash_changes_when_a_read_file_changes(tmp_path, change):
     else:
         os.remove(os.path.join(input_path, "d.pdf"))
 
-    assert compute_input_hash(ingestion_args) != input_hash_before
+    assert compute_ingestion_hash(ingestion_args) != ingestion_hash_before
 
 
-def test_compute_input_hash_ignores_files_ingestion_does_not_read(tmp_path):
+def test_compute_ingestion_hash_ignores_files_ingestion_does_not_read(tmp_path):
     """
     Input: two pdf files with dataset_size 2, then a pdf file added that sorts after them and a txt file added.
-    Output: the input hash before and after.
-    What it does: checks files outside the first dataset_size files of document_type do not change the input hash.
+    Output: the ingestion hash before and after.
+    What it does: checks files outside the first dataset_size files of document_type do not change the ingestion hash.
     """
     input_path = make_input_folder(tmp_path, {"a.pdf": "text a", "b.pdf": "text b"})
     ingestion_args = make_ingestion_args(input_path, str(tmp_path / "out"), dataset_size=2)
-    input_hash_before = compute_input_hash(ingestion_args)
+    ingestion_hash_before = compute_ingestion_hash(ingestion_args)
 
     with open(os.path.join(input_path, "c.pdf"), "w", encoding="utf-8") as f:
         f.write("text c")
     with open(os.path.join(input_path, "a.txt"), "w", encoding="utf-8") as f:
         f.write("text")
 
-    assert compute_input_hash(ingestion_args) == input_hash_before
+    assert compute_ingestion_hash(ingestion_args) == ingestion_hash_before

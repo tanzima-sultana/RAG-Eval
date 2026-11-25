@@ -7,10 +7,7 @@ from qdrant_client.models import VectorParams
 
 from common import constants
 from common import paths
-from common.args import ChunkingArgs
-from common.args import EmbedderArgs
-from common.args import VectorDbArgs
-from rag.build.embedding.embedding import make_embedding_model
+from common.args import QdrantArgs
 from schema.chunk import Chunk
 from schema.embed import Embedded
 from schema.vectordb import VectorDb
@@ -85,46 +82,31 @@ def load_vectordb_from_path(collection_name: str, embedding_model: Embeddings, q
 	)
 
 class IndexingVectorDb:
-	def __init__(self, embedder_args: EmbedderArgs, chunking_args: ChunkingArgs, vectordb_args: VectorDbArgs):
+	def __init__(self, qdrant_args: QdrantArgs, embedding_hash: str, embedding_model: Embeddings):
 		"""
-		Input: embedder_args, the shared embedder settings; chunking_args, the chunking settings of the chunks the
-		collection holds; vectordb_args, the vector DB settings for one vector DB type.
+		Input: qdrant_args, the Qdrant settings; embedding_hash, the hash of the embeddings the collection is built from,
+		from embedding; embedding_model, which the vector store uses to embed queries.
 		Output: nothing.
-		What it does: stores the three args, validates them and loads the embedding model of the embedder's provider,
-		which the vector store uses to embed queries.
+		What it does: stores the three and validates the settings.
 		"""
-		self.embedder_args = embedder_args
-		self.chunking_args = chunking_args
-		self.vectordb_args = vectordb_args
+		self.qdrant_args = qdrant_args
+		self.embedding_hash = embedding_hash
+		self.embedding_model = embedding_model
 		self.validate()
-
-		# The same embedder as the embedding layer, so a query vector matches the chunk vectors
-		self.embedding_model = make_embedding_model(self.embedder_args)
 
 	def validate(self) -> None:
 		"""
 		Input: none.
 		Output: nothing.
-		What it does: raises ValueError if the embedding provider is not supported or a vector DB setting is not valid.
+		What it does: raises ValueError if the Qdrant URL is empty or the batch size is not greater than 0.
 		"""
-		vectordb_args = self.vectordb_args
+		qdrant_args = self.qdrant_args
 
-		if self.embedder_args.embedding_provider != constants.HUGGINGFACE_EMBEDDING:
-			raise ValueError(
-				f"embedding_provider ({self.embedder_args.embedding_provider}) is not supported. Use "
-				f"\"{constants.HUGGINGFACE_EMBEDDING}\"."
-			)
+		if qdrant_args.qdrant_url == "":
+			raise ValueError("qdrant_url is empty. Give it in the vectordb_indexing config.")
 
-		if vectordb_args.vectordb_type != constants.QDRANT_INDEX:
-			raise ValueError(
-				f"vectordb_type ({vectordb_args.vectordb_type}) is not supported. Use \"{constants.QDRANT_INDEX}\"."
-			)
-
-		if vectordb_args.qdrant_url == "":
-			raise ValueError("qdrant_url is empty.")
-
-		if vectordb_args.qdrant_batch_size <= 0:
-			raise ValueError(f"qdrant_batch_size ({vectordb_args.qdrant_batch_size}) must be greater than 0.")
+		if qdrant_args.qdrant_batch_size <= 0:
+			raise ValueError(f"qdrant_batch_size ({qdrant_args.qdrant_batch_size}) must be greater than 0.")
 
 	def load_saved_vectordb(self, chunks: dict[str, Chunk], collection_name: str) -> VectorDb:
 		"""
@@ -139,7 +121,7 @@ class IndexingVectorDb:
 			chunk_ids.append(chunk_id)
 
 		# 1. Connect to the server. QdrantClient does not connect until the first request, so one is made here
-		qdrant_url = self.vectordb_args.qdrant_url
+		qdrant_url = self.qdrant_args.qdrant_url
 		qdrant_client = QdrantClient(url=qdrant_url)
 		try:
 			qdrant_client.get_collections()
@@ -165,27 +147,17 @@ class IndexingVectorDb:
 		dimension = qdrant_client.get_collection(collection_name).config.params.vectors.size
 
 		return VectorDb(
-			vectordb_type=self.vectordb_args.vectordb_type,
+			vectordb_type=constants.QDRANT_INDEX,
 			vector_store=vector_store,
 			collection_name=collection_name,
 			dimension=dimension
 		)
 
-	def compute_vectordb(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> VectorDb:
-		"""
-		Input: chunks, a dict of chunk_id to Chunk; embeddings, a dict of chunk_id to Embedded; output_path, the
-		dataset's output folder.
-		Output: a VectorDb.
-		What it does: calls the indexing method of the vector DB type.
-		"""
-		# Only qdrant for now. validate() already rejected any other type
-		vectordb = self.qdrant_indexing(chunks, embeddings, output_path)
-		return vectordb
-
-	def qdrant_indexing(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> VectorDb:
+	def qdrant_indexing(self, chunks: dict[str, Chunk], embeddings: dict[str, Embedded], output_path: str) -> tuple[VectorDb, str, str]:
 		"""
 		Input: chunks; embeddings; output_path, the dataset's output folder.
-		Output: a VectorDb holding a LangChain QdrantVectorStore.
+		Output: (vectordb, vectordb_hash, collection_name): a VectorDb holding a LangChain QdrantVectorStore, its hash, and
+		the name of its collection.
 		What it does: reuses the collection if it holds the same chunks, otherwise rebuilds it and uploads the
 		existing vectors in batches. Raises ConnectionError if the server cannot be reached.
 		"""
@@ -201,7 +173,7 @@ class IndexingVectorDb:
 		dimension = len(vectors[0])
 
 		# 2. Connect to the server. QdrantClient does not connect until the first request, so one is made here
-		qdrant_url = self.vectordb_args.qdrant_url
+		qdrant_url = self.qdrant_args.qdrant_url
 		qdrant_client = QdrantClient(url=qdrant_url)
 		try:
 			qdrant_client.get_collections()
@@ -211,7 +183,8 @@ class IndexingVectorDb:
 			) from error
 
 		# 3. Reuse the collection if it holds exactly the same chunks, otherwise rebuild it
-		collection_name = paths.get_qdrant_collection_name(output_path, self.embedder_args, self.chunking_args, self.vectordb_args)
+		vectordb_hash = paths.get_vectordb_hash(output_path, constants.QDRANT_INDEX, self.embedding_hash)
+		collection_name = paths.get_qdrant_collection_name(constants.QDRANT_INDEX, vectordb_hash)
 		print(f"Qdrant collection : {collection_name}")
 		if qdrant_collection_holds_chunks(qdrant_client, collection_name, chunk_ids):
 			print(f"Qdrant collection loaded from cache : {len(chunk_ids)} points")
@@ -226,7 +199,7 @@ class IndexingVectorDb:
 
 			# 4. Upload the existing vectors in batches, in the payload layout QdrantVectorStore reads.
 			# add_texts is not used, because it would embed every chunk again
-			batch_size = self.vectordb_args.qdrant_batch_size
+			batch_size = self.qdrant_args.qdrant_batch_size
 			for batch_start in range(0, len(chunk_ids), batch_size):
 				batch_end = batch_start + batch_size
 				if batch_end > len(chunk_ids):
@@ -238,7 +211,7 @@ class IndexingVectorDb:
 					point = PointStruct(
 						id=position,
 						vector=vectors[position].tolist(),
-						payload={"page_content": chunks[chunk_id].text, "metadata": {"chunk_id": chunk_id}}
+						payload={"page_content": chunks[chunk_id].chunk_texts, "metadata": {"chunk_id": chunk_id}}
 					)
 					batch_points.append(point)
 
@@ -253,9 +226,10 @@ class IndexingVectorDb:
 			distance=Distance.COSINE
 		)
 
-		return VectorDb(
-			vectordb_type=self.vectordb_args.vectordb_type,
+		vectordb = VectorDb(
+			vectordb_type=constants.QDRANT_INDEX,
 			vector_store=vector_store,
 			collection_name=collection_name,
 			dimension=dimension
 		)
+		return vectordb, vectordb_hash, collection_name

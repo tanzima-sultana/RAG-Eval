@@ -102,87 +102,172 @@ def make_embedding_args(embedder_args: EmbedderArgs, chunking_args: ChunkingArgs
 
 
 @dataclasses.dataclass
-class IndexArgs:
-	index_type: str
+class FaissIVFArgs:
 	# nlist of the FAISS IVF index = ivf_nlist_multiplier * sqrt(number of chunks), capped at number of chunks // 39
 	ivf_nlist_multiplier: float
-	hnsw_m: int
-	hnsw_ef_construction: int
-	bm25_k1: float
-	bm25_b: float
-	bm25_tokenizer: str
-	# The hash of the input files the index is built from, so each input set gets its own index
-	input_hash: str
 
 
-def make_index_args(parsed_args: argparse.Namespace, index_type: str, input_hash: str, ivf_nlist_multiplier: float | None) -> IndexArgs:
+def make_faiss_ivf_args(parsed_args: argparse.Namespace, ivf_nlist_multiplier: float) -> FaissIVFArgs:
 	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args(); index_type, one of index_types; input_hash,
-	the hash of the input files; ivf_nlist_multiplier, one of the ivf_nlist_multiplier list for faiss_ivf, None for
-	the other index types.
-	Output: an IndexArgs holding the indexing settings for that index type.
-	What it does: copies index_type, ivf_nlist_multiplier, each other indexing setting and input_hash into the
-	matching IndexArgs field.
+	Input: parsed_args, the argparse.Namespace returned by parse_args(); ivf_nlist_multiplier, one of the
+	ivf_nlist_multiplier list.
+	Output: a FaissIVFArgs for one FAISS IVF index.
+	What it does: puts the multiplier into a FaissIVFArgs.
 	"""
-	index_args = IndexArgs(
-		index_type=index_type,
-		ivf_nlist_multiplier=ivf_nlist_multiplier,
-		hnsw_m=parsed_args.hnsw_m,
-		hnsw_ef_construction=parsed_args.hnsw_ef_construction,
-		bm25_k1=parsed_args.bm25_k1,
-		bm25_b=parsed_args.bm25_b,
-		bm25_tokenizer=parsed_args.bm25_tokenizer,
-		input_hash=input_hash
-	)
-	return index_args
+	faiss_ivf_args = FaissIVFArgs(ivf_nlist_multiplier=ivf_nlist_multiplier)
+	return faiss_ivf_args
 
 
 @dataclasses.dataclass
-class VectorDbArgs:
-	vectordb_type: str
+class FaissHNSWArgs:
+	hnsw_m: int
+	hnsw_ef_construction: int
+
+
+def make_faiss_hnsw_args(parsed_args: argparse.Namespace) -> FaissHNSWArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args().
+	Output: a FaissHNSWArgs for the FAISS HNSW index.
+	What it does: copies hnsw_m and hnsw_ef_construction into a FaissHNSWArgs. Raises ValueError if either is missing
+	from the faiss_hnsw block of the config.
+	"""
+	if parsed_args.hnsw_m is None:
+		raise ValueError("hnsw_m is missing. Give it in the faiss_hnsw block of the faiss_indexing config.")
+	if parsed_args.hnsw_ef_construction is None:
+		raise ValueError("hnsw_ef_construction is missing. Give it in the faiss_hnsw block of the faiss_indexing config.")
+
+	faiss_hnsw_args = FaissHNSWArgs(
+		hnsw_m=parsed_args.hnsw_m,
+		hnsw_ef_construction=parsed_args.hnsw_ef_construction
+	)
+	return faiss_hnsw_args
+
+
+def parse_faiss_indexing_args(parser: argparse.ArgumentParser) -> None:
+	"""
+	Input: parser, the argument parser of the build.
+	Output: nothing.
+	What it does: adds the FAISS indexing arguments to parser. faiss_types may be empty or missing. The settings of an
+	index type are in its own block of the config and are needed only when that type is built, so they are optional.
+	"""
+	parser.add_argument(
+		"--faiss_types",
+		type=str,
+		nargs="*",
+		default=[],
+		help="FAISS index types to build, one after another: faiss_flatip, faiss_ivf and/or faiss_hnsw. Empty builds none")
+	parser.add_argument(
+		"--faiss_ivf.ivf_nlist_multiplier",
+		dest="ivf_nlist_multiplier",
+		type=float,
+		nargs="+",
+		default=None,
+		help="One or more multipliers; each builds a FAISS IVF index with nlist = multiplier * sqrt(chunks), capped at chunks // 39")
+	parser.add_argument(
+		"--faiss_hnsw.hnsw_m",
+		dest="hnsw_m",
+		type=int,
+		default=None,
+		help="Number of neighbours per node of the FAISS HNSW index")
+	parser.add_argument(
+		"--faiss_hnsw.hnsw_ef_construction",
+		dest="hnsw_ef_construction",
+		type=int,
+		default=None,
+		help="Candidate list size used while building the FAISS HNSW index")
+
+
+@dataclasses.dataclass
+class Bm25IndexingArgs:
+	bm25_k1: float
+	bm25_b: float
+	bm25_tokenizer: str
+
+
+def make_bm25_indexing_args(parsed_args: argparse.Namespace) -> Bm25IndexingArgs:
+	"""
+	Input: parsed_args, the argparse.Namespace returned by parse_args().
+	Output: a Bm25IndexingArgs holding the BM25 indexing settings.
+	What it does: copies each BM25 setting into the matching Bm25IndexingArgs field.
+	"""
+	bm25_indexing_args = Bm25IndexingArgs(
+		bm25_k1=parsed_args.bm25_k1,
+		bm25_b=parsed_args.bm25_b,
+		bm25_tokenizer=parsed_args.bm25_tokenizer
+	)
+	return bm25_indexing_args
+
+
+def parse_bm25_indexing_args(parser: argparse.ArgumentParser) -> None:
+	"""
+	Input: parser, the argument parser of the build.
+	Output: nothing.
+	What it does: adds the BM25 indexing arguments to parser. BM25 is always built, so all three are required.
+	"""
+	parser.add_argument(
+		"--bm25_k1",
+		type=float,
+		required=True,
+		help="BM25 term frequency saturation")
+	parser.add_argument(
+		"--bm25_b",
+		type=float,
+		required=True,
+		help="BM25 document length normalization")
+	parser.add_argument(
+		"--bm25_tokenizer",
+		type=str,
+		required=True,
+		help="Tokenizer used by BM25: whitespace")
+
+
+@dataclasses.dataclass
+class QdrantArgs:
 	qdrant_url: str
 	qdrant_batch_size: int
-	# The hash of the input files the collection is built from, so each input set gets its own collection
-	input_hash: str
 
 
-def make_vectordb_args(parsed_args: argparse.Namespace, vectordb_type: str, input_hash: str) -> VectorDbArgs:
+def make_qdrant_args(parsed_args: argparse.Namespace) -> QdrantArgs:
 	"""
-	Input: parsed_args, the argparse.Namespace returned by parse_args(); vectordb_type, one of vectordb_types;
-	input_hash, the hash of the input files.
-	Output: a VectorDbArgs holding the vector DB settings for that vector DB type.
-	What it does: copies vectordb_type, each vector DB setting and input_hash into the matching VectorDbArgs field.
+	Input: parsed_args, the argparse.Namespace returned by parse_args().
+	Output: a QdrantArgs for the Qdrant collection.
+	What it does: copies qdrant_url and qdrant_batch_size into a QdrantArgs. Raises ValueError if either is missing
+	from the vectordb_indexing config.
 	"""
-	vectordb_args = VectorDbArgs(
-		vectordb_type=vectordb_type,
+	if parsed_args.qdrant_url is None:
+		raise ValueError("qdrant_url is missing. Give it in the vectordb_indexing config.")
+	if parsed_args.qdrant_batch_size is None:
+		raise ValueError("qdrant_batch_size is missing. Give it in the vectordb_indexing config.")
+
+	qdrant_args = QdrantArgs(
 		qdrant_url=parsed_args.qdrant_url,
-		qdrant_batch_size=parsed_args.qdrant_batch_size,
-		input_hash=input_hash
+		qdrant_batch_size=parsed_args.qdrant_batch_size
 	)
-	return vectordb_args
+	return qdrant_args
 
 
 def parse_vectordb_args(parser: argparse.ArgumentParser) -> None:
 	"""
-	Input: parser, the argument parser of main.py.
+	Input: parser, the argument parser of the build.
 	Output: nothing.
-	What it does: adds the vector DB arguments to parser.
+	What it does: adds the vector DB arguments to parser. vectordb_types may be empty or missing, so the Qdrant
+	settings are optional.
 	"""
 	parser.add_argument(
 		"--vectordb_types",
 		type=str,
-		nargs="+",
-		required=True,
-		help="Vector DB types to build, one after another: qdrant")
+		nargs="*",
+		default=[],
+		help="Vector DB types to build, one after another: qdrant. Empty builds none")
 	parser.add_argument(
 		"--qdrant_url",
 		type=str,
-		required=True,
+		default=None,
 		help="URL of the Qdrant server, e.g. http://localhost:6333")
 	parser.add_argument(
 		"--qdrant_batch_size",
 		type=int,
-		required=True,
+		default=None,
 		help="Number of points uploaded to Qdrant in one request")
 
 
@@ -419,28 +504,6 @@ def make_manifest_chunking_args(chunk_entry, embedding_model: str) -> ChunkingAr
 		semantic_threshold=chunk_entry.semantic_threshold
 	)
 	return chunking_args
-
-
-def make_manifest_index_args(chunking_args: ChunkingArgs, index_type: str, index_settings: dict, input_hash: str) -> IndexArgs:
-	"""
-	Input: chunking_args, the settings of the chunks the index holds; index_type, one index type, or "" for the chunk
-	type's retrieval settings; index_settings, the index settings from the build manifest's index entries, as a dict;
-	input_hash, the manifest's input hash.
-	Output: an IndexArgs holding the settings the build made the index with. A setting the dict does not hold is None.
-	What it does: copies each index setting from the dict into the matching IndexArgs field.
-	"""
-	index_args = IndexArgs(
-		chunking_args=chunking_args,
-		index_type=index_type,
-		ivf_nlist=index_settings.get("ivf_nlist"),
-		hnsw_m=index_settings.get("hnsw_m"),
-		hnsw_ef_construction=index_settings.get("hnsw_ef_construction"),
-		bm25_k1=index_settings.get("bm25_k1"),
-		bm25_b=index_settings.get("bm25_b"),
-		bm25_tokenizer=index_settings.get("bm25_tokenizer"),
-		input_hash=input_hash
-	)
-	return index_args
 
 
 @dataclasses.dataclass
@@ -689,59 +752,6 @@ def parse_pipeline_config() -> argparse.Namespace:
 	return parsed_args
 
 
-def parse_indexing_args(parser: argparse.ArgumentParser) -> None:
-	"""
-	Input: parser, the argument parser of main.py.
-	Output: nothing.
-	What it does: adds the indexing arguments to parser.
-	"""
-	parser.add_argument(
-		"--index_types",
-		type=str,
-		nargs="+",
-		required=True,
-		help="Index types to build, one after another: faiss_flatip, faiss_ivf, faiss_hnsw and/or bm25")
-	# Each index type's settings are in its own block of the config and are needed only when that type is built, so
-	# they are optional and None when the block is not given
-	parser.add_argument(
-		"--faiss_ivf.ivf_nlist_multiplier",
-		dest="ivf_nlist_multiplier",
-		type=float,
-		nargs="+",
-		default=None,
-		help="One or more multipliers; each builds a FAISS IVF index with nlist = multiplier * sqrt(chunks), capped at chunks // 39")
-	parser.add_argument(
-		"--faiss_hnsw.hnsw_m",
-		dest="hnsw_m",
-		type=int,
-		default=None,
-		help="Number of neighbours per node of the FAISS HNSW index")
-	parser.add_argument(
-		"--faiss_hnsw.hnsw_ef_construction",
-		dest="hnsw_ef_construction",
-		type=int,
-		default=None,
-		help="Candidate list size used while building the FAISS HNSW index")
-	parser.add_argument(
-		"--bm25.bm25_k1",
-		dest="bm25_k1",
-		type=float,
-		default=None,
-		help="BM25 term frequency saturation")
-	parser.add_argument(
-		"--bm25.bm25_b",
-		dest="bm25_b",
-		type=float,
-		default=None,
-		help="BM25 document length normalization")
-	parser.add_argument(
-		"--bm25.bm25_tokenizer",
-		dest="bm25_tokenizer",
-		type=str,
-		default=None,
-		help="Tokenizer used by BM25: whitespace")
-
-
 def parse_embedder_args(parser: argparse.ArgumentParser) -> None:
 	"""
 	Input: parser, the argument parser of the build.
@@ -839,7 +849,7 @@ def parse_args() -> argparse.Namespace:
 	Input: none. Reads --config and any override flags from the command line.
 	Output: an argparse.Namespace with one attribute per build setting.
 	What it does: reads the build config file, turns each setting into its flag and parses the build sections:
-	ingestion, embedder, chunking, indexing and vectordb. Flags given after --config override the file.
+	ingestion, embedder, chunking, faiss_indexing, bm25_indexing and vectordb_indexing. Flags given after --config override the file.
 	"""
 	# 1. Get the config file path. The other command line flags are overrides
 	config_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
@@ -884,7 +894,8 @@ def parse_args() -> argparse.Namespace:
 	parse_ingestion_args(parser)
 	parse_embedder_args(parser)
 	parse_chunking_args(parser)
-	parse_indexing_args(parser)
+	parse_faiss_indexing_args(parser)
+	parse_bm25_indexing_args(parser)
 	parse_vectordb_args(parser)
 
 	parsed_args = parser.parse_args(config_arguments + override_arguments)

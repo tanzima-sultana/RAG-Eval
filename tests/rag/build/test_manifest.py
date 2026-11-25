@@ -1,359 +1,206 @@
 """
 test_manifest.py
 
-Tests for rag.build.manifest on the build side: start_build_manifest, make_index_entry, make_vectordb_entry,
-save_build_manifest, load_build_manifest_from_path and is_build_complete.
+Tests for rag.build.manifest on the build side: make_build_manifest, save_build_manifests and load_build_manifests.
 """
 
-import argparse
 import json
 import os
-import shutil
-import types
 
 import pytest
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance
-from qdrant_client.models import VectorParams
 
 from common import paths
+from common.args import EmbeddingArgs
 from common.args import IngestionArgs
-from rag.build import manifest as manifest_module
-from rag.build.manifest import is_build_complete
-from rag.build.manifest import load_build_manifest_from_path
-from rag.build.manifest import make_index_entry
-from rag.build.manifest import make_vectordb_entry
-from rag.build.manifest import save_build_manifest
-from rag.build.manifest import start_build_manifest
+from rag.build.manifest import load_build_manifests
+from rag.build.manifest import make_build_manifest
+from rag.build.manifest import save_build_manifests
+from schema.manifest import Bm25Entry
+from schema.manifest import BuildManifest
 from schema.manifest import ChunkEntry
-from schema.manifest import IndexEntry
+from schema.manifest import EmbeddingEntry
+from schema.manifest import FaissEntry
+from schema.manifest import IngestionEntry
+from schema.manifest import VectorDbEntry
 
 
-def make_parsed_build_args():
+@pytest.fixture
+def make_entries(make_embedder_args, make_chunking_args, make_bm25_indexing_args):
     """
-    Input: none.
-    Output: an argparse.Namespace standing in for the parsed build config.
-    What it does: holds a few build args, enough to give a build hash.
+    Input: the make_embedder_args, make_chunking_args and make_bm25_indexing_args fixtures.
+    Output: a function that builds the entries every setup has.
+    What it does: returns a builder of the ingestion, chunk, embedding and BM25 entries with fixed hashes and paths.
     """
-    return argparse.Namespace(dataset_size=2, dataset_name="dataset", output_path="out/", model_name="fake-model")
+    def build_entries():
+        """
+        Input: none.
+        Output: (ingestion_entry, chunk_entry, embedding_entry, bm25_entry).
+        What it does: builds the four entries.
+        """
+        ingestion_args = IngestionArgs(dataset_size=2, dataset_name="dataset", input_path="data/", output_path="out/", document_type="pdf")
+        ingestion_entry = IngestionEntry(ingestion_args, "ingestionhash", "out/dataset/documents")
+        chunk_entry = ChunkEntry(make_chunking_args(), "chunkinghash", "out/dataset/chunks/chunks_x")
+        embedding_args = EmbeddingArgs(embedder_args=make_embedder_args(), chunking_args=make_chunking_args())
+        embedding_entry = EmbeddingEntry(embedding_args, "embeddinghash", "out/dataset/embeddings/embeddings_x")
+        bm25_entry = Bm25Entry(make_bm25_indexing_args(), "bm25hash", "out/dataset/indexes/bm25_x")
+        return ingestion_entry, chunk_entry, embedding_entry, bm25_entry
+
+    return build_entries
 
 
-def test_start_build_manifest_fills_the_build_hash_and_dataset(tmp_path, make_embedder_args):
+@pytest.fixture
+def make_manifest(make_entries, make_embedder_args):
     """
-    Input: ingestion args and the parsed build args.
-    Output: the started manifest.
-    What it does: checks the build hash, dataset and documents folder are filled, with no entries yet.
+    Input: the make_entries and make_embedder_args fixtures.
+    Output: a function that builds one BuildManifest from a FAISS entry or a vector DB entry.
+    What it does: returns a builder that calls make_build_manifest with the default entries.
     """
-    ingestion_args = IngestionArgs(dataset_size=2, dataset_name="dataset", input_path="data/", output_path=str(tmp_path), document_type="pdf")
-    parsed_args = make_parsed_build_args()
-    embedder_args = make_embedder_args()
+    def build_manifest(faiss_entry, vectordb_entry):
+        """
+        Input: faiss_entry, a FaissEntry or None; vectordb_entry, a VectorDbEntry or None.
+        Output: the BuildManifest of that setup.
+        What it does: calls make_build_manifest.
+        """
+        ingestion_entry, chunk_entry, embedding_entry, bm25_entry = make_entries()
+        return make_build_manifest(
+            "dataset",
+            2,
+            ingestion_entry,
+            chunk_entry,
+            make_embedder_args(),
+            embedding_entry,
+            bm25_entry,
+            faiss_entry,
+            vectordb_entry
+        )
 
-    manifest = start_build_manifest(ingestion_args, embedder_args, parsed_args, "testinputhash")
+    return build_manifest
 
-    assert manifest.build_hash == paths.get_build_hash(parsed_args, "testinputhash")
-    assert manifest.input_hash == "testinputhash"
+
+# ---------- make_build_manifest ----------
+
+
+def test_make_build_manifest_for_a_faiss_setup(make_manifest, make_faiss_ivf_args):
+    """
+    Input: a FAISS IVF entry and no vector DB entry.
+    Output: the BuildManifest.
+    What it does: checks the vector DB entry is None, the FAISS entry is kept, and the build hash is the one
+    get_build_hash gives with an empty vector DB hash.
+    """
+    faiss_entry = FaissEntry("faiss_ivf", make_faiss_ivf_args(), "faisshash", "out/dataset/indexes/faiss_ivf_x")
+
+    manifest = make_manifest(faiss_entry, None)
+
+    assert manifest.vectordb_index_entry is None
+    assert manifest.faiss_index_entry == faiss_entry
+    assert manifest.build_hash == paths.get_build_hash("ingestionhash", "chunkinghash", "embeddinghash", "bm25hash", "faisshash", "")
     assert manifest.dataset_name == "dataset"
     assert manifest.dataset_size == 2
-    assert manifest.documents_path == os.path.join(str(tmp_path), "dataset", "documents")
-    assert manifest.embedder == make_embedder_args()
-    assert manifest.chunk_entries == []
-    assert manifest.index_entries == []
 
 
-def test_save_build_manifest_writes_to_the_build_hash_file(tmp_path, make_embedder_args):
+def test_make_build_manifest_for_a_vector_db_setup(make_manifest, make_qdrant_args):
     """
-    Input: a started manifest and the dataset's output folder.
+    Input: a vector DB entry and no FAISS entry.
+    Output: the BuildManifest.
+    What it does: checks the FAISS entry is None, the vector DB entry is kept, and the build hash is the one
+    get_build_hash gives with an empty FAISS hash.
+    """
+    vectordb_entry = VectorDbEntry("qdrant", make_qdrant_args(), "vectordbhash", "qdrant_x")
+
+    manifest = make_manifest(None, vectordb_entry)
+
+    assert manifest.faiss_index_entry is None
+    assert manifest.vectordb_index_entry == vectordb_entry
+    assert manifest.build_hash == paths.get_build_hash("ingestionhash", "chunkinghash", "embeddinghash", "bm25hash", "", "vectordbhash")
+
+
+def test_make_build_manifest_gives_each_setup_its_own_build_hash(make_manifest, make_faiss_ivf_args, make_faiss_hnsw_args):
+    """
+    Input: two FAISS setups of the same chunk set, with different index hashes.
+    Output: the two build hashes.
+    What it does: checks each setup has its own build hash.
+    """
+    ivf_manifest = make_manifest(FaissEntry("faiss_ivf", make_faiss_ivf_args(), "ivfhash", "path_a"), None)
+    hnsw_manifest = make_manifest(FaissEntry("faiss_hnsw", make_faiss_hnsw_args(), "hnswhash", "path_b"), None)
+
+    assert ivf_manifest.build_hash != hnsw_manifest.build_hash
+
+
+# ---------- save_build_manifests ----------
+
+
+def test_save_build_manifests_writes_one_file_named_by_dataset_size_and_the_build_hashes(make_manifest, make_faiss_hnsw_args, make_qdrant_args, tmp_path):
+    """
+    Input: the manifests of a FAISS setup and a vector DB setup.
     Output: the saved file.
-    What it does: checks the manifest is saved to build/manifest_{dataset_name}_{dataset_size}_{build hash}.json with
-    its build hash and build time.
+    What it does: checks one file is written to the path get_build_manifest_path gives, and it holds both manifests in
+    order.
     """
-    ingestion_args = IngestionArgs(dataset_size=2, dataset_name="dataset", input_path="data/", output_path=str(tmp_path), document_type="pdf")
-    parsed_args = make_parsed_build_args()
-    output_path = os.path.join(str(tmp_path), "dataset")
-    embedder_args = make_embedder_args()
-    manifest = start_build_manifest(ingestion_args, embedder_args, parsed_args, "testinputhash")
+    faiss_manifest = make_manifest(FaissEntry("faiss_hnsw", make_faiss_hnsw_args(), "hnswhash", "path_a"), None)
+    vectordb_manifest = make_manifest(None, VectorDbEntry("qdrant", make_qdrant_args(), "vectordbhash", "qdrant_x"))
 
-    save_build_manifest(manifest, output_path, parsed_args, "testinputhash")
+    manifest_path = save_build_manifests([faiss_manifest, vectordb_manifest], str(tmp_path), "dataset", 2)
 
-    manifest_file = os.path.join(output_path, "build", f"manifest_dataset_2_{paths.get_build_hash(parsed_args, 'testinputhash')}.json")
-    with open(manifest_file, encoding="utf-8") as f:
-        saved_manifest = json.load(f)
-    assert saved_manifest["build_hash"] == paths.get_build_hash(parsed_args, "testinputhash")
-    assert saved_manifest["input_hash"] == "testinputhash"
-    assert saved_manifest["built_at"] != ""
-    assert not os.path.exists(manifest_file + ".tmp")
+    expected_path = paths.get_build_manifest_path(str(tmp_path), "dataset", 2, [faiss_manifest.build_hash, vectordb_manifest.build_hash])
+    assert manifest_path == expected_path
+    assert os.listdir(os.path.join(str(tmp_path), "build")) == [os.path.basename(expected_path)]
+    with open(manifest_path, encoding="utf-8") as f:
+        saved_manifests = json.load(f)
+    assert [saved["build_hash"] for saved in saved_manifests] == [faiss_manifest.build_hash, vectordb_manifest.build_hash]
+    assert saved_manifests[0]["vectordb_index_entry"] is None
+    assert saved_manifests[1]["faiss_index_entry"] is None
 
 
-# ---------- make_index_entry / make_vectordb_entry ----------
-
-
-def make_built_index(index_path, nlist):
+def test_save_build_manifests_overwrites_a_file_with_the_same_name(make_manifest, make_faiss_hnsw_args, tmp_path):
     """
-    Input: index_path, where the built index is; nlist, the nlist of its FAISS index, or None for no FAISS index.
-    Output: a stand-in for the FaissIndex or Bm25Index the build returns.
-    What it does: holds index_path and, when nlist is given, vector_store.index.nlist, the fields make_index_entry reads.
+    Input: the same manifests saved twice.
+    Output: the files in the build folder.
+    What it does: checks the second save writes to the same file, and no temporary file is left.
     """
-    if nlist is None:
-        return types.SimpleNamespace(index_path=index_path)
-    faiss_index = types.SimpleNamespace(nlist=nlist)
-    vector_store = types.SimpleNamespace(index=faiss_index)
-    return types.SimpleNamespace(index_path=index_path, vector_store=vector_store)
+    manifest = make_manifest(FaissEntry("faiss_hnsw", make_faiss_hnsw_args(), "hnswhash", "path_a"), None)
+
+    first_path = save_build_manifests([manifest], str(tmp_path), "dataset", 2)
+    second_path = save_build_manifests([manifest], str(tmp_path), "dataset", 2)
+
+    assert first_path == second_path
+    assert os.listdir(os.path.join(str(tmp_path), "build")) == [os.path.basename(first_path)]
 
 
-def test_make_index_entry_records_the_built_nlist_for_faiss_ivf(make_chunking_args, make_index_args):
+def test_save_build_manifests_gives_another_set_of_setups_another_file(make_manifest, make_faiss_ivf_args, make_faiss_hnsw_args, tmp_path):
     """
-    Input: faiss_ivf index args with ivf_nlist_multiplier 4, and a built IVF index with nlist 7.
-    Output: the IndexEntry.
-    What it does: checks the multiplier goes into index_settings and the built nlist into built_settings.
+    Input: one manifest saved, then two manifests saved.
+    Output: the files in the build folder.
+    What it does: checks a different set of setups is saved to a different file, and the first file stays.
     """
-    index_args = make_index_args(index_type="faiss_ivf", ivf_nlist_multiplier=4)
+    ivf_manifest = make_manifest(FaissEntry("faiss_ivf", make_faiss_ivf_args(), "ivfhash", "path_a"), None)
+    hnsw_manifest = make_manifest(FaissEntry("faiss_hnsw", make_faiss_hnsw_args(), "hnswhash", "path_b"), None)
 
-    index_entry = make_index_entry(make_chunking_args(), index_args, make_built_index("indexes/faiss_ivf_test", 7), 10)
+    save_build_manifests([ivf_manifest], str(tmp_path), "dataset", 2)
+    save_build_manifests([ivf_manifest, hnsw_manifest], str(tmp_path), "dataset", 2)
 
-    assert index_entry.chunk_type == "fixed"
-    assert index_entry.index_type == "faiss_ivf"
-    assert index_entry.index_settings == {"ivf_nlist_multiplier": 4}
-    assert index_entry.built_settings == {"nlist": 7}
-    assert index_entry.location == "indexes/faiss_ivf_test"
-    assert index_entry.count == 10
+    assert len(os.listdir(os.path.join(str(tmp_path), "build"))) == 2
 
 
-def test_make_index_entry_has_empty_built_settings_for_other_index_types(make_chunking_args, make_index_args):
+# ---------- load_build_manifests ----------
+
+
+def test_load_build_manifests_gives_back_the_saved_manifests(make_manifest, make_faiss_ivf_args, make_faiss_hnsw_args, make_qdrant_args, tmp_path):
     """
-    Input: bm25 index args and a built BM25 index whose path is its pickle file.
-    Output: the IndexEntry.
-    What it does: checks built_settings is empty and the location is the pickle's folder.
+    Input: the manifests of an IVF setup, an HNSW setup, a flat setup and a vector DB setup, saved and loaded.
+    Output: the loaded manifests.
+    What it does: checks every manifest is equal to the saved one, so the entries and their args come back as their own
+    classes, with None where there is no FAISS args or no entry.
     """
-    index_args = make_index_args(index_type="bm25")
+    manifests = []
+    manifests.append(make_manifest(FaissEntry("faiss_ivf", make_faiss_ivf_args(), "ivfhash", "path_a"), None))
+    manifests.append(make_manifest(FaissEntry("faiss_hnsw", make_faiss_hnsw_args(), "hnswhash", "path_b"), None))
+    manifests.append(make_manifest(FaissEntry("faiss_flatip", None, "fliphash", "path_c"), None))
+    manifests.append(make_manifest(None, VectorDbEntry("qdrant", make_qdrant_args(), "vectordbhash", "qdrant_x")))
+    manifest_path = save_build_manifests(manifests, str(tmp_path), "dataset", 2)
 
-    index_entry = make_index_entry(make_chunking_args(), index_args, make_built_index("indexes/bm25_test/bm25_retriever.pkl", None), 10)
+    loaded_manifests = load_build_manifests(manifest_path)
 
-    assert index_entry.built_settings == {}
-    assert index_entry.location == "indexes/bm25_test"
-
-
-def test_make_vectordb_entry_has_empty_settings(make_chunking_args, make_vectordb_args):
-    """
-    Input: the vector DB args and a collection name.
-    Output: the IndexEntry.
-    What it does: checks the collection name is the location and both settings dicts are empty.
-    """
-    index_entry = make_vectordb_entry(make_chunking_args(), make_vectordb_args(), "qdrant_test", 10)
-
-    assert index_entry.index_type == "qdrant"
-    assert index_entry.index_settings == {}
-    assert index_entry.built_settings == {}
-    assert index_entry.location == "qdrant_test"
-
-
-# ---------- load_build_manifest_from_path ----------
-
-
-def test_load_build_manifest_from_path_gives_the_saved_manifest(tmp_path, make_embedder_args):
-    """
-    Input: a manifest with one chunk and one index entry, saved to its build hash file.
-    Output: the manifest loaded from that file's path.
-    What it does: checks the loaded manifest equals the saved one, with ChunkEntry and IndexEntry entries.
-    """
-    ingestion_args = IngestionArgs(dataset_size=2, dataset_name="dataset", input_path="data/", output_path=str(tmp_path), document_type="pdf")
-    parsed_args = make_parsed_build_args()
-    output_path = os.path.join(str(tmp_path), "dataset")
-    embedder_args = make_embedder_args()
-    manifest = start_build_manifest(ingestion_args, embedder_args, parsed_args, "testinputhash")
-    manifest.chunk_entries.append(ChunkEntry("fixed", 2, 6, 2, "chunks_test", "embeddings_test", 4))
-    manifest.index_entries.append(IndexEntry("fixed", "faiss_ivf", {"ivf_nlist_multiplier": 1.0}, {"nlist": 2}, "faiss_ivf_test", 4))
-    save_build_manifest(manifest, output_path, parsed_args, "testinputhash")
-    manifest_file = paths.get_build_manifest_path(output_path, parsed_args, "testinputhash")
-
-    loaded_manifest = load_build_manifest_from_path(manifest_file)
-
-    assert loaded_manifest == manifest
-    assert isinstance(loaded_manifest.chunk_entries[0], ChunkEntry)
-    assert isinstance(loaded_manifest.index_entries[0], IndexEntry)
-
-
-def test_load_build_manifest_from_path_raises_when_the_file_is_missing(tmp_path):
-    """
-    Input: a path with no manifest file.
-    Output: FileNotFoundError.
-    What it does: checks a missing manifest is reported with its path.
-    """
-    with pytest.raises(FileNotFoundError, match="No build manifest"):
-        load_build_manifest_from_path(os.path.join(str(tmp_path), "manifest_missing.json"))
-
-
-# ---------- is_build_complete ----------
-
-
-def save_complete_build(tmp_path, with_qdrant, embedder_args):
-    """
-    Input: tmp_path; with_qdrant, True to add a Qdrant entry named "qdrant_test"; embedder_args.
-    Output: (output_path, parsed_args), with a saved manifest of input hash "testinputhash" whose outputs all exist on disk.
-    What it does: makes the documents list, one chunk and embedding folder and one FAISS folder, and saves a manifest
-    listing them.
-    """
-    ingestion_args = IngestionArgs(dataset_size=2, dataset_name="dataset", input_path="data/", output_path=str(tmp_path), document_type="pdf")
-    parsed_args = make_parsed_build_args()
-    parsed_args.qdrant_url = "http://qdrant-test:6333"
-    output_path = os.path.join(str(tmp_path), "dataset")
-    manifest = start_build_manifest(ingestion_args, embedder_args, parsed_args, "testinputhash")
-
-    os.makedirs(manifest.documents_path)
-    with open(os.path.join(manifest.documents_path, "doc_ids_testinputhash.json"), "w", encoding="utf-8") as f:
-        json.dump(["doc1", "doc2"], f)
-
-    chunk_path = os.path.join(output_path, "chunks", "chunks_test")
-    embedding_path = os.path.join(output_path, "embeddings", "embeddings_test")
-    faiss_path = os.path.join(output_path, "indexes", "faiss_flatip_test")
-    os.makedirs(chunk_path)
-    os.makedirs(embedding_path)
-    os.makedirs(faiss_path)
-
-    manifest.chunk_entries.append(ChunkEntry("fixed", 2, 6, 2, chunk_path, embedding_path, 4))
-    manifest.index_entries.append(IndexEntry("fixed", "faiss_flatip", {}, {}, faiss_path, 4))
-    if with_qdrant:
-        manifest.index_entries.append(IndexEntry("fixed", "qdrant", {}, {}, "qdrant_test", 4))
-
-    save_build_manifest(manifest, output_path, parsed_args, "testinputhash")
-    return output_path, parsed_args
-
-
-def use_memory_qdrant(monkeypatch, collection_names):
-    """
-    Input: pytest's monkeypatch fixture; collection_names, the collections the fake server holds.
-    Output: nothing.
-    What it does: makes is_build_complete connect to an in-memory Qdrant holding those collections.
-    """
-    qdrant_client = QdrantClient(":memory:")
-    for collection_name in collection_names:
-        qdrant_client.create_collection(collection_name, vectors_config=VectorParams(size=4, distance=Distance.COSINE))
-
-    def connect_memory_qdrant_client(url=None):
-        """
-        Input: url, ignored.
-        Output: the in-memory client.
-        What it does: stands in for QdrantClient(url=...).
-        """
-        return qdrant_client
-
-    monkeypatch.setattr(manifest_module, "QdrantClient", connect_memory_qdrant_client)
-
-
-def test_is_build_complete_is_false_without_a_manifest(tmp_path):
-    """
-    Input: an output folder with no manifest.
-    Output: False.
-    What it does: checks a build with new args runs.
-    """
-    assert is_build_complete(os.path.join(str(tmp_path), "dataset"), make_parsed_build_args(), "testinputhash") is False
-
-
-def test_is_build_complete_is_false_when_the_input_files_changed(tmp_path, monkeypatch, make_embedder_args):
-    """
-    Input: a complete build of input hash "testinputhash", checked with another input hash.
-    Output: False.
-    What it does: checks changed input files make the build run again.
-    """
-    output_path, parsed_args = save_complete_build(tmp_path, with_qdrant=True, embedder_args=make_embedder_args())
-    use_memory_qdrant(monkeypatch, ["qdrant_test"])
-
-    assert is_build_complete(output_path, parsed_args, "otherinputhash") is False
-
-
-def test_is_build_complete_is_true_when_every_output_exists(tmp_path, monkeypatch, make_embedder_args):
-    """
-    Input: a saved manifest whose folders and Qdrant collection all exist.
-    Output: True.
-    What it does: checks a finished build with the same args is skipped.
-    """
-    output_path, parsed_args = save_complete_build(tmp_path, with_qdrant=True, embedder_args=make_embedder_args())
-    use_memory_qdrant(monkeypatch, ["qdrant_test"])
-
-    assert is_build_complete(output_path, parsed_args, "testinputhash") is True
-
-
-@pytest.mark.parametrize("missing_folder", [
-    os.path.join("chunks", "chunks_test"),
-    os.path.join("embeddings", "embeddings_test"),
-    os.path.join("indexes", "faiss_flatip_test"),
-    os.path.join("documents", "doc_ids_testinputhash.json"),
-])
-def test_is_build_complete_is_false_when_one_output_is_missing(tmp_path, monkeypatch, missing_folder, make_embedder_args):
-    """
-    Input: a saved manifest with one listed output removed.
-    Output: False.
-    What it does: checks the build runs again if any one output is missing.
-    """
-    output_path, parsed_args = save_complete_build(tmp_path, with_qdrant=True, embedder_args=make_embedder_args())
-    use_memory_qdrant(monkeypatch, ["qdrant_test"])
-    missing_path = os.path.join(output_path, missing_folder)
-    if os.path.isdir(missing_path):
-        shutil.rmtree(missing_path)
-    else:
-        os.remove(missing_path)
-
-    assert is_build_complete(output_path, parsed_args, "testinputhash") is False
-
-
-def test_is_build_complete_is_false_when_a_qdrant_collection_is_missing(tmp_path, monkeypatch, make_embedder_args):
-    """
-    Input: a saved manifest with a Qdrant entry, and a Qdrant server without that collection.
-    Output: False.
-    What it does: checks a deleted collection makes the build run again.
-    """
-    output_path, parsed_args = save_complete_build(tmp_path, with_qdrant=True, embedder_args=make_embedder_args())
-    use_memory_qdrant(monkeypatch, [])
-
-    assert is_build_complete(output_path, parsed_args, "testinputhash") is False
-
-
-def test_is_build_complete_raises_when_qdrant_is_needed_and_not_reachable(tmp_path, monkeypatch, make_embedder_args):
-    """
-    Input: a saved manifest with a Qdrant entry, and a Qdrant client that cannot connect.
-    Output: ConnectionError.
-    What it does: checks the check stops instead of going on when Qdrant is down.
-    """
-    output_path, parsed_args = save_complete_build(tmp_path, with_qdrant=True, embedder_args=make_embedder_args())
-
-    class UnreachableQdrantClient:
-        def __init__(self, url=None):
-            """
-            Input: url, ignored.
-            Output: nothing.
-            What it does: stands in for a client whose server is down.
-            """
-            self.url = url
-
-        def get_collections(self):
-            """
-            Input: none.
-            Output: none.
-            What it does: fails like a refused connection.
-            """
-            raise OSError("Connection refused")
-
-    monkeypatch.setattr(manifest_module, "QdrantClient", UnreachableQdrantClient)
-
-    with pytest.raises(ConnectionError, match="not reachable"):
-        is_build_complete(output_path, parsed_args, "testinputhash")
-
-
-def test_is_build_complete_does_not_connect_to_qdrant_without_qdrant_entries(tmp_path, monkeypatch, make_embedder_args):
-    """
-    Input: a saved manifest with no Qdrant entry, and a Qdrant client that fails if built.
-    Output: True.
-    What it does: checks Qdrant is not touched when the build made no Qdrant collection.
-    """
-    output_path, parsed_args = save_complete_build(tmp_path, with_qdrant=False, embedder_args=make_embedder_args())
-
-    def fail_to_connect(url=None):
-        """
-        Input: url.
-        Output: none.
-        What it does: fails the test if a Qdrant client is built.
-        """
-        raise AssertionError("Qdrant was contacted for a build with no Qdrant entries")
-
-    monkeypatch.setattr(manifest_module, "QdrantClient", fail_to_connect)
-
-    assert is_build_complete(output_path, parsed_args, "testinputhash") is True
+    assert loaded_manifests == manifests
+    assert isinstance(loaded_manifests[0], BuildManifest)
+    assert loaded_manifests[2].faiss_index_entry.faiss_args is None
+    assert loaded_manifests[3].faiss_index_entry is None

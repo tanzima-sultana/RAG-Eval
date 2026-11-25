@@ -5,19 +5,24 @@ Shared fakes and fixtures for the rag test suite.
 The real models are replaced with fakes, so no model is downloaded.
 """
 
+import re
+
 import numpy as np
 import pytest
 import sentence_transformers
 from langchain_core.embeddings import Embeddings
 
+from common.args import Bm25IndexingArgs
 from common.args import ChunkingArgs
 from common.args import EmbedderArgs
-from common.args import IndexArgs
-from common.args import VectorDbArgs
+from common.args import FaissHNSWArgs
+from common.args import FaissIVFArgs
+from common.args import QdrantArgs
 from schema.chunk import Chunk
 from schema.file import File
 from schema.file import FileType
 from schema.file import Metadata
+from schema.file import Page
 from schema.embed import Embedded
 
 DIMENSION = 4
@@ -51,6 +56,24 @@ class FakeLangchainTokenizer:
         What it does: turns tokens back into text.
         """
         return " ".join(tokens)
+
+    def __call__(self, text, add_special_tokens=True, return_offsets_mapping=False):
+        """
+        Input: text; add_special_tokens (ignored, none are added); return_offsets_mapping.
+        Output: a dict with "input_ids", one id per word, and, if asked, "offset_mapping", the (start, end) position of
+        every word in text.
+        What it does: finds the words of text, the way a fast tokenizer finds the tokens and their positions.
+        """
+        input_ids = []
+        offset_mapping = []
+        for word_match in re.finditer(r"\S+", text):
+            input_ids.append(len(input_ids))
+            offset_mapping.append((word_match.start(), word_match.end()))
+
+        encoded = {"input_ids": input_ids}
+        if return_offsets_mapping:
+            encoded["offset_mapping"] = offset_mapping
+        return encoded
 
 
 class FakeSentenceTransformer:
@@ -199,76 +222,126 @@ def make_chunking_args():
 
 
 @pytest.fixture
-def make_index_args():
+def make_faiss_ivf_args():
     """
     Input: none.
-    Output: a function that builds an IndexArgs.
-    What it does: returns a builder with small defaults (ivf_nlist_multiplier 1.0, hnsw_m 4) where any field can be overridden.
+    Output: a function that builds a FaissIVFArgs.
+    What it does: returns a builder with the default ivf_nlist_multiplier 1.0 where it can be overridden.
     """
-    def build_index_args(**overrides):
+    def build_faiss_ivf_args(**overrides):
         """
-        Input: any IndexArgs field as a keyword argument.
-        Output: an IndexArgs with the defaults plus the overrides.
+        Input: any FaissIVFArgs field as a keyword argument.
+        Output: a FaissIVFArgs with the defaults plus the overrides.
         What it does: fills in defaults for every field not overridden.
         """
         field_values = {}
-        field_values["index_type"] = "faiss_flatip"
         field_values["ivf_nlist_multiplier"] = 1.0
+        for field_name in overrides:
+            field_values[field_name] = overrides[field_name]
+        return FaissIVFArgs(**field_values)
+
+    return build_faiss_ivf_args
+
+
+@pytest.fixture
+def make_faiss_hnsw_args():
+    """
+    Input: none.
+    Output: a function that builds a FaissHNSWArgs.
+    What it does: returns a builder with small defaults (hnsw_m 4, hnsw_ef_construction 8) where any field can be
+    overridden.
+    """
+    def build_faiss_hnsw_args(**overrides):
+        """
+        Input: any FaissHNSWArgs field as a keyword argument.
+        Output: a FaissHNSWArgs with the defaults plus the overrides.
+        What it does: fills in defaults for every field not overridden.
+        """
+        field_values = {}
         field_values["hnsw_m"] = 4
         field_values["hnsw_ef_construction"] = 8
+        for field_name in overrides:
+            field_values[field_name] = overrides[field_name]
+        return FaissHNSWArgs(**field_values)
+
+    return build_faiss_hnsw_args
+
+
+@pytest.fixture
+def make_bm25_indexing_args():
+    """
+    Input: none.
+    Output: a function that builds a Bm25IndexingArgs.
+    What it does: returns a builder with the usual BM25 defaults where any field can be overridden.
+    """
+    def build_bm25_indexing_args(**overrides):
+        """
+        Input: any Bm25IndexingArgs field as a keyword argument.
+        Output: a Bm25IndexingArgs with the defaults plus the overrides.
+        What it does: fills in defaults for every field not overridden.
+        """
+        field_values = {}
         field_values["bm25_k1"] = 1.5
         field_values["bm25_b"] = 0.75
         field_values["bm25_tokenizer"] = "whitespace"
-        field_values["input_hash"] = "testinputhash"
         for field_name in overrides:
             field_values[field_name] = overrides[field_name]
-        return IndexArgs(**field_values)
+        return Bm25IndexingArgs(**field_values)
 
-    return build_index_args
+    return build_bm25_indexing_args
 
 
 @pytest.fixture
-def make_vectordb_args():
+def make_qdrant_args():
     """
     Input: none.
-    Output: a function that builds a VectorDbArgs.
+    Output: a function that builds a QdrantArgs.
     What it does: returns a builder with small defaults (batch size 3) where any field can be overridden.
     """
-    def build_vectordb_args(**overrides):
+    def build_qdrant_args(**overrides):
         """
-        Input: any VectorDbArgs field as a keyword argument.
-        Output: a VectorDbArgs with the defaults plus the overrides.
+        Input: any QdrantArgs field as a keyword argument.
+        Output: a QdrantArgs with the defaults plus the overrides.
         What it does: fills in defaults for every field not overridden.
         """
         field_values = {}
-        field_values["vectordb_type"] = "qdrant"
         field_values["qdrant_url"] = "http://localhost:6333"
         field_values["qdrant_batch_size"] = 3
-        field_values["input_hash"] = "testinputhash"
         for field_name in overrides:
             field_values[field_name] = overrides[field_name]
-        return VectorDbArgs(**field_values)
+        return QdrantArgs(**field_values)
 
-    return build_vectordb_args
+    return build_qdrant_args
 
 
 @pytest.fixture
-def make_document():
+def make_file():
     """
     Input: none.
-    Output: a function that builds a File from an id and text.
+    Output: a function that builds a File from a document id and the texts of its pages.
     What it does: returns a builder that fills in minimal valid metadata.
     """
-    def build_document(doc_id, text):
+    def build_file(document_id, page_texts):
         """
-        Input: doc_id and text.
-        Output: a pdf File with that id and text.
-        What it does: builds the File with placeholder metadata.
+        Input: document_id; page_texts, the list of the texts of the file's pages, in page order.
+        Output: a pdf File with that id and one Page per text, keyed by its 0-based page number.
+        What it does: builds the File with placeholder metadata. Its document_texts are the page texts joined with "\\n\\f".
         """
-        metadata = Metadata(source="file.pdf", file_size_bytes=1, content_hash="hash")
-        return File(id=doc_id, type=FileType.PDF, text=text, metadata=metadata)
+        pages = {}
+        for page_number in range(len(page_texts)):
+            pages[page_number] = Page(page_id=f"{document_id}_{page_number}", page_number=page_number, page_texts=page_texts[page_number])
 
-    return build_document
+        metadata = Metadata(file_size_bytes=1, content_hash="hash", minhash_signature=None, page_count=len(page_texts), parser="parser")
+        return File(
+            document_id=document_id,
+            document_type=FileType.PDF,
+            document_texts="\n\f".join(page_texts),
+            source="file.pdf",
+            metadata=metadata,
+            pages=pages,
+        )
+
+    return build_file
 
 
 @pytest.fixture
@@ -290,7 +363,7 @@ def make_chunks_and_embeddings():
         for chunk_index in range(chunk_count):
             doc_index = chunk_index % doc_count
             chunk_id = f"doc{doc_index}_{chunk_index}"
-            chunks[chunk_id] = Chunk(chunk_id, f"word{chunk_index} shared", 2, "fixed")
+            chunks[chunk_id] = Chunk(chunk_id, f"word{chunk_index} shared", 2, "fixed", "file.pdf", [0])
 
             vector = random_generator.normal(size=DIMENSION).astype(np.float32)
             vector = vector / np.linalg.norm(vector)

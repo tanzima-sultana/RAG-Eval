@@ -4,9 +4,7 @@ import pickle
 from langchain_community.retrievers import BM25Retriever
 
 from common import paths
-from common.args import ChunkingArgs
-from common.args import EmbedderArgs
-from common.args import IndexArgs
+from common.args import Bm25IndexingArgs
 from schema.chunk import Chunk
 from schema.index import Bm25Index
 
@@ -95,22 +93,38 @@ def load_bm25_index_from_path(index_folder: str) -> Bm25Index:
 	return Bm25Index(retriever=retriever, index_path=retriever_file_path)
 
 
-class Bm25Indexer:
-	def __init__(self, embedder_args: EmbedderArgs, chunking_args: ChunkingArgs, index_args: IndexArgs):
+class Bm25Indexing:
+	def __init__(self, bm25_args: Bm25IndexingArgs, chunking_hash: str):
 		"""
-		Input: embedder_args; chunking_args, the chunking settings of the chunks the index holds; index_args, the
-		indexing settings of the BM25 index.
+		Input: bm25_args, the BM25 indexing settings; chunking_hash, the hash of the chunks the index is built from, from
+		chunking.
 		Output: nothing.
-		What it does: stores the args the BM25 indexing method uses.
+		What it does: stores the two and validates the settings.
 		"""
-		self.embedder_args = embedder_args
-		self.chunking_args = chunking_args
-		self.index_args = index_args
+		self.bm25_args = bm25_args
+		self.chunking_hash = chunking_hash
+		self.validate()
 
-	def bm25_indexing(self, chunks: dict[str, Chunk], output_path: str) -> Bm25Index:
+	def validate(self) -> None:
+		"""
+		Input: none.
+		Output: nothing.
+		What it does: raises ValueError if a BM25 setting is missing or not valid.
+		"""
+		bm25_args = self.bm25_args
+
+		if bm25_args.bm25_k1 is None:
+			raise ValueError("bm25_k1 is missing. Give it in the bm25_indexing config.")
+		if bm25_args.bm25_b is None:
+			raise ValueError("bm25_b is missing. Give it in the bm25_indexing config.")
+		if bm25_args.bm25_tokenizer != "whitespace":
+			raise ValueError(f"bm25_tokenizer ({bm25_args.bm25_tokenizer}) is not supported. Use \"whitespace\".")
+
+	def bm25_indexing(self, chunks: dict[str, Chunk], output_path: str) -> tuple[Bm25Index, str, str]:
 		"""
 		Input: chunks, a dict of chunk_id to Chunk; output_path, the dataset's output folder.
-		Output: a Bm25Index holding a LangChain BM25Retriever.
+		Output: (bm25_index, bm25_hash, bm25_index_path): a Bm25Index holding a LangChain BM25Retriever, its hash, and the
+		folder it is saved in.
 		What it does: loads the saved retriever if it holds the same chunks, otherwise builds and saves a new one.
 		"""
 		if len(chunks) == 0:
@@ -122,11 +136,12 @@ class Bm25Indexer:
 		chunk_metadatas = []
 		for chunk_id in chunks:
 			chunk_ids.append(chunk_id)
-			chunk_texts.append(chunks[chunk_id].text)
+			chunk_texts.append(chunks[chunk_id].chunk_texts)
 			chunk_metadatas.append({"chunk_id": chunk_id})
 
 		# 2. Load the saved retriever if it holds exactly the same chunks
-		bm25_index_path = paths.get_bm25_index_path(output_path, self.embedder_args, self.chunking_args, self.index_args)
+		bm25_hash = paths.get_bm25_hash(self.bm25_args, self.chunking_hash)
+		bm25_index_path = paths.get_bm25_index_path(output_path, bm25_hash)
 		print(f"Index folder : {bm25_index_path}")
 		retriever = load_bm25_index(bm25_index_path, chunk_ids)
 		if retriever is not None:
@@ -137,13 +152,14 @@ class Bm25Indexer:
 				texts=chunk_texts,
 				metadatas=chunk_metadatas,
 				ids=chunk_ids,
-				bm25_params={"k1": self.index_args.bm25_k1, "b": self.index_args.bm25_b},
+				bm25_params={"k1": self.bm25_args.bm25_k1, "b": self.bm25_args.bm25_b},
 				preprocess_func=lowercase_whitespace_tokenize
 			)
 			save_bm25_index(bm25_index_path, retriever)
 			print(f"BM25 index built : {len(chunk_ids)} chunks")
 
-		return Bm25Index(
+		bm25_index = Bm25Index(
 			retriever=retriever,
 			index_path=os.path.join(bm25_index_path, "bm25_retriever.pkl")
 		)
+		return bm25_index, bm25_hash, bm25_index_path

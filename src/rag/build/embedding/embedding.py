@@ -8,7 +8,7 @@ from common import constants
 from common import paths
 from common.args import EmbedderArgs
 from common.args import EmbeddingArgs
-from rag.build.embedding.cache import load_embeddings
+from rag.build.embedding.cache import load_document_embeddings
 from rag.build.embedding.cache import save_embeddings
 from schema.chunk import Chunk
 from schema.embed import Embedded
@@ -48,64 +48,102 @@ def make_embedding_model(embedder_args: EmbedderArgs) -> Embeddings:
 
 
 class Embedding:
-	def __init__(self, embedding_args: EmbeddingArgs):
+	def __init__(self, embedding_args: EmbeddingArgs, chunking_hash: str):
 		"""
-		Input: embedding_args, the embedder settings and the chunking settings of one chunk type.
+		Input: embedding_args, the embedder settings and the chunking settings of one chunk type; chunking_hash, the hash
+		of the chunking run the chunks are from.
 		Output: nothing.
-		What it does: stores embedding_args and loads the embedding model of the embedder's provider.
+		What it does: stores both. The embedding model is loaded only when some chunks need embedding.
 		"""
 		# The folder compute_embeddings saved to, for the build manifest
 		self.embedding_path = None
 		self.embedding_args = embedding_args
+		self.chunking_hash = chunking_hash
+		self.model = None
 
-		self.model = make_embedding_model(self.embedding_args.embedder_args)
+	def compute_embeddings(self, chunks: dict[str, Chunk], output_path: str) -> tuple[dict[str, Embedded], str, str]:
+		"""
+		Input: chunks, a dict of chunk_id to Chunk, from chunking; output_path, the dataset's output folder.
+		Output: (embeddings, embedding_hash, embedding_path): a dict of chunk_id to Embedded for every chunk, in chunk order,
+		the hash of this embedding run, and the folder the embeddings are saved in.
+		What it does: loads the saved embeddings of every document whose chunks are the same and were embedded with the
+		same normalize_embeddings, embeds only the chunks of the other documents with LangChain, and saves them. If one
+		document changes, only its chunks are embedded.
+		"""
+		embedder_args = self.embedding_args.embedder_args
 
-	def compute_embeddings(self, chunks: dict[str, Chunk], output_path: str) -> dict[str, Embedded]:
-		"""
-		Input: chunks, a dict of chunk_id to Chunk; output_path, the dataset's output folder.
-		Output: a dict of chunk_id to Embedded.
-		What it does: loads saved embeddings, embeds the remaining chunks with LangChain and saves them.
-		"""
-		# 1. Load saved embeddings, and collect the chunks that still need embeddings
-		# Saved per document. A chunk id is "{doc_id}_{n}", so its doc_id is the part before the last "_"
-		embedding_path = paths.get_embedding_path(output_path, self.embedding_args.embedder_args, self.embedding_args.chunking_args)
+		# 1. Name the folder of these settings and this embedding run
+		embedding_path = paths.get_embedding_path(output_path, embedder_args, self.embedding_args.chunking_args)
+		embedding_hash = paths.get_embedding_hash(embedder_args, self.chunking_hash)
 		print(f"Embedding folder : {embedding_path}")
 		self.embedding_path = embedding_path
-		cached_embeddings = {}
-		uncached_chunk_ids = []
-		uncached_chunk_texts = []
+
+		# 2. Group the chunks by document. A chunk id is "{document_id}_{n}", so its document id is the part before the
+		# first "_"
+		chunks_by_document_id = {}
 		for chunk_id in chunks:
-			if chunk_id not in cached_embeddings:
-				doc_id = chunk_id.rsplit("_", 1)[0]
-				document_embeddings = load_embeddings(embedding_path, doc_id)
-				if document_embeddings is not None:
-					cached_embeddings.update(document_embeddings)
+			document_id = chunk_id.split("_", 1)[0]
+			if document_id not in chunks_by_document_id:
+				chunks_by_document_id[document_id] = []
+			chunks_by_document_id[document_id].append(chunks[chunk_id])
 
-			if chunk_id not in cached_embeddings:
-				uncached_chunk_ids.append(chunk_id)
-				uncached_chunk_texts.append(chunks[chunk_id].text)
+		# 3. Load the saved embeddings of each document. They are used only if they are of exactly this document's
+		# chunks and were normalized the way the config says
+		cached_embeddings_by_document_id = {}
+		chunks_to_embed = []
+		for document_id in chunks_by_document_id:
+			document_chunks = chunks_by_document_id[document_id]
+			saved_embeddings = load_document_embeddings(embedding_path, document_id)
 
-		# 2. Embed the remaining chunks in one call, grouped by document for saving
-		new_embeddings_by_document = {}
-		if len(uncached_chunk_texts) > 0:
-			embedding_vectors = self.model.embed_documents(uncached_chunk_texts)
-			for index in range(len(uncached_chunk_ids)):
-				chunk_id = uncached_chunk_ids[index]
-				doc_id = chunk_id.rsplit("_", 1)[0]
+			is_saved_and_same = saved_embeddings is not None
+			if is_saved_and_same:
+				document_chunk_ids = []
+				for chunk in document_chunks:
+					document_chunk_ids.append(chunk.chunk_id)
+				if list(saved_embeddings.keys()) != document_chunk_ids:
+					is_saved_and_same = False
+			if is_saved_and_same:
+				for chunk_id in saved_embeddings:
+					if saved_embeddings[chunk_id].normalized != embedder_args.normalize_embeddings:
+						is_saved_and_same = False
+
+			if is_saved_and_same:
+				cached_embeddings_by_document_id[document_id] = saved_embeddings
+			else:
+				for chunk in document_chunks:
+					chunks_to_embed.append(chunk)
+
+		# 4. Embed the other documents' chunks in one call
+		new_embeddings = {}
+		if len(chunks_to_embed) > 0:
+			if self.model is None:
+				self.model = make_embedding_model(embedder_args)
+
+			chunk_texts_to_embed = []
+			for chunk in chunks_to_embed:
+				chunk_texts_to_embed.append(chunk.chunk_texts)
+			embedding_vectors = self.model.embed_documents(chunk_texts_to_embed)
+
+			for index in range(len(chunks_to_embed)):
+				chunk_id = chunks_to_embed[index].chunk_id
 				embedding_vector = np.array(embedding_vectors[index], dtype=np.float32)
-				if doc_id not in new_embeddings_by_document:
-					new_embeddings_by_document[doc_id] = {}
-				new_embeddings_by_document[doc_id][chunk_id] = Embedded(chunk_id, embedding_vector, self.embedding_args.embedder_args.normalize_embeddings)
+				new_embeddings[chunk_id] = Embedded(chunk_id, embedding_vector, embedder_args.normalize_embeddings)
 
-		# 3. Save the new embeddings, one file per document
+		# 5. Put the saved and the new embeddings together in chunk order
 		embeddings = {}
-		embeddings.update(cached_embeddings)
-		for doc_id in new_embeddings_by_document:
-			new_embeddings = new_embeddings_by_document[doc_id]
-			save_embeddings(embedding_path, doc_id, new_embeddings)
-			embeddings.update(new_embeddings)
+		for chunk_id in chunks:
+			document_id = chunk_id.split("_", 1)[0]
+			if document_id in cached_embeddings_by_document_id:
+				embeddings[chunk_id] = cached_embeddings_by_document_id[document_id][chunk_id]
+			else:
+				embeddings[chunk_id] = new_embeddings[chunk_id]
 
-		new_embedding_count = len(embeddings) - len(cached_embeddings)
-		print(f"Embeddings : {len(embeddings)} ({len(cached_embeddings)} from cache, {new_embedding_count} new)")
+		# 6. Save the new embeddings and the list of this run, so the next run loads them from the cache
+		document_ids = list(chunks_by_document_id.keys())
+		save_embeddings(embedding_path, new_embeddings, document_ids, embedding_hash)
 
-		return embeddings
+		cached_chunk_count = len(embeddings) - len(new_embeddings)
+		print(f"Documents : {len(document_ids)} ({len(cached_embeddings_by_document_id)} from cache)")
+		print(f"Embeddings : {len(embeddings)} ({cached_chunk_count} from cache, {len(new_embeddings)} new)")
+
+		return embeddings, embedding_hash, embedding_path

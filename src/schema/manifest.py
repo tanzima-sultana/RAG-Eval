@@ -1,55 +1,54 @@
 import dataclasses
 
-from common.args import EmbedderArgs
+from common.args import IngestionArgs, ChunkingArgs, EmbeddingArgs, EmbedderArgs, Bm25IndexingArgs, FaissIVFArgs, FaissHNSWArgs, QdrantArgs
 
+@dataclasses.dataclass
+class IngestionEntry:
+	args: IngestionArgs 
+	hash: str 
+	path: str
 
 @dataclasses.dataclass
 class ChunkEntry:
-	# The chunks and embeddings the build saved for one chunk type
-	# fixed, sentence or semantic
-	chunk_type: str
-	min_chunk_size: int
-	max_chunk_size: int
-	fixed_chunk_overlap: int
-	# The folder of the saved chunks, one file per document
-	chunk_path: str
-	# The folder of the saved embeddings, one file per document
-	embedding_path: str
-	chunk_count: int
-
+	args: ChunkingArgs 
+	hash: str 
+	path: str
 
 @dataclasses.dataclass
-class IndexEntry:
-	# One index the build saved
-	# The chunk type whose chunks the index holds
-	chunk_type: str
-	# faiss_flatip, faiss_ivf, faiss_hnsw, bm25 or qdrant
-	index_type: str
-	# The settings of this index type: ivf_nlist_multiplier, hnsw_m and hnsw_ef_construction, or bm25_k1, bm25_b and
-	# bm25_tokenizer. Empty for faiss_flatip and qdrant
-	index_settings: dict
-	# The settings the build worked out while building: {"nlist": ...} for faiss_ivf, empty for the other index types
-	built_settings: dict
-	# Where the index is: a folder for FAISS and BM25, the collection name for Qdrant
-	location: str
-	# The vectors or chunks the index holds
-	count: int
+class EmbeddingEntry:
+	args: EmbeddingArgs 
+	hash: str 
+	path: str
 
+@dataclasses.dataclass
+class Bm25Entry:
+	args: Bm25IndexingArgs 
+	hash: str 
+	path: str
+
+@dataclasses.dataclass
+class FaissEntry:
+	faiss_type: str 
+	faiss_args: None | FaissIVFArgs | FaissHNSWArgs
+	hash: str 
+	path: str
+
+@dataclasses.dataclass
+class VectorDbEntry:
+	vectordb_type: str
+	args: QdrantArgs 
+	hash: str 
+	path: str
 
 @dataclasses.dataclass
 class BuildManifest:
-	# What one build saved and where, so the later steps only load it
-	# The first 12 hex characters of the SHA-256 of all the build args, as in the manifest file name
-	build_hash: str
-	# The hash of the input files the build read
-	input_hash: str
-	dataset_name: str
-	dataset_size: int
-	# The folder of the saved documents
-	documents_path: str
-	# The embedder the chunks were made and embedded with: provider, model name, batch size and normalize_embeddings
+	dataset_name: str 
+	dataset_size: int 
+	build_hash: str 
+	ingestion_entry: IngestionEntry 
+	chunk_entry: ChunkEntry 
 	embedder: EmbedderArgs
-	# When the build finished, in ISO format
-	built_at: str
-	chunk_entries: list[ChunkEntry]
-	index_entries: list[IndexEntry]
+	embedding_entry: EmbeddingEntry 
+	bm25_index_entry: Bm25Entry 
+	faiss_index_entry: FaissEntry | None
+	vectordb_index_entry: VectorDbEntry | None
