@@ -23,7 +23,7 @@ from evaluation.eval_dataset.eval_dataset import EvalDataset
 from evaluation.eval_dataset.eval_sample import generate_eval_dataset
 from evaluation.eval_dataset.knowledge_graph import ReplyDidNotFinishError
 from evaluation.eval_dataset.knowledge_graph import check_reply_finished
-from rag.build.ingestion.cache import save_documents
+from rag.build.ingestion.cache import save_files
 from schema.llm import LLMArgs
 from schema.eval_sample import EvalSample
 
@@ -154,16 +154,16 @@ def save_complete_eval_dataset(output_path, eval_dataset_args):
     return eval_samples
 
 
-def save_document_list(output_path, make_document):
+def save_document_list(output_path, make_file):
     """
-    Input: output_path; pytest's make_document fixture.
+    Input: output_path; pytest's make_file fixture.
     Output: the path of the saved document list.
     What it does: saves one long document and its document list doc_ids_test.json, as the build does.
     """
     documents = {}
-    documents["doc1"] = make_document("doc1", "word " * 600)
+    documents["doc1"] = make_file("doc1", ["word " * 600])
     documents_folder = paths.get_documents_path(output_path)
-    save_documents(documents_folder, documents, "test")
+    save_files(documents_folder, [documents["doc1"]], ["doc1"], "test")
     return os.path.join(documents_folder, "doc_ids_test.json")
 
 
@@ -220,7 +220,7 @@ def test_compute_eval_dataset_returns_saved_eval_dataset_without_documents_or_ll
 
 
 @pytest.mark.parametrize("missing_or_changed", ["metadata", "eval_dataset", "knowledge_graph", "changed_content"])
-def test_compute_eval_dataset_generates_when_the_eval_dataset_is_not_complete(tmp_path, monkeypatch, make_document, missing_or_changed):
+def test_compute_eval_dataset_generates_when_the_eval_dataset_is_not_complete(tmp_path, monkeypatch, make_file, missing_or_changed):
     """
     Input: a complete eval dataset with its metadata, eval dataset or knowledge graph file removed, or its eval
     dataset file changed after the metadata was saved, and a saved document list.
@@ -228,7 +228,7 @@ def test_compute_eval_dataset_generates_when_the_eval_dataset_is_not_complete(tm
     What it does: checks each case goes to the generate path instead of loading.
     """
     output_path = str(tmp_path)
-    eval_dataset_args = make_eval_dataset_args(documents_path=save_document_list(output_path, make_document))
+    eval_dataset_args = make_eval_dataset_args(documents_path=save_document_list(output_path, make_file))
     save_complete_eval_dataset(output_path, eval_dataset_args)
     eval_dataset_path = paths.get_eval_dataset_path(output_path, eval_dataset_args, make_ollama_args())
 
@@ -246,7 +246,7 @@ def test_compute_eval_dataset_generates_when_the_eval_dataset_is_not_complete(tm
         EvalDataset(eval_dataset_args, make_ollama_args()).compute_eval_dataset(output_path)
 
 
-def test_compute_eval_dataset_without_saved_eval_dataset_stops_before_paid_call(tmp_path, monkeypatch, make_document):
+def test_compute_eval_dataset_without_saved_eval_dataset_stops_before_paid_call(tmp_path, monkeypatch, make_file):
     """
     Input: no saved eval dataset, a saved document list with one long document, and ALLOW_PAID_API not set.
     Output: ValueError, and the eval dataset folder.
@@ -254,7 +254,7 @@ def test_compute_eval_dataset_without_saved_eval_dataset_stops_before_paid_call(
     """
     monkeypatch.delenv("ALLOW_PAID_API", raising=False)
     output_path = str(tmp_path)
-    eval_dataset_args = make_eval_dataset_args(documents_path=save_document_list(output_path, make_document))
+    eval_dataset_args = make_eval_dataset_args(documents_path=save_document_list(output_path, make_file))
 
     with pytest.raises(ValueError, match="ALLOW_PAID_API"):
         EvalDataset(eval_dataset_args, make_ollama_args()).compute_eval_dataset(output_path)
@@ -314,7 +314,7 @@ def test_eval_dataset_metadata_and_kg_paths_share_the_eval_dataset_hash(tmp_path
 # ---------- make_eval_dataset_metadata ----------
 
 
-def test_make_eval_dataset_metadata_fills_every_field(tmp_path, make_document):
+def test_make_eval_dataset_metadata_fills_every_field(tmp_path, make_file):
     """
     Input: a saved eval dataset of two samples and the one document it came from.
     Output: the EvalDatasetMetadata.
@@ -326,7 +326,7 @@ def test_make_eval_dataset_metadata_fills_every_field(tmp_path, make_document):
     eval_dataset_path = paths.get_eval_dataset_path(output_path, eval_dataset_args, make_ollama_args())
     save_eval_dataset(eval_dataset_path, eval_samples)
     documents = {}
-    documents["doc1"] = make_document("doc1", "word " * 600)
+    documents["doc1"] = make_file("doc1", ["word " * 600])
 
     eval_dataset_metadata = EvalDataset(eval_dataset_args, make_ollama_args()).make_eval_dataset_metadata(documents, output_path, eval_samples)
 
@@ -395,14 +395,14 @@ def test_load_saved_eval_dataset_raises_when_the_eval_dataset_changed(tmp_path):
         EvalDataset(eval_dataset_args, make_ollama_args()).load_saved_eval_dataset(output_path)
 
 
-def test_generate_eval_dataset_raises_when_too_few_documents_are_long_enough(tmp_path, make_document):
+def test_generate_eval_dataset_raises_when_too_few_documents_are_long_enough(tmp_path, make_file):
     """
     Input: one short document with n_sample_documents 1.
     Output: ValueError.
     What it does: checks RAGAS is only given documents long enough for it, before any LLM is built.
     """
     documents = {}
-    documents["doc1"] = make_document("doc1", "too short")
+    documents["doc1"] = make_file("doc1", ["too short"])
 
     with pytest.raises(ValueError, match="n_sample_documents"):
         generate_eval_dataset(documents, str(tmp_path), make_eval_dataset_args(), make_ollama_args())

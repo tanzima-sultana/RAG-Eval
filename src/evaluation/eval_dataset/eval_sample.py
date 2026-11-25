@@ -41,7 +41,7 @@ def generate_eval_dataset(
 	# 1. Keep documents long enough for RAGAS
 	eligible_doc_ids = []
 	for doc_id in documents:
-		document_tokens = num_tokens_from_string(documents[doc_id].text)
+		document_tokens = num_tokens_from_string(documents[doc_id].document_texts)
 		if document_tokens > eval_dataset_args.min_document_tokens:
 			eligible_doc_ids.append(doc_id)
 	eligible_doc_ids.sort()
@@ -67,8 +67,8 @@ def generate_eval_dataset(
 	for doc_id in sampled_documents:
 		document = sampled_documents[doc_id]
 		langchain_document = LangchainDocument(
-			page_content=document.text,
-			metadata={"doc_id": doc_id, "source": document.metadata.source}
+			page_content=document.document_texts,
+			metadata={"doc_id": doc_id, "source": document.source}
 		)
 		langchain_documents.append(langchain_document)
 
@@ -139,7 +139,7 @@ def generate_eval_dataset(
 	# RAGAS may rejoin a long chunk's words with single spaces, so whitespace is collapsed on both sides before matching
 	collapsed_document_texts = {}
 	for doc_id in sampled_documents:
-		collapsed_document_texts[doc_id] = " ".join(sampled_documents[doc_id].text.split())
+		collapsed_document_texts[doc_id] = " ".join(sampled_documents[doc_id].document_texts.split())
 
 	# The model string is "{provider}/{model}", e.g. anthropic/claude-sonnet-5-5
 	eval_dataset_llm, eval_dataset_llm_model = eval_dataset_args.eval_dataset_llm_args.llm_model.split("/", 1)
@@ -170,7 +170,7 @@ def generate_eval_dataset(
 						continue
 					if passage_start in collapsed_document_texts[doc_id]:
 						doc_ids.append(doc_id)
-						doc_paths.append(sampled_documents[doc_id].metadata.source)
+						doc_paths.append(sampled_documents[doc_id].source)
 
 		eval_sample = EvalSample(
 			id=f"eval_qna_{sample_number}",
