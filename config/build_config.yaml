@@ -1,6 +1,6 @@
 # 1. Ingestion
 ingestion:
-  dataset_size: 50
+  dataset_size: 100
   dataset_name: pdfa-eng-wds
   input_path: data/pdfa-eng-wds/
   output_path: outputs/
